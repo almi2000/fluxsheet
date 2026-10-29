@@ -121,6 +121,8 @@ export interface FlowsheetModel {
   units: UnitModel[];
   streams: StreamModel[];
   reactions?: Reaction[];
+  design_specs?: DesignSpec[];
+  sensitivity?: SensitivityStudy[];
 }
 
 export interface StreamResult {
@@ -155,10 +157,83 @@ export interface SolveResult {
   converged: boolean;
   warnings: string[];
   error: SimError | null;
+  design_specs?: DesignSpecResult[];
 }
 
 export interface Example {
   id: string;
   name: string;
   description: string;
+}
+
+// ---- design specs and sensitivity studies (see src/fluxsheet/study_models.py) ----------
+
+/** A computed value: a stream property, or a scalar result of a unit (e.g. its duty). */
+export interface VariableRef {
+  stream?: string;
+  unit?: string;
+  property: string;
+  component?: string; // for mole_fraction and component_flow
+}
+
+/** A unit parameter changed between bounds; `component` picks one entry of e.g. Feed flows. */
+export interface VariedParam {
+  unit: string;
+  param: string;
+  component?: string;
+  lower: Value;
+  upper: Value;
+}
+
+export interface DesignSpec {
+  id: string;
+  target: VariableRef;
+  value: Value;
+  vary: VariedParam;
+  tolerance?: Value;
+  max_iterations?: number;
+  active?: boolean;
+}
+
+export interface SensitivityVary extends VariedParam {
+  points?: number;
+}
+
+export interface SensitivityStudy {
+  id: string;
+  vary: SensitivityVary[];
+  outputs: VariableRef[];
+}
+
+export interface DesignSpecResult {
+  id: string;
+  converged: boolean;
+  target: string;
+  quantity: string | null;
+  value: number;
+  achieved: number;
+  vary: string;
+  vary_quantity: string | null;
+  vary_value: number;
+  iterations: number;
+}
+
+export interface SensitivityColumn {
+  label: string;
+  quantity: string | null;
+}
+
+export interface SensitivityRow {
+  inputs: number[];
+  outputs: (number | null)[];
+  error: SimError | null;
+}
+
+export interface SensitivityResult {
+  ok: boolean;
+  id?: string;
+  inputs?: SensitivityColumn[];
+  outputs?: SensitivityColumn[];
+  rows?: SensitivityRow[];
+  error?: SimError;
 }

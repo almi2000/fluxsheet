@@ -6,7 +6,7 @@ const W = 280;
 const H = 150;
 const PAD = { l: 44, r: 10, t: 10, b: 26 };
 
-function ticks(lo: number, hi: number): number[] {
+export function ticks(lo: number, hi: number): number[] {
   if (lo === hi) return [lo];
   const step = Math.pow(10, Math.floor(Math.log10((hi - lo) / 3)));
   const nice = [1, 2, 5, 10].map((m) => m * step).find((s) => (hi - lo) / s <= 5) ?? step * 10;

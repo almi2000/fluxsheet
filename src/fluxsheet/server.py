@@ -15,6 +15,7 @@ from .diagrams import binary_diagram, phase_envelope
 from .errors import SimulationError
 from .flowsheet import FlowsheetModel
 from .quantities import UnitError, to_si
+from .sensitivity import run_sensitivity
 from .solver import solve
 from .thermo_package import METHODS, suggest_method
 from .units import UNIT_TYPES
@@ -143,6 +144,21 @@ def example(name: str) -> dict:
 def solve_flowsheet(model: FlowsheetModel) -> dict:
     try:
         return solve(model).to_dict()
+    except UnknownCompoundError as exc:
+        return {"ok": False, "error": {"message": str(exc), "where": None,
+                                       "hint": "search for the compound and pick it from the list"}}
+
+
+class SensitivityRequest(BaseModel):
+    model: FlowsheetModel
+    study: str | None = None  # id; default: the first study
+
+
+@app.post("/api/sensitivity")
+def sensitivity(body: SensitivityRequest) -> dict:
+    """Solve the flowsheet at every point of a sensitivity study; see sensitivity.py."""
+    try:
+        return run_sensitivity(body.model, body.study)
     except UnknownCompoundError as exc:
         return {"ok": False, "error": {"message": str(exc), "where": None,
                                        "hint": "search for the compound and pick it from the list"}}

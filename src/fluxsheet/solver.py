@@ -42,6 +42,7 @@ class SolveResult:
     converged: bool = False
     warnings: list[str] = field(default_factory=list)
     error: dict | None = None
+    design_specs: list[dict] = field(default_factory=list)  # filled by specs.py
 
     def to_dict(self) -> dict[str, Any]:
         return self.__dict__.copy()
@@ -358,4 +359,8 @@ def _idle_outlets(unit: UnitOperation) -> tuple[str, ...]:
 def solve(model: FlowsheetModel | dict) -> SolveResult:
     if isinstance(model, dict):
         model = FlowsheetModel.model_validate(model)
+    if any(spec.active for spec in model.design_specs or ()):
+        from .specs import solve_with_specs  # an outer loop around this solver
+
+        return solve_with_specs(model)
     return Solver(model).solve()

@@ -1,0 +1,39 @@
+/* Design specs and sensitivity studies: forms in the flowsheet settings, results tab. */
+.studies { display: flex; flex-direction: column; gap: 8px; }
+.studies > p { margin: 0; }
+.studies > button { align-self: flex-start; }
+.study-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.study-card { border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); }
+.study-summary { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; text-align: left; border: 0; background: none; padding: 7px 9px; }
+.study-body { padding: 0 9px 9px; border-top: 1px solid var(--border); }
+.study-body .danger { margin-top: 14px; }
+.study-pick { display: flex; flex-wrap: wrap; gap: 4px; }
+.study-pick select { flex: 1 1 90px; min-width: 0; }
+.study-bounds { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px; }
+.study-bounds label, .study-points { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.study-bounds input { min-width: 0; width: 100%; }
+.study-points { margin-top: 6px; }
+.study-points input { width: 80px; }
+.study-output { display: flex; gap: 4px; align-items: flex-start; }
+.study-output .study-pick { flex: 1; }
+.study-output > button { padding: 2px 8px; }
+.field-label .remove { margin-left: 8px; font-weight: 500; font-size: 11px; }
+.check { display: flex; align-items: center; gap: 6px; margin-top: 10px; font-size: 12px; }
+
+.sensitivity { display: flex; flex-direction: column; gap: 8px; }
+.sens-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.sens-body { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+.sens-chart { flex: 0 1 460px; min-width: 260px; }
+.sens-table { flex: 1 1 320px; }
+.sens-table td.sens-input { color: var(--muted); }
+.sens-legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 11px; color: var(--muted); margin-top: 4px; }
+.sens-legend i { display: inline-block; width: 12px; height: 3px; border-radius: 2px; background: var(--series); vertical-align: middle; }
+.series { --series: var(--accent); }
+.series.s1 { --series: #e8590c; }
+.series.s2 { --series: #2f9e44; }
+.series.s3 { --series: #9c36b5; }
+.series.s4 { --series: #c2255c; }
+.series.s5 { --series: #1098ad; }
+.profile-chart .series .line { stroke: var(--series); }
+.profile-chart .series .dot { fill: var(--series); }
+.design-spec-summary b { color: var(--text); }
