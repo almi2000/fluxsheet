@@ -1,4 +1,4 @@
-"""Command line: ``openflowsheet run file.json`` and ``openflowsheet serve``."""
+"""Command line: ``fluxsheet run file.json`` and ``fluxsheet serve``."""
 
 from __future__ import annotations
 
@@ -64,12 +64,12 @@ def _run(args) -> int:
 def _serve(args) -> int:
     import uvicorn
 
-    uvicorn.run("openflowsheet.server:app", host=args.host, port=args.port, reload=args.reload)
+    uvicorn.run("fluxsheet.server:app", host=args.host, port=args.port, reload=args.reload)
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="openflowsheet", description=__doc__)
+    parser = argparse.ArgumentParser(prog="fluxsheet", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     run = sub.add_parser("run", help="solve a flowsheet file and print the results")
     run.add_argument("file")

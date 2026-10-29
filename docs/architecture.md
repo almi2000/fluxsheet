@@ -9,7 +9,7 @@
                               └──────────── flowsheet.py (file format) │ compounds.py (lookup, search)
 ```
 
-## Python core (`src/openflowsheet`)
+## Python core (`src/fluxsheet`)
 
 | Module | Responsibility |
 |---|---|
@@ -43,4 +43,4 @@ The editor picks up the new unit automatically from `/api/unit-types`.
   (compound search, property method with suggestion).
 - `ResultsPanel.tsx`: stream table.
 
-The server serves `web/dist` when it exists, so a single `openflowsheet serve` runs everything.
+The server serves `web/dist` when it exists, so a single `fluxsheet serve` runs everything.

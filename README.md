@@ -1,10 +1,10 @@
-# OpenFlowsheet
+# Fluxsheet
 
 **An open, friendly chemical process simulator.** Draw a flowsheet in the browser, pick your
 compounds from a database of ~76,000, and get rigorous phase-equilibrium results, with
 error messages that tell you what to do next.
 
-![OpenFlowsheet editor: an NGL recovery process with a gas recycle](docs/screenshot.jpg)
+![Fluxsheet editor: an NGL recovery process with a gas recycle](docs/screenshot.jpg)
 
 > **Status: early prototype (v0.1).** Steady-state, sequential-modular, vapor–liquid. Good for
 > learning and conceptual design; not yet a replacement for commercial simulators.
@@ -13,7 +13,7 @@ error messages that tell you what to do next.
 
 Commercial process simulators are powerful but hard to learn, expensive, and closed. Open
 alternatives exist, but most are either libraries for programmers or desktop apps with dated
-interfaces. OpenFlowsheet aims for both: a modern editor *and* a clean Python core.
+interfaces. Fluxsheet aims for both: a modern editor *and* a clean Python core.
 
 | | |
 |---|---|
@@ -29,8 +29,8 @@ interfaces. OpenFlowsheet aims for both: a modern editor *and* a clean Python co
 Requires Python ≥ 3.10 and, for the editor, Node.js ≥ 18.
 
 ```bash
-git clone https://github.com/<you>/openflowsheet.git
-cd openflowsheet
+git clone https://github.com/almi2000/fluxsheet.git
+cd fluxsheet
 python -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -e ".[server,dev]"
@@ -39,7 +39,7 @@ pip install -e ".[server,dev]"
 **Run a flowsheet from the command line**
 
 ```bash
-openflowsheet run examples/ethanol_flash.json
+fluxsheet run examples/ethanol_flash.json
 ```
 
 ```
@@ -60,16 +60,16 @@ HEATER: duty 733.5 kW
 
 ```bash
 cd web && npm install && npm run build && cd ..
-openflowsheet serve                # open http://127.0.0.1:8000
+fluxsheet serve                # open http://127.0.0.1:8000
 ```
 
-For editor development, run `openflowsheet serve` and `npm run dev` (in `web/`) side by side,
+For editor development, run `fluxsheet serve` and `npm run dev` (in `web/`) side by side,
 then open http://localhost:5173.
 
 **Use it from Python**
 
 ```python
-from openflowsheet import FlowsheetModel, solve
+from fluxsheet import FlowsheetModel, solve
 
 result = solve(FlowsheetModel.load("examples/gas_recycle.json"))
 print(result.streams["NGL-OUT"]["mass_flow"] * 3600, "kg/h")
@@ -79,7 +79,7 @@ print(result.streams["NGL-OUT"]["mass_flow"] * 3600, "kg/h")
 
 ```json
 {
-  "format": "openflowsheet/1",
+  "format": "fluxsheet/1",
   "name": "Ethanol-water flash",
   "components": ["water", "ethanol"],
   "property_method": "auto",
@@ -135,7 +135,7 @@ extend it.
 ## Project layout
 
 ```
-src/openflowsheet/   Python core: compounds, thermo, units, solver, CLI, HTTP API
+src/fluxsheet/   Python core: compounds, thermo, units, solver, CLI, HTTP API
 web/                 React + React Flow editor
 examples/            Example flowsheets (also loadable in the editor)
 tests/               pytest suite
@@ -147,5 +147,5 @@ More in [docs/architecture.md](docs/architecture.md). Contributions are welcome,
 
 ## License
 
-[MIT](LICENSE). OpenFlowsheet is an independent project, not affiliated with or derived from
+[MIT](LICENSE). Fluxsheet is an independent project, not affiliated with or derived from
 any commercial simulator.

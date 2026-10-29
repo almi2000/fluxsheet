@@ -3,7 +3,7 @@
 A flowsheet is plain JSON, meant to be read, diffed and versioned like source code::
 
     {
-      "format": "openflowsheet/1",
+      "format": "fluxsheet/1",
       "name": "Ethanol flash",
       "components": ["water", "ethanol"],
       "property_method": "auto",
@@ -30,7 +30,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-FORMAT = "openflowsheet/1"
+FORMAT = "fluxsheet/1"
 
 
 class UnitModel(BaseModel):

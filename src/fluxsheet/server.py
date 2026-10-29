@@ -1,4 +1,4 @@
-"""HTTP API used by the web editor. Start with ``openflowsheet serve``."""
+"""HTTP API used by the web editor. Start with ``fluxsheet serve``."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from .solver import solve
 from .thermo_package import METHODS, suggest_method
 from .units import UNIT_TYPES
 
-app = FastAPI(title="OpenFlowsheet", version=__version__)
+app = FastAPI(title="Fluxsheet", version=__version__)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],

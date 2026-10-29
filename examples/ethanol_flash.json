@@ -1,5 +1,5 @@
 {
-  "format": "openflowsheet/1",
+  "format": "fluxsheet/1",
   "name": "Ethanol-water flash",
   "description": "A dilute ethanol feed is heated and flashed to enrich ethanol in the vapor.",
   "components": ["water", "ethanol"],

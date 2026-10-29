@@ -2,10 +2,10 @@ from pathlib import Path
 
 import pytest
 
-from openflowsheet import FlowsheetModel, solve
-from openflowsheet.compounds import lookup, search
-from openflowsheet.quantities import UnitError, to_si
-from openflowsheet.thermo_package import suggest_method
+from fluxsheet import FlowsheetModel, solve
+from fluxsheet.compounds import lookup, search
+from fluxsheet.quantities import UnitError, to_si
+from fluxsheet.thermo_package import suggest_method
 
 EXAMPLES = Path(__file__).parent.parent / "examples"
 

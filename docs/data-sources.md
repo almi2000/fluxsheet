@@ -1,6 +1,6 @@
 # Data sources
 
-A simulator is only as good as its property data. This page records where OpenFlowsheet's data
+A simulator is only as good as its property data. This page records where Fluxsheet's data
 comes from today and how we intend to grow it, using **openly licensed sources only**.
 
 ## Today

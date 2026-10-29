@@ -3,13 +3,13 @@ requires = ["hatchling>=1.25"]
 build-backend = "hatchling.build"
 
 [project]
-name = "openflowsheet"
+name = "fluxsheet"
 version = "0.1.0"
 description = "An open, friendly chemical process simulator: flowsheets, rigorous thermodynamics, readable files."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
-authors = [{ name = "OpenFlowsheet contributors" }]
+authors = [{ name = "Fluxsheet contributors" }]
 keywords = ["chemical engineering", "process simulation", "flowsheet", "thermodynamics", "VLE"]
 classifiers = [
   "Development Status :: 2 - Pre-Alpha",
@@ -27,10 +27,10 @@ server = ["fastapi>=0.110", "uvicorn[standard]>=0.29"]
 dev = ["pytest>=8", "httpx>=0.27", "ruff>=0.5"]
 
 [project.scripts]
-openflowsheet = "openflowsheet.cli:main"
+fluxsheet = "fluxsheet.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/openflowsheet"]
+packages = ["src/fluxsheet"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

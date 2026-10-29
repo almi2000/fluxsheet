@@ -20,7 +20,7 @@ export function Palette({ types }: { types: UnitType[] }) {
                   draggable
                   title={t.description}
                   onDragStart={(e) => {
-                    e.dataTransfer.setData("application/openflowsheet-unit", t.type);
+                    e.dataTransfer.setData("application/fluxsheet-unit", t.type);
                     e.dataTransfer.effectAllowed = "move";
                   }}
                 >

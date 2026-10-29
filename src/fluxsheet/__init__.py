@@ -1,4 +1,4 @@
-"""OpenFlowsheet: an open, friendly chemical process simulator."""
+"""Fluxsheet: an open, friendly chemical process simulator."""
 
 from .errors import SimulationError
 from .flowsheet import FlowsheetModel

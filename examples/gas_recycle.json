@@ -1,5 +1,5 @@
 {
-  "format": "openflowsheet/1",
+  "format": "fluxsheet/1",
   "name": "NGL recovery with gas recycle",
   "description": "Natural gas is chilled to condense the heavier hydrocarbons. Most of the cold gas is recompressed and recycled; the rest is purged.",
   "components": ["methane", "ethane", "propane", "n-butane"],

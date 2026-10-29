@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for your interest! OpenFlowsheet is young, so there is plenty to do: see the roadmap in
+Thanks for your interest! Fluxsheet is young, so there is plenty to do: see the roadmap in
 the README, or open an issue to discuss an idea first.
 
 ## Development setup
@@ -11,7 +11,7 @@ pip install -e ".[server,dev]"
 pytest
 ruff check src tests
 
-cd web && npm install && npm run dev   # with `openflowsheet serve` running
+cd web && npm install && npm run dev   # with `fluxsheet serve` running
 ```
 
 ## Guidelines

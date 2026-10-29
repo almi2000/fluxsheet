@@ -79,7 +79,7 @@ function Editor() {
         setExamples(ex);
       })
       .catch(() =>
-        setBackendError("Cannot reach the OpenFlowsheet server. Start it with: openflowsheet serve"),
+        setBackendError("Cannot reach the Fluxsheet server. Start it with: fluxsheet serve"),
       );
   }, []);
 
@@ -89,7 +89,7 @@ function Editor() {
 
   const toModel = useCallback(
     (): FlowsheetModel => ({
-      format: "openflowsheet/1",
+      format: "fluxsheet/1",
       ...meta,
       units: nodes.map((n) => ({
         id: n.id,
@@ -182,7 +182,7 @@ function Editor() {
   const onDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
-      const type = e.dataTransfer.getData("application/openflowsheet-unit");
+      const type = e.dataTransfer.getData("application/fluxsheet-unit");
       if (!type || !schemas[type]) return;
       const position = flow.screenToFlowPosition({ x: e.clientX - 40, y: e.clientY - 30 });
       const id = nextId(ID_PREFIX[type] ?? type.toUpperCase(), new Set(nodes.map((n) => n.id)));
@@ -293,11 +293,11 @@ function Editor() {
             <rect x="9" y="3" width="14" height="26" rx="7" fill="var(--accent)" />
             <path d="M9 16h14" stroke="var(--bg)" strokeWidth="2" />
           </svg>
-          OpenFlowsheet
+          Fluxsheet
         </div>
         <span className="doc-name">{meta.name}</span>
         <div className="spacer" />
-        <button onClick={() => loadModel({ format: "openflowsheet/1", ...EMPTY_META, units: [], streams: [] })}>New</button>
+        <button onClick={() => loadModel({ format: "fluxsheet/1", ...EMPTY_META, units: [], streams: [] })}>New</button>
         <button onClick={() => fileInput.current?.click()}>Open…</button>
         <button onClick={save}>Save</button>
         <select

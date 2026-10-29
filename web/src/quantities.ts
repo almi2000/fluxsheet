@@ -1,5 +1,5 @@
 // Display units per quantity. The first entry is the default for new inputs; the
-// backend accepts every unit listed here (see src/openflowsheet/quantities.py).
+// backend accepts every unit listed here (see src/fluxsheet/quantities.py).
 export const UNITS: Record<string, { value: string; label: string }[]> = {
   temperature: [
     { value: "degC", label: "°C" },

@@ -3,7 +3,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from openflowsheet.server import app
+from fluxsheet.server import app
 
 client = TestClient(app)
 EXAMPLE = Path(__file__).parent.parent / "examples" / "ethanol_flash.json"
