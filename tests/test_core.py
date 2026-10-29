@@ -189,3 +189,31 @@ def test_valve_cannot_raise_pressure():
         [{"id": "S1", "from": "F.out", "to": "V.in"}],
     ))
     assert not r.ok and "pump or compressor" in r.error["hint"]
+
+
+def test_units_downstream_of_a_recycle_run_once_after_convergence(monkeypatch):
+    # Units that do not feed back into the loop must never see unconverged loop states
+    # (a column behind a reactor loop failed on its early, too-small feed before this).
+    model = FlowsheetModel.load(EXAMPLES / "gas_recycle.json")
+    model.units.append(model.units[0].model_copy(
+        update={"id": "NGL_HEATER", "type": "Heater", "params": {"T": "20 degC"}, "ui": None}))
+    for s in model.streams:
+        if s.id == "NGL-OUT":
+            s.target = "NGL_HEATER.in"
+    model.streams.append(type(model.streams[0])(id="NGL-WARM", source="NGL_HEATER.out",
+                                                target="NGL.in"))
+    from fluxsheet.units.heat import Heater
+
+    calls = []
+    original = Heater.calculate
+
+    def counting(self, pkg, inlets):
+        calls.append(self.id)
+        return original(self, pkg, inlets)
+
+    monkeypatch.setattr(Heater, "calculate", counting)
+    r = solve(model)
+    assert r.ok, r.error
+    assert r.iterations > 1
+    assert calls.count("NGL_HEATER") == 1
+    assert calls.count("CHILLER") == r.iterations

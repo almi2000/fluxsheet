@@ -248,16 +248,23 @@ class Solver:
         for sid in tears:
             streams[sid] = Stream.from_flash(pkg, [0.0] * pkg.n, T=feed_T, P=feed_P)
 
+        # Only units that feed back into a tear stream take part in the iterations. Units
+        # downstream of the loop (e.g. a column on the crude product) run once at the end, so
+        # they never see the unconverged intermediate states.
+        loop = self._upstream_of({c.src_unit for c in self.connections if c.id in tears})
+        loop_order = [u for u in order if u in loop]
+
         opts = self.model.solver
         prev_x: dict[str, list[float]] = {}
         prev_g: dict[str, list[float]] = {}
         for iteration in range(1, opts.max_iterations + 1):
             x = {sid: self._vector(streams[sid]) for sid in tears}
-            self._sweep(pkg, order, streams)
+            self._sweep(pkg, loop_order, streams)
             g = {sid: self._vector(streams[sid]) for sid in tears}
 
             if all(self._close(x[s], g[s], opts.tolerance) for s in tears):
                 result.iterations, result.converged = iteration, True
+                self._sweep(pkg, [u for u in order if u not in loop], streams)
                 return streams
 
             if opts.acceleration == "wegstein" and iteration >= 3 and prev_x:
@@ -274,6 +281,20 @@ class Solver:
             hint="check that every component has a way out of the loop (a purge or product), "
             "or raise solver.max_iterations",
         )
+
+    def _upstream_of(self, targets: set[str]) -> set[str]:
+        """``targets`` plus every unit with a path of streams leading to one of them."""
+        feeds_into: dict[str, set[str]] = {u: set() for u in self.units}
+        for c in self.connections:
+            if c.dst_unit is not None:
+                feeds_into[c.dst_unit].add(c.src_unit)
+        seen, todo = set(targets), list(targets)
+        while todo:
+            for src in feeds_into[todo.pop()]:
+                if src not in seen:
+                    seen.add(src)
+                    todo.append(src)
+        return seen
 
     @staticmethod
     def _vector(s: Stream) -> list[float]:

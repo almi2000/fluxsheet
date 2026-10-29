@@ -4,10 +4,16 @@
 compounds from a database of ~76,000, and get rigorous phase-equilibrium results, with
 error messages that tell you what to do next.
 
-![Fluxsheet editor: an NGL recovery process with a gas recycle](docs/screenshot.jpg)
+![Fluxsheet editor: a methanol synthesis loop with reactor, gas recycle and distillation column](docs/screenshot.jpg)
 
-> **Status: early prototype (v0.1).** Steady-state, sequential-modular, vapor–liquid. Good for
-> learning and conceptual design; not yet a replacement for commercial simulators.
+> **Status: early prototype.** Steady-state and sequential-modular, with reactors, columns and
+> vapor–liquid–liquid equilibrium. Good for learning and conceptual design; not yet a
+> replacement for commercial simulators.
+
+The example in the screenshot, [`examples/methanol_plant.json`](examples/methanol_plant.json),
+puts it all together: syngas reacts to methanol in an equilibrium reactor, the unconverted gas
+is recompressed and recycled with a purge, and a rigorous column splits the crude into 99.8 %
+methanol and water.
 
 ## Why another simulator?
 
@@ -170,7 +176,7 @@ extend it.
 ## Roadmap
 
 - [x] Distillation: shortcut column (Fenske–Underwood–Gilliland), then rigorous MESH column
-- [ ] Reactors: stoichiometric, equilibrium (Gibbs), CSTR/PFR with kinetics
+- [x] Reactors: stoichiometric, yield, equilibrium, Gibbs, CSTR/PFR with kinetics
 - [x] NRTL / UNIQUAC / Wilson with regressed (ChemSep) binary parameters, UNIFAC estimates for gaps
 - [ ] Parameter fitting from NIST ThermoML data
 - [x] Vapor–liquid–liquid equilibrium (decanters, three-phase flash)
@@ -182,11 +188,11 @@ extend it.
 ## Project layout
 
 ```
-src/fluxsheet/   Python core: compounds, thermo, units, solver, CLI, HTTP API
-web/                 React + React Flow editor
-examples/            Example flowsheets (also loadable in the editor)
-tests/               pytest suite
-docs/                Architecture and data-source notes
+src/fluxsheet/   Python core: compounds, thermo, reactions, units, column solver, CLI, HTTP API
+web/             React + React Flow editor
+examples/        Example flowsheets (also loadable in the editor)
+tests/           pytest suite
+docs/            Architecture and data-source notes
 ```
 
 More in [docs/architecture.md](docs/architecture.md). Contributions are welcome, see

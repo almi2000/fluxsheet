@@ -8,6 +8,7 @@ import sys
 
 from .flowsheet import FlowsheetModel
 from .solver import solve
+from .units import UNIT_TYPES
 
 
 def _fmt_table(result) -> str:
@@ -48,14 +49,16 @@ def _run(args) -> int:
               f"converged in {result.iterations} iterations")
     print()
     print(_fmt_table(result))
-    duties = [(uid, u) for uid, u in result.units.items() if "duty" in u or "power" in u]
-    if duties:
+    # Energy results each unit declares (duty, power, condenser duty, ...), in kW.
+    lines = []
+    for uid, u in result.units.items():
+        cls = UNIT_TYPES.get(u.get("type"))
+        for f in cls.result_fields if cls else ():
+            if f.quantity == "power" and isinstance(u.get(f.name), (int, float)):
+                lines.append(f"{uid}: {f.label.lower()} {u[f.name] / 1e3:.4g} kW")
+    if lines:
         print()
-        for uid, u in duties:
-            if "duty" in u:
-                print(f"{uid}: duty {u['duty'] / 1e3:.4g} kW")
-            if "power" in u:
-                print(f"{uid}: power {u['power'] / 1e3:.4g} kW")
+        print("\n".join(lines))
     for w in result.warnings:
         print(f"warning: {w}")
     return 0

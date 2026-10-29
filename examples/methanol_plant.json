@@ -1,0 +1,279 @@
+{
+  "format": "fluxsheet/1",
+  "name": "Methanol synthesis loop",
+  "description": "Syngas is converted to methanol in an equilibrium reactor at 250 °C and 50 bar. The product is cooled and flashed; the unconverted gas is recompressed and recycled, with a small purge to keep the inert methane from building up. The crude methanol is degassed and distilled into methanol and water.",
+  "components": [
+    "carbon monoxide",
+    "carbon dioxide",
+    "hydrogen",
+    "methane",
+    "methanol",
+    "water"
+  ],
+  "property_method": "peng-robinson",
+  "reactions": [
+    {
+      "id": "CO_HYD",
+      "stoichiometry": {
+        "carbon monoxide": -1,
+        "hydrogen": -2,
+        "methanol": 1
+      }
+    },
+    {
+      "id": "CO2_HYD",
+      "stoichiometry": {
+        "carbon dioxide": -1,
+        "hydrogen": -3,
+        "methanol": 1,
+        "water": 1
+      }
+    }
+  ],
+  "units": [
+    {
+      "id": "SYNGAS",
+      "type": "Feed",
+      "ui": {
+        "x": 0,
+        "y": 120
+      },
+      "params": {
+        "T": "40 degC",
+        "P": "50 bar",
+        "flows": {
+          "carbon monoxide": "100 kmol/h",
+          "carbon dioxide": "15 kmol/h",
+          "hydrogen": "250 kmol/h",
+          "methane": "5 kmol/h"
+        }
+      }
+    },
+    {
+      "id": "MIX",
+      "type": "Mixer",
+      "ui": {
+        "x": 160,
+        "y": 120
+      }
+    },
+    {
+      "id": "PREHEAT",
+      "type": "Heater",
+      "ui": {
+        "x": 300,
+        "y": 120
+      },
+      "params": {
+        "T": "250 degC"
+      }
+    },
+    {
+      "id": "REACTOR",
+      "type": "EquilibriumReactor",
+      "ui": {
+        "x": 440,
+        "y": 120
+      },
+      "params": {
+        "reactions": [
+          "CO_HYD",
+          "CO2_HYD"
+        ],
+        "phase": "gas",
+        "key": "carbon monoxide",
+        "T": "250 degC",
+        "dP": "1 bar"
+      }
+    },
+    {
+      "id": "COOLER",
+      "type": "Heater",
+      "ui": {
+        "x": 580,
+        "y": 120
+      },
+      "params": {
+        "T": "35 degC"
+      }
+    },
+    {
+      "id": "HP_SEP",
+      "type": "Flash",
+      "ui": {
+        "x": 720,
+        "y": 120
+      }
+    },
+    {
+      "id": "PURGE_SPLIT",
+      "type": "Splitter",
+      "ui": {
+        "x": 860,
+        "y": 20
+      },
+      "params": {
+        "split": 0.95
+      }
+    },
+    {
+      "id": "RECYCLE_COMP",
+      "type": "Compressor",
+      "ui": {
+        "x": 440,
+        "y": -60
+      },
+      "params": {
+        "P": "50 bar"
+      }
+    },
+    {
+      "id": "PURGE",
+      "type": "Product",
+      "ui": {
+        "x": 1020,
+        "y": 20
+      }
+    },
+    {
+      "id": "LETDOWN",
+      "type": "Valve",
+      "ui": {
+        "x": 860,
+        "y": 220
+      },
+      "params": {
+        "P": "1.5 bar"
+      }
+    },
+    {
+      "id": "DEGASSER",
+      "type": "Flash",
+      "ui": {
+        "x": 1000,
+        "y": 220
+      },
+      "params": {
+        "T": "65 degC"
+      }
+    },
+    {
+      "id": "FLASH_GAS",
+      "type": "Product",
+      "ui": {
+        "x": 1140,
+        "y": 140
+      }
+    },
+    {
+      "id": "COLUMN",
+      "type": "DistillationColumn",
+      "ui": {
+        "x": 1140,
+        "y": 280
+      },
+      "params": {
+        "stages": 20,
+        "feed_stage": 12,
+        "P": "1 atm",
+        "condenser": "partial",
+        "reboiler": "kettle",
+        "reflux_ratio": 1.5,
+        "distillate_rate": "100.4 kmol/h"
+      }
+    },
+    {
+      "id": "METHANOL",
+      "type": "Product",
+      "ui": {
+        "x": 1300,
+        "y": 220
+      }
+    },
+    {
+      "id": "WATER",
+      "type": "Product",
+      "ui": {
+        "x": 1300,
+        "y": 340
+      }
+    }
+  ],
+  "streams": [
+    {
+      "id": "S1",
+      "from": "SYNGAS.out",
+      "to": "MIX.in"
+    },
+    {
+      "id": "S2",
+      "from": "MIX.out",
+      "to": "PREHEAT.in"
+    },
+    {
+      "id": "S3",
+      "from": "PREHEAT.out",
+      "to": "REACTOR.in"
+    },
+    {
+      "id": "S4",
+      "from": "REACTOR.out",
+      "to": "COOLER.in"
+    },
+    {
+      "id": "S5",
+      "from": "COOLER.out",
+      "to": "HP_SEP.in"
+    },
+    {
+      "id": "LOOP_GAS",
+      "from": "HP_SEP.vapor",
+      "to": "PURGE_SPLIT.in"
+    },
+    {
+      "id": "RECYCLE",
+      "from": "PURGE_SPLIT.out1",
+      "to": "RECYCLE_COMP.in"
+    },
+    {
+      "id": "R2",
+      "from": "RECYCLE_COMP.out",
+      "to": "MIX.in"
+    },
+    {
+      "id": "PURGE_GAS",
+      "from": "PURGE_SPLIT.out2",
+      "to": "PURGE.in"
+    },
+    {
+      "id": "CRUDE",
+      "from": "HP_SEP.liquid",
+      "to": "LETDOWN.in"
+    },
+    {
+      "id": "S6",
+      "from": "LETDOWN.out",
+      "to": "DEGASSER.in"
+    },
+    {
+      "id": "OFFGAS",
+      "from": "DEGASSER.vapor",
+      "to": "FLASH_GAS.in"
+    },
+    {
+      "id": "COLUMN_FEED",
+      "from": "DEGASSER.liquid",
+      "to": "COLUMN.in"
+    },
+    {
+      "id": "MEOH",
+      "from": "COLUMN.vapor_distillate",
+      "to": "METHANOL.in"
+    },
+    {
+      "id": "BOTTOMS",
+      "from": "COLUMN.bottoms",
+      "to": "WATER.in"
+    }
+  ]
+}
