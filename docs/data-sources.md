@@ -16,6 +16,7 @@ openly available datasets, including:
 | Critical constants, acentric factor | IUPAC, Yaws-type public compilations, CRC-style tables, estimation methods |
 | Vapor pressure, heat capacity, liquid density | Published correlations (DIPPR-form equations with public coefficients, Perry's, VDI-style data where licensed) |
 | Peng-Robinson binary interaction parameters | ChemSep database |
+| NRTL, UNIQUAC and Wilson binary parameters | ChemSep database (regressed to experimental VLE data); pairs not covered are fitted to UNIFAC (Dortmund) at run time and flagged as estimates in the solve warnings |
 | UNIFAC groups and parameters | Published Dortmund UNIFAC tables (public parameter set) |
 
 A compound is marked `simulation_ready` in the editor when at least critical temperature and

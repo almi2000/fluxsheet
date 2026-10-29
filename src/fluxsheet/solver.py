@@ -178,6 +178,7 @@ class Solver:
             pkg, reason = self._package()
             result.property_method = pkg.method
             result.property_method_reason = reason
+            self.warnings.extend(pkg.warnings)  # e.g. binary parameters estimated, not measured
             order, tears = self._order()
             result.tear_streams = sorted(tears)
             streams = self._iterate(pkg, order, tears, result)
