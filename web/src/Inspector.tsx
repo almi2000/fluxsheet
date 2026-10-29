@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { UnitIcon } from "./icons";
 import { ProfileView } from "./ProfileView";
+import { ReactionsEditor } from "./ReactionsEditor";
 import { UNITS, fmt, formatQuantity, joinValue, splitValue } from "./quantities";
-import type { Compound, Method, ParamSchema, Params, StreamResult, UnitResult, UnitType } from "./types";
+import type { Compound, Method, ParamSchema, Params, Reaction, StreamResult, UnitResult, UnitType } from "./types";
 
 // ---- generic inputs ----------------------------------------------------------------------
 
@@ -413,6 +414,7 @@ export function FlowsheetInspector({
   components,
   method,
   methods,
+  reactions,
   onChange,
 }: {
   name: string;
@@ -420,7 +422,14 @@ export function FlowsheetInspector({
   components: string[];
   method: string;
   methods: Method[];
-  onChange: (patch: { name?: string; description?: string; components?: string[]; property_method?: string }) => void;
+  reactions: Reaction[];
+  onChange: (patch: {
+    name?: string;
+    description?: string;
+    components?: string[];
+    property_method?: string;
+    reactions?: Reaction[];
+  }) => void;
 }) {
   const [suggestion, setSuggestion] = useState<{ method: string; reason: string } | null>(null);
   useEffect(() => {
@@ -485,6 +494,9 @@ export function FlowsheetInspector({
           For these components, {label(suggestion.method)} is usually the better choice. {suggestion.reason}
         </p>
       )}
+
+      <h3>Reactions</h3>
+      <ReactionsEditor reactions={reactions} components={components} onChange={(r) => onChange({ reactions: r })} />
     </div>
   );
 }

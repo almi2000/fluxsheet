@@ -1,0 +1,33 @@
+{
+  "format": "fluxsheet/1",
+  "name": "Ethyl acetate esterification",
+  "description": "Acetic acid and ethanol react to ethyl acetate and water in the liquid phase at 70 °C: a stirred tank followed by a tubular finishing reactor. The reaction is reversible (K ≈ 4), so conversion approaches its equilibrium limit along the tube.",
+  "components": ["acetic acid", "ethanol", "ethyl acetate", "water"],
+  "property_method": "auto",
+  "reactions": [
+    {"id": "EST",
+     "stoichiometry": {"acetic acid": -1, "ethanol": -1, "ethyl acetate": 1, "water": 1},
+     "kinetics": {"k0": 2e-7, "Ea": "50 kJ/mol", "T_ref": "70 degC",
+                  "orders": {"acetic acid": 1, "ethanol": 1}, "equilibrium_limited": true},
+     "keq": {"A": 1.386}}
+  ],
+  "units": [
+    {"id": "FEED", "type": "Feed", "ui": {"x": 0, "y": 80},
+     "params": {"T": "25 degC", "P": "3 bar",
+                "flows": {"acetic acid": "10 kmol/h", "ethanol": "10 kmol/h"}}},
+    {"id": "PREHEAT", "type": "Heater", "ui": {"x": 180, "y": 80}, "params": {"T": "70 degC"}},
+    {"id": "CSTR", "type": "CSTR", "ui": {"x": 360, "y": 80},
+     "params": {"reactions": ["EST"], "V": "1 m3", "phase": "liquid", "T": "70 degC",
+                "key": "acetic acid"}},
+    {"id": "PFR", "type": "PFR", "ui": {"x": 540, "y": 80},
+     "params": {"reactions": ["EST"], "V": "2 m3", "phase": "liquid", "T": "70 degC",
+                "key": "acetic acid"}},
+    {"id": "PRODUCT", "type": "Product", "ui": {"x": 720, "y": 80}}
+  ],
+  "streams": [
+    {"id": "S1", "from": "FEED.out", "to": "PREHEAT.in"},
+    {"id": "S2", "from": "PREHEAT.out", "to": "CSTR.in"},
+    {"id": "S3", "from": "CSTR.out", "to": "PFR.in"},
+    {"id": "S4", "from": "PFR.out", "to": "PRODUCT.in"}
+  ]
+}

@@ -101,6 +101,37 @@ print(result.streams["NGL-OUT"]["mass_flow"] * 3600, "kg/h")
 
 Plain numbers are SI (K, Pa, mol/s, W). A stream without `to` leaves the process.
 
+## Reactions and reactors
+
+Reactions are defined once per flowsheet and picked by id in a reactor. Each is checked for
+element balance against the compound database; kinetics and an equilibrium constant are
+optional:
+
+```json
+"reactions": [
+  {"id": "EST",
+   "stoichiometry": {"acetic acid": -1, "ethanol": -1, "ethyl acetate": 1, "water": 1},
+   "kinetics": {"k0": 2e-7, "Ea": "50 kJ/mol", "T_ref": "70 degC",
+                "orders": {"acetic acid": 1, "ethanol": 1}, "equilibrium_limited": true},
+   "keq": {"A": 1.386}}
+]
+```
+
+| Reactor | Model |
+|---|---|
+| Stoichiometric | Given conversion of a key component per reaction, sequential or parallel |
+| Yield | Given product mass yields, scaled to conserve mass |
+| Equilibrium | Chosen reactions at equilibrium; K(T) from ΔG°f, ΔH°f and ideal-gas Cp (van 't Hoff), or `ln K = A + B/T + C ln T + D T` |
+| Gibbs | Minimum Gibbs energy of an ideal-gas mixture under element balances; no reactions needed |
+| CSTR | Power-law kinetics, gas or liquid, solved for the outlet extents (and temperature) |
+| Plug flow | Power-law kinetics integrated along volume or length, with conversion, temperature and composition profiles |
+
+All reactors run isothermal, adiabatic or at a given duty, with an optional pressure drop.
+The energy balance uses enthalpies that include formation enthalpies, so heats of reaction
+need no separate input. See `examples/steam_reforming.json` and
+`examples/ethyl_acetate.json`, and [reactions.py](src/fluxsheet/reactions.py) for units
+and conventions.
+
 ## What's included
 
 **Unit operations:** Feed, Product, Mixer, Splitter, Heater/Cooler, Flash drum, Component

@@ -82,6 +82,35 @@ export interface StreamModel {
   to?: string;
 }
 
+/** Power law r = k0 exp(-Ea/RT) prod(c_i^order_i), per unit volume; SI units. */
+export interface RateLaw {
+  k0: number;
+  Ea?: Value;
+  orders?: Record<string, number>; // default: the stoichiometric coefficients
+  T_ref?: Value; // if set, k0 is the rate constant at T_ref
+}
+
+export interface Kinetics extends RateLaw {
+  basis?: string; // "concentration" | "partial_pressure"
+  reverse?: RateLaw;
+  equilibrium_limited?: boolean;
+}
+
+/** ln K = A + B/T + C ln T + D T */
+export interface Keq {
+  A?: number;
+  B?: number;
+  C?: number;
+  D?: number;
+}
+
+export interface Reaction {
+  id: string;
+  stoichiometry: Record<string, number>; // negative for reactants
+  kinetics?: Kinetics;
+  keq?: Keq;
+}
+
 export interface FlowsheetModel {
   format: string;
   name: string;
@@ -90,6 +119,7 @@ export interface FlowsheetModel {
   property_method: string;
   units: UnitModel[];
   streams: StreamModel[];
+  reactions?: Reaction[];
 }
 
 export interface StreamResult {
