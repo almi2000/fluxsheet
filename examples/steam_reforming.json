@@ -1,0 +1,42 @@
+{
+  "format": "fluxsheet/1",
+  "name": "Steam methane reforming",
+  "description": "Methane and steam (S/C = 3) react in a heated tubular reformer at 850 °C, modelled as a plug flow reactor with equilibrium-limited kinetics. The cooled syngas passes an adiabatic high-temperature shift that converts CO to more hydrogen. A Gibbs reactor at reformer conditions shows the equilibrium limit for comparison.",
+  "components": ["methane", "water", "carbon monoxide", "carbon dioxide", "hydrogen"],
+  "property_method": "peng-robinson",
+  "reactions": [
+    {"id": "SMR",
+     "stoichiometry": {"methane": -1, "water": -1, "carbon monoxide": 1, "hydrogen": 3},
+     "kinetics": {"k0": 0.5, "Ea": "240 kJ/mol", "T_ref": "850 degC",
+                  "orders": {"methane": 1}, "equilibrium_limited": true}},
+    {"id": "WGS",
+     "stoichiometry": {"carbon monoxide": -1, "water": -1, "carbon dioxide": 1, "hydrogen": 1},
+     "kinetics": {"k0": 5.0, "Ea": "70 kJ/mol", "T_ref": "850 degC",
+                  "orders": {"carbon monoxide": 1}, "equilibrium_limited": true}}
+  ],
+  "units": [
+    {"id": "FEED", "type": "Feed", "ui": {"x": 0, "y": 100},
+     "params": {"T": "500 degC", "P": "25 bar",
+                "flows": {"methane": "100 kmol/h", "water": "300 kmol/h"}}},
+    {"id": "SPLIT", "type": "Splitter", "ui": {"x": 180, "y": 100}, "params": {"split": 0.9}},
+    {"id": "REFORMER", "type": "PFR", "ui": {"x": 360, "y": 40},
+     "params": {"reactions": ["SMR", "WGS"], "length": "12 m", "diameter": "0.4 m",
+                "phase": "gas", "T": "850 degC", "dP": "1.5 bar"}},
+    {"id": "COOLER", "type": "Heater", "ui": {"x": 540, "y": 40}, "params": {"T": "350 degC"}},
+    {"id": "HTS", "type": "EquilibriumReactor", "ui": {"x": 720, "y": 40},
+     "params": {"reactions": ["WGS"], "phase": "gas", "key": "carbon monoxide"}},
+    {"id": "SYNGAS", "type": "Product", "ui": {"x": 900, "y": 40}},
+    {"id": "GIBBS", "type": "GibbsReactor", "ui": {"x": 360, "y": 220},
+     "params": {"T": "850 degC", "P": "23.5 bar", "key": "methane"}},
+    {"id": "EQUILIBRIUM", "type": "Product", "ui": {"x": 560, "y": 220}}
+  ],
+  "streams": [
+    {"id": "S1", "from": "FEED.out", "to": "SPLIT.in"},
+    {"id": "S2", "from": "SPLIT.out1", "to": "REFORMER.in"},
+    {"id": "S3", "from": "REFORMER.out", "to": "COOLER.in"},
+    {"id": "S4", "from": "COOLER.out", "to": "HTS.in"},
+    {"id": "S5", "from": "HTS.out", "to": "SYNGAS.in"},
+    {"id": "S6", "from": "SPLIT.out2", "to": "GIBBS.in"},
+    {"id": "S7", "from": "GIBBS.out", "to": "EQUILIBRIUM.in"}
+  ]
+}

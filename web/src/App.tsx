@@ -18,7 +18,7 @@ import { api } from "./api";
 import { FlowsheetInspector, StreamInspector, UnitInspector } from "./Inspector";
 import { Palette } from "./Palette";
 import { ResultsPanel } from "./ResultsPanel";
-import type { Example, FlowsheetModel, Method, Params, SolveResult, UnitType } from "./types";
+import type { Example, FlowsheetModel, Method, Params, Reaction, SolveResult, UnitType } from "./types";
 import { UnitNode, type UnitFlowNode } from "./UnitNode";
 import { fmt } from "./quantities";
 
@@ -27,6 +27,8 @@ const nodeTypes = { unit: UnitNode };
 const ID_PREFIX: Record<string, string> = {
   Feed: "FEED", Product: "PROD", Mixer: "MIX", Splitter: "SPLIT", Heater: "HX", Flash: "FLASH",
   ComponentSplitter: "SEP", Valve: "VLV", Pump: "PUMP", Compressor: "COMP",
+  StoichiometricReactor: "STOIC", YieldReactor: "YIELD", EquilibriumReactor: "EQ", GibbsReactor: "GIBBS",
+  CSTR: "CSTR", PFR: "PFR",
 };
 
 const DEFAULT_PARAMS: Record<string, Params> = {
@@ -36,12 +38,18 @@ const DEFAULT_PARAMS: Record<string, Params> = {
   Pump: { P: "5 bar" },
   Compressor: { P: "5 bar" },
   ComponentSplitter: { fractions: {} },
+  CSTR: { V: "1 m3", phase: "liquid" },
+  PFR: { V: "1 m3", phase: "gas" },
 };
 
-type Meta = Pick<FlowsheetModel, "name" | "description" | "components" | "property_method">;
+type Meta = Pick<FlowsheetModel, "name" | "description" | "components" | "property_method"> & {
+  reactions: Reaction[];
+};
 type Selection = { kind: "unit" | "stream"; id: string } | null;
 
-const EMPTY_META: Meta = { name: "Untitled flowsheet", description: "", components: [], property_method: "auto" };
+const EMPTY_META: Meta = {
+  name: "Untitled flowsheet", description: "", components: [], property_method: "auto", reactions: [],
+};
 
 function nextId(prefix: string, taken: Set<string>) {
   let i = 1;
@@ -91,6 +99,7 @@ function Editor() {
     (): FlowsheetModel => ({
       format: "fluxsheet/1",
       ...meta,
+      reactions: meta.reactions.length ? meta.reactions : undefined,
       units: nodes.map((n) => ({
         id: n.id,
         type: n.data.type,
@@ -139,6 +148,7 @@ function Editor() {
         description: model.description ?? "",
         components: model.components,
         property_method: model.property_method,
+        reactions: model.reactions ?? [],
       });
       setResult(null);
       setStale(false);
@@ -399,9 +409,10 @@ function Editor() {
               components={meta.components}
               method={meta.property_method}
               methods={methods}
+              reactions={meta.reactions}
               onChange={(patch) => {
                 setMeta((m) => ({ ...m, ...patch }));
-                if (patch.components || patch.property_method) touch();
+                if (patch.components || patch.property_method || patch.reactions) touch();
               }}
             />
           )}
