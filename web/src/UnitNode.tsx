@@ -1,14 +1,14 @@
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import { memo } from "react";
 import { UnitIcon } from "./icons";
-import { fmt } from "./quantities";
-import type { Params, UnitType } from "./types";
+import { formatQuantity } from "./quantities";
+import type { Params, UnitResult, UnitType } from "./types";
 
 export type UnitNodeData = {
   type: string;
   params: Params;
   schema: UnitType;
-  result?: Record<string, number | string>;
+  result?: UnitResult;
   hasError?: boolean;
   stale?: boolean;
 };
@@ -19,17 +19,18 @@ function spread(i: number, n: number) {
   return `${((i + 1) / (n + 1)) * 100}%`;
 }
 
-function summary(result?: Record<string, number | string>): string | null {
+/** The node badge: the unit's first energy result (duty or power), if non-zero. */
+function summary(schema: UnitType, result?: UnitResult): string | null {
   if (!result) return null;
-  if (typeof result.duty === "number" && Math.abs(result.duty) > 1e-6)
-    return `${fmt.kW(result.duty)} kW`;
-  if (typeof result.power === "number") return `${fmt.kW(result.power)} kW`;
-  return null;
+  const field = schema.result_fields.find(
+    (f) => f.quantity === "power" && typeof result[f.name] === "number" && Math.abs(result[f.name] as number) > 1e-6,
+  );
+  return field ? formatQuantity(result[field.name], field.quantity) : null;
 }
 
 function UnitNodeView({ id, data, selected }: NodeProps<UnitFlowNode>) {
   const { schema } = data;
-  const badge = summary(data.result);
+  const badge = summary(schema, data.result);
   return (
     <div
       className={[

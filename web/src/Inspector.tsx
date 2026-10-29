@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { UnitIcon } from "./icons";
-import { UNITS, fmt, joinValue, splitValue } from "./quantities";
-import type { Compound, Method, ParamSchema, Params, StreamResult, UnitType } from "./types";
+import { ProfileView } from "./ProfileView";
+import { UNITS, fmt, formatQuantity, joinValue, splitValue } from "./quantities";
+import type { Compound, Method, ParamSchema, Params, StreamResult, UnitResult, UnitType } from "./types";
 
 // ---- generic inputs ----------------------------------------------------------------------
 
@@ -115,7 +116,7 @@ export function UnitInspector({
   schema: UnitType;
   params: Params;
   components: string[];
-  result?: Record<string, number | string>;
+  result?: UnitResult;
   onRename: (newId: string) => string | null;
   onChange: (p: Params) => void;
   onDelete: () => void;
@@ -138,6 +139,64 @@ export function UnitInspector({
   const byName = Object.fromEntries(schema.params.map((p) => [p.name, p]));
 
   const renderParam = (p: ParamSchema) => {
+    const current = params[p.name] ?? (p.default !== null ? p.default : undefined);
+    if (p.quantity === "integer")
+      return (
+        <Field key={p.name} param={p}>
+          <input
+            type="number"
+            step={1}
+            min={p.min ?? undefined}
+            max={p.max ?? undefined}
+            value={current === undefined ? "" : String(current)}
+            placeholder={p.default === null ? "default" : String(p.default)}
+            onChange={(e) => set(p.name, e.target.value === "" ? null : Math.round(Number(e.target.value)))}
+          />
+        </Field>
+      );
+    if (p.quantity === "choice")
+      return (
+        <Field key={p.name} param={p}>
+          <select value={String(current ?? "")} onChange={(e) => set(p.name, e.target.value || null)}>
+            {p.default === null && <option value="">–</option>}
+            {(p.options ?? []).map((o) => (
+              <option key={o} value={o}>
+                {o}
+              </option>
+            ))}
+          </select>
+        </Field>
+      );
+    if (p.quantity === "component")
+      return (
+        <Field key={p.name} param={p}>
+          <select value={String(current ?? "")} onChange={(e) => set(p.name, e.target.value || null)}>
+            <option value="">Choose a component…</option>
+            {components.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+            {typeof current === "string" && current && !components.includes(current) && (
+              <option value={current}>{current} (not in component list)</option>
+            )}
+          </select>
+        </Field>
+      );
+    if (p.quantity === "string_list")
+      return (
+        <Field key={p.name} param={p}>
+          <input
+            type="text"
+            placeholder="comma-separated, e.g. R1, R2"
+            value={Array.isArray(current) ? current.join(", ") : ""}
+            onChange={(e) => {
+              const items = e.target.value.split(",").map((v) => v.trim()).filter(Boolean);
+              set(p.name, items.length ? items : null);
+            }}
+          />
+        </Field>
+      );
     if (p.quantity === "composition" || p.quantity === "component_fractions")
       return (
         <Field key={p.name} param={p}>
@@ -153,7 +212,7 @@ export function UnitInspector({
       <Field key={p.name} param={p}>
         <QuantityInput
           quantity={p.quantity === "fraction" ? null : p.quantity}
-          value={params[p.name] ?? (p.default !== null ? p.default : undefined)}
+          value={current}
           placeholder={p.default === null ? "default" : String(p.default)}
           onChange={(v) => set(p.name, v)}
         />
@@ -223,29 +282,21 @@ export function UnitInspector({
 
       {schema.params.filter((p) => !grouped.has(p.name)).map(renderParam)}
 
-      {result && Object.keys(result).length > 1 && (
+      {result && schema.result_fields.some((f) => result[f.name] !== undefined) && (
         <section className="unit-results">
           <h3>Results</h3>
-          {typeof result.duty === "number" && (
-            <div className="kv">
-              <span>Duty</span>
-              <b>{fmt.kW(result.duty)} kW</b>
-            </div>
-          )}
-          {typeof result.power === "number" && (
-            <div className="kv">
-              <span>Power</span>
-              <b>{fmt.kW(result.power)} kW</b>
-            </div>
-          )}
-          {typeof result.vapor_fraction === "number" && (
-            <div className="kv">
-              <span>Vapor fraction</span>
-              <b>{fmt.frac(result.vapor_fraction)}</b>
-            </div>
-          )}
+          {schema.result_fields
+            .filter((f) => result[f.name] !== undefined)
+            .map((f) => (
+              <div key={f.name} className="kv">
+                <span>{f.label}</span>
+                <b>{formatQuantity(result[f.name], f.quantity)}</b>
+              </div>
+            ))}
         </section>
       )}
+      {result?.profiles &&
+        Object.entries(result.profiles).map(([key, profile]) => <ProfileView key={key} profile={profile} />)}
 
       <button className="danger" onClick={onDelete}>
         Delete unit

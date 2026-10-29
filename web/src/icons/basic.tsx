@@ -1,7 +1,7 @@
-// Simplified P&ID-style symbols, drawn with currentColor so they follow the theme.
-const S = { fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinejoin: "round" as const };
+// Symbols for the basic units. Simplified P&ID style on a 40x40 grid.
+import { S } from "./style";
 
-const shapes: Record<string, JSX.Element> = {
+export const shapes: Record<string, JSX.Element> = {
   Feed: (
     <>
       <path {...S} d="M6 14h20l6 6-6 6H6z" />
@@ -57,11 +57,3 @@ const shapes: Record<string, JSX.Element> = {
     </>
   ),
 };
-
-export function UnitIcon({ type, size = 40 }: { type: string; size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 40 40" aria-hidden="true">
-      {shapes[type] ?? <rect {...S} x="6" y="6" width="28" height="28" rx="4" />}
-    </svg>
-  );
-}

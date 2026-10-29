@@ -2,7 +2,7 @@
 
 Flowsheet files may give any physical value either as a plain number (SI) or as a
 string with a unit, e.g. ``"80 degC"``, ``"1.5 bar"`` or ``"10 kmol/h"``. Internally
-everything is SI: K, Pa, mol/s, W, J/mol.
+everything is SI: K, Pa, mol/s, W, J/mol, m3, m, s.
 """
 
 from __future__ import annotations
@@ -50,6 +50,30 @@ _UNITS: dict[str, dict[str, tuple[float, float]]] = {
         "w": (1.0, 0.0),
         "kw": (1e3, 0.0),
         "mw": (1e6, 0.0),
+    },
+    "volume": {
+        "m3": (1.0, 0.0),
+        "l": (1e-3, 0.0),
+        "cm3": (1e-6, 0.0),
+    },
+    "length": {
+        "m": (1.0, 0.0),
+        "cm": (1e-2, 0.0),
+        "mm": (1e-3, 0.0),
+    },
+    "area": {
+        "m2": (1.0, 0.0),
+        "cm2": (1e-4, 0.0),
+    },
+    "time": {
+        "s": (1.0, 0.0),
+        "min": (60.0, 0.0),
+        "h": (3600.0, 0.0),
+    },
+    "molar_energy": {
+        "j/mol": (1.0, 0.0),
+        "kj/mol": (1e3, 0.0),
+        "kcal/mol": (4184.0, 0.0),
     },
     "fraction": {
         "": (1.0, 0.0),

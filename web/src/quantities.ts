@@ -30,6 +30,29 @@ export const UNITS: Record<string, { value: string; label: string }[]> = {
     { value: "W", label: "W" },
     { value: "MW", label: "MW" },
   ],
+  volume: [
+    { value: "m3", label: "m³" },
+    { value: "L", label: "L" },
+  ],
+  length: [
+    { value: "m", label: "m" },
+    { value: "cm", label: "cm" },
+    { value: "mm", label: "mm" },
+  ],
+  area: [
+    { value: "m2", label: "m²" },
+    { value: "cm2", label: "cm²" },
+  ],
+  time: [
+    { value: "s", label: "s" },
+    { value: "min", label: "min" },
+    { value: "h", label: "h" },
+  ],
+  molar_energy: [
+    { value: "kJ/mol", label: "kJ/mol" },
+    { value: "J/mol", label: "J/mol" },
+    { value: "kcal/mol", label: "kcal/mol" },
+  ],
 };
 
 const SI_UNIT: Record<string, string> = {
@@ -38,6 +61,11 @@ const SI_UNIT: Record<string, string> = {
   pressure_difference: "Pa",
   molar_flow: "mol/s",
   power: "W",
+  volume: "m3",
+  length: "m",
+  area: "m2",
+  time: "s",
+  molar_energy: "J/mol",
 };
 
 /** Split a stored value ("80 degC" or 353.15) into number text and unit. */
@@ -66,6 +94,41 @@ export const fmt = {
   kW: (w: number) => trim(w / 1e3, 4),
   frac: (x: number) => x.toFixed(4),
 };
+
+// How results in SI are shown: [factor from SI, offset, unit label].
+const DISPLAY: Record<string, [number, number, string]> = {
+  temperature: [1, -273.15, "°C"],
+  pressure: [1e-5, 0, "bar"],
+  pressure_difference: [1e-5, 0, "bar"],
+  molar_flow: [3.6, 0, "kmol/h"],
+  mass_flow: [3600, 0, "kg/h"],
+  power: [1e-3, 0, "kW"],
+  volume: [1, 0, "m³"],
+  length: [1, 0, "m"],
+  area: [1, 0, "m²"],
+  time: [1, 0, "s"],
+  molar_energy: [1e-3, 0, "kJ/mol"],
+};
+
+/** Display unit label for a quantity ("" for dimensionless). */
+export function displayUnit(quantity: string | null): string {
+  return (quantity && DISPLAY[quantity]?.[2]) || "";
+}
+
+/** Convert an SI value to its display unit (number only). */
+export function toDisplay(value: number, quantity: string | null): number {
+  const d = quantity ? DISPLAY[quantity] : undefined;
+  return d ? value * d[0] + d[1] : value;
+}
+
+/** Format an SI value with its display unit, e.g. 353.15 K -> "80.0 °C". */
+export function formatQuantity(value: unknown, quantity: string | null): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return String(value ?? "–");
+  if (quantity === "temperature") return `${fmt.T(value)} °C`;
+  const shown = toDisplay(value, quantity);
+  const unit = displayUnit(quantity);
+  return unit ? `${trim(shown, 4)} ${unit}` : quantity === "fraction" ? shown.toFixed(4) : trim(shown, 4);
+}
 
 function trim(x: number, digits: number): string {
   if (x === 0) return "0";

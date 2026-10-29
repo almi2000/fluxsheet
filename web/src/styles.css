@@ -165,6 +165,14 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent-soft
 .kv { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid var(--border); }
 .kv b { font-variant-numeric: tabular-nums; }
 .unit-results { margin-top: 8px; }
+.profile { margin-top: 6px; display: flex; flex-direction: column; gap: 6px; }
+.profile select { align-self: flex-start; }
+.profile-chart { width: 100%; height: auto; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; }
+.profile-chart text { fill: var(--muted); font-size: 9px; font-variant-numeric: tabular-nums; }
+.profile-chart .axis-label { font-size: 10px; }
+.profile-chart .grid { stroke: var(--border); stroke-width: 1; }
+.profile-chart .line { fill: none; stroke: var(--accent); stroke-width: 2; }
+.profile-chart .dot { fill: var(--accent); }
 
 .compound-search { position: relative; }
 .compound-search input { width: 100%; }

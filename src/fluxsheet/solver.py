@@ -191,7 +191,8 @@ class Solver:
                                                        {c.id for c in self.connections}]
         result.streams = {sid: streams[sid].to_dict(pkg) for sid in ordered}
         result.units = {
-            uid: {"type": u.type, **u.results} for uid, u in self.units.items()
+            uid: {"type": u.type, **u.results, **({"profiles": u.profiles} if u.profiles else {})}
+            for uid, u in self.units.items()
         }
         self._check_balances(pkg, streams)
         result.warnings = self.warnings

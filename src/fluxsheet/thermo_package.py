@@ -7,6 +7,7 @@ flowsheet and cached, because loading the constants takes a moment.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from functools import lru_cache
 
@@ -72,12 +73,25 @@ class PhaseState:
     T: float
     P: float
     VF: float
-    H: float  # J/mol
+    H: float  # J/mol, relative to ideal gas at 298.15 K (no formation enthalpy)
     S: float  # J/mol/K
     phase: str  # "vapor", "liquid" or "two-phase"
     x: tuple[float, ...] | None  # liquid mole fractions
     y: tuple[float, ...] | None  # vapor mole fractions
     V: float  # molar volume, m3/mol
+    # H plus formation enthalpy: the basis for energy balances with reactions.
+    # None when a component has no formation enthalpy in the database.
+    H_reactive: float | None = None
+
+
+@dataclass(frozen=True)
+class PhaseProps:
+    """One phase at fixed T, P and composition (no phase split). For stage-wise models."""
+
+    lnphi: tuple[float, ...]  # log fugacity coefficients
+    H: float  # J/mol
+    H_reactive: float | None  # J/mol, see PhaseState
+    V: float  # m3/mol
 
 
 @dataclass(frozen=True)
@@ -207,6 +221,49 @@ class PropertyPackage:
             return FlashPureVLS(c, p, gas=gas, liquids=[liquid], solids=[])
         return FlashVL(c, p, liquid=liquid, gas=gas)
 
+    @property
+    def formation_enthalpies(self) -> list[float] | None:
+        """Ideal-gas formation enthalpies at 298.15 K, J/mol; None if any is unknown."""
+        hfs = self.consts.Hfgs
+        return None if any(h is None for h in hfs) else list(hfs)
+
+    def missing_formation_data(self) -> list[str]:
+        return [n for n, h in zip(self.names, self.consts.Hfgs) if h is None]
+
+    def _h_reactive(self, H: float, zs) -> float | None:
+        hfs = self.formation_enthalpies
+        return None if hfs is None else H + sum(z * h for z, h in zip(zs, hfs))
+
+    def phase_props(self, kind: str, T: float, P: float, zs: list[float]) -> PhaseProps:
+        """Properties of a single ``"vapor"`` or ``"liquid"`` phase without a flash.
+
+        Equations of state may return the vapor-like root for the liquid when no liquid
+        root exists (e.g. far above the boiling point); callers should expect K close to 1.
+        """
+        f = self._flasher
+        if kind == "vapor":
+            template = f.gas
+        elif kind == "liquid":
+            template = f.liquid if hasattr(f, "liquid") else f.liquids[0]
+        else:
+            raise ValueError(f"kind must be 'vapor' or 'liquid', got {kind!r}")
+        try:
+            ph = template.to(T=T, P=P, zs=list(zs))
+            H = float(ph.H())
+            return PhaseProps(tuple(float(v) for v in ph.lnphis()), H, self._h_reactive(H, zs),
+                              float(ph.V()))
+        except Exception as exc:
+            raise SimulationError(
+                f"property evaluation failed for the {kind} phase at T={T:.6g} K, P={P:.6g} Pa",
+                hint="check that temperature and pressure are physically reasonable",
+            ) from exc
+
+    def k_values(self, T: float, P: float, x: list[float], y: list[float]) -> list[float]:
+        """Equilibrium ratios K_i = y_i / x_i = phi_i(liquid) / phi_i(vapor)."""
+        lnphi_l = self.phase_props("liquid", T, P, x).lnphi
+        lnphi_v = self.phase_props("vapor", T, P, y).lnphi
+        return [math.exp(a - b) for a, b in zip(lnphi_l, lnphi_v)]
+
     def flash(self, zs: list[float], **spec: float) -> PhaseState:
         """Flash at two of T, P, H, S, VF (SI, molar basis)."""
         try:
@@ -233,6 +290,7 @@ class PropertyPackage:
             x=tuple(liquid.zs) if liquid is not None and vf < 1.0 else None,
             y=tuple(gas.zs) if gas is not None and vf > 0.0 else None,
             V=float(res.V()),
+            H_reactive=self._h_reactive(float(res.H()), zs),
         )
 
 

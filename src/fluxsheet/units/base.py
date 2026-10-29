@@ -14,19 +14,42 @@ from ..quantities import UnitError, to_si
 from ..stream import Stream
 from ..thermo_package import PropertyPackage
 
+# Parameter kinds besides the physical quantities in quantities.py:
+#   None                  plain number
+#   "integer"             whole number (stage counts, stage positions)
+#   "choice"              one of `options`
+#   "component"           name of one flowsheet component
+#   "string_list"         list of names, e.g. reaction ids
+#   "composition"         {component: molar flow}
+#   "component_fractions" {component: fraction}
+SPECIAL_KINDS = ("integer", "choice", "component", "string_list", "composition",
+                 "component_fractions")
+
 
 @dataclass(frozen=True)
 class Param:
     name: str
     label: str
-    quantity: str | None = None  # see quantities.py; "composition" = {component: molar flow}
+    quantity: str | None = None
     default: Any = None
     help: str = ""
     min: float | None = None
     max: float | None = None
+    options: tuple[str, ...] | None = None  # for quantity="choice"
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        d = asdict(self)
+        d["options"] = list(self.options) if self.options else None
+        return d
+
+
+@dataclass(frozen=True)
+class ResultField:
+    """A scalar a unit reports after solving, e.g. its duty. Drives the editor display."""
+
+    name: str
+    label: str
+    quantity: str | None = None  # "power", "temperature", ... or None for dimensionless
 
 
 @dataclass(frozen=True)
@@ -52,10 +75,13 @@ class UnitOperation:
     # Groups marked as required in `required_groups` need exactly one.
     exclusive_groups: ClassVar[tuple[tuple[str, ...], ...]] = ()
     required_groups: ClassVar[tuple[tuple[str, ...], ...]] = ()
+    result_fields: ClassVar[tuple[ResultField, ...]] = ()
 
     def __post_init__(self) -> None:
         self.p: dict[str, Any] = {}
         self.results: dict[str, Any] = {}
+        # Tabular results along stages or reactor length; see add_profile().
+        self.profiles: dict[str, dict] = {}
         known = {param.name for param in self.params}
         for name in self.raw:
             if name not in known:
@@ -77,7 +103,25 @@ class UnitOperation:
         self._check_groups()
 
     def _convert(self, param: Param, value: Any) -> Any:
-        if param.quantity in ("composition", "component_fractions"):
+        q = param.quantity
+        if q == "integer":
+            if isinstance(value, bool) or not float(value).is_integer():
+                raise UnitError(f"expected a whole number, got {value!r}")
+            return int(value)
+        if q == "choice":
+            if value not in (param.options or ()):
+                raise UnitError(f"{value!r} is not an option; use one of: "
+                                f"{', '.join(param.options or ())}")
+            return value
+        if q == "component":
+            if not isinstance(value, str) or not value:
+                raise UnitError(f"expected a component name, got {value!r}")
+            return value
+        if q == "string_list":
+            if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+                raise UnitError(f"expected a list of names, got {value!r}")
+            return list(value)
+        if q in ("composition", "component_fractions"):
             if not isinstance(value, dict):
                 raise UnitError(f"expected a mapping of component to value, got {value!r}")
             quantity = "molar_flow" if param.quantity == "composition" else "fraction"
@@ -88,7 +132,7 @@ class UnitOperation:
 
     def _check_bounds(self, param: Param) -> None:
         value = self.p[param.name]
-        if not isinstance(value, float):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
             return
         if (param.min is not None and value < param.min) or (
             param.max is not None and value > param.max
@@ -118,6 +162,33 @@ class UnitOperation:
     def _label(cls, name: str) -> str:
         return next(p.label for p in cls.params if p.name == name)
 
+    def component_index(self, pkg: PropertyPackage, name: str, label: str = "component") -> int:
+        """Index of a component parameter in the package, with a helpful error if absent."""
+        if name not in pkg.names:
+            raise SimulationError(
+                f"{label} {name!r} is not in the flowsheet's component list", where=self.id,
+                hint=f"choose one of: {', '.join(pkg.names)}",
+            )
+        return pkg.names.index(name)
+
+    def add_profile(
+        self,
+        name: str,
+        label: str,
+        x_label: str,
+        x: list[float],
+        series: dict[str, tuple[str | None, list[float]]],
+    ) -> None:
+        """Record a profile, e.g. temperature per stage. ``series``: label -> (quantity, values)."""
+        self.profiles[name] = {
+            "label": label,
+            "x_label": x_label,
+            "x": list(x),
+            "series": [
+                {"label": k, "quantity": q, "values": list(v)} for k, (q, v) in series.items()
+            ],
+        }
+
     def outlet_pressure(self, p_in: float) -> float:
         """Outlet pressure from an optional absolute ``P`` or pressure drop ``dP`` parameter."""
         if self.p.get("P") is not None:
@@ -141,9 +212,24 @@ class UnitOperation:
             "params": [p.to_dict() for p in cls.params],
             "exclusive_groups": [list(g) for g in cls.exclusive_groups],
             "required_groups": [list(g) for g in cls.required_groups],
+            "result_fields": [asdict(f) for f in cls.result_fields],
         }
 
 
 def empty_stream(pkg: PropertyPackage, T: float, P: float) -> Stream:
     """A zero-flow stream; carries T and P so downstream units have something to work with."""
     return Stream.from_flash(pkg, [0.0] * pkg.n, T=T, P=P)
+
+
+def single_inlet(inlets: dict[str, list[Stream]], port: str = "in") -> Stream:
+    return inlets[port][0]
+
+
+# Building blocks shared by many units.
+IN = Port("in", "Inlet")
+OUT = Port("out", "Outlet")
+P_OUT = Param("P", "Outlet pressure", "pressure", help="Absolute outlet pressure.", min=1.0)
+DP = Param("dP", "Pressure drop", "pressure_difference",
+           help="Pressure loss across the unit. Defaults to zero.", min=0.0)
+DUTY = ResultField("duty", "Duty", "power")
+POWER = ResultField("power", "Power", "power")

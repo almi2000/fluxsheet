@@ -8,7 +8,30 @@ export interface ParamSchema {
   help: string;
   min: number | null;
   max: number | null;
+  options: string[] | null;
 }
+
+export interface ResultField {
+  name: string;
+  label: string;
+  quantity: string | null;
+}
+
+export interface ProfileSeries {
+  label: string;
+  quantity: string | null;
+  values: number[];
+}
+
+export interface Profile {
+  label: string;
+  x_label: string;
+  x: number[];
+  series: ProfileSeries[];
+}
+
+/** Scalar results by name, plus optional profiles (stage or length profiles). */
+export type UnitResult = Record<string, unknown> & { type?: string; profiles?: Record<string, Profile> };
 
 export interface PortSchema {
   name: string;
@@ -26,6 +49,7 @@ export interface UnitType {
   params: ParamSchema[];
   exclusive_groups: string[][];
   required_groups: string[][];
+  result_fields: ResultField[];
 }
 
 export interface Method {
@@ -90,7 +114,7 @@ export interface SimError {
 export interface SolveResult {
   ok: boolean;
   streams: Record<string, StreamResult>;
-  units: Record<string, Record<string, number | string>>;
+  units: Record<string, UnitResult>;
   property_method: string | null;
   property_method_reason: string | null;
   tear_streams: string[];
