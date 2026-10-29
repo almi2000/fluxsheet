@@ -18,7 +18,8 @@ import { api } from "./api";
 import { FlowsheetInspector, StreamInspector, UnitInspector } from "./Inspector";
 import { Palette } from "./Palette";
 import { ResultsPanel } from "./ResultsPanel";
-import type { Example, FlowsheetModel, Method, Params, Reaction, SolveResult, UnitType } from "./types";
+import { StudiesSettings } from "./StudiesEditor";
+import type { DesignSpec, Example, FlowsheetModel, Method, Params, Reaction, SensitivityStudy, SolveResult, UnitType } from "./types";
 import { UnitNode, type UnitFlowNode } from "./UnitNode";
 import { fmt } from "./quantities";
 
@@ -28,7 +29,7 @@ const ID_PREFIX: Record<string, string> = {
   Feed: "FEED", Product: "PROD", Mixer: "MIX", Splitter: "SPLIT", Heater: "HX", Flash: "FLASH",
   ComponentSplitter: "SEP", Valve: "VLV", Pump: "PUMP", Compressor: "COMP",
   StoichiometricReactor: "STOIC", YieldReactor: "YIELD", EquilibriumReactor: "EQ", GibbsReactor: "GIBBS",
-  CSTR: "CSTR", PFR: "PFR",
+  CSTR: "CSTR", PFR: "PFR", HeatExchanger: "EX",
 };
 
 const DEFAULT_PARAMS: Record<string, Params> = {
@@ -40,15 +41,19 @@ const DEFAULT_PARAMS: Record<string, Params> = {
   ComponentSplitter: { fractions: {} },
   CSTR: { V: "1 m3", phase: "liquid" },
   PFR: { V: "1 m3", phase: "gas" },
+  HeatExchanger: { min_approach: "10 K" },
 };
 
 type Meta = Pick<FlowsheetModel, "name" | "description" | "components" | "property_method"> & {
   reactions: Reaction[];
+  design_specs: DesignSpec[];
+  sensitivity: SensitivityStudy[];
 };
 type Selection = { kind: "unit" | "stream"; id: string } | null;
 
 const EMPTY_META: Meta = {
   name: "Untitled flowsheet", description: "", components: [], property_method: "auto", reactions: [],
+  design_specs: [], sensitivity: [],
 };
 
 function nextId(prefix: string, taken: Set<string>) {
@@ -100,6 +105,8 @@ function Editor() {
       format: "fluxsheet/1",
       ...meta,
       reactions: meta.reactions.length ? meta.reactions : undefined,
+      design_specs: meta.design_specs.length ? meta.design_specs : undefined,
+      sensitivity: meta.sensitivity.length ? meta.sensitivity : undefined,
       units: nodes.map((n) => ({
         id: n.id,
         type: n.data.type,
@@ -149,6 +156,8 @@ function Editor() {
         components: model.components,
         property_method: model.property_method,
         reactions: model.reactions ?? [],
+        design_specs: model.design_specs ?? [],
+        sensitivity: model.sensitivity ?? [],
       });
       setResult(null);
       setStale(false);
@@ -414,7 +423,20 @@ function Editor() {
                 setMeta((m) => ({ ...m, ...patch }));
                 if (patch.components || patch.property_method || patch.reactions) touch();
               }}
-            />
+            >
+              <StudiesSettings
+                specs={meta.design_specs}
+                studies={meta.sensitivity}
+                results={stale ? undefined : result?.design_specs}
+                units={nodes.map((n) => ({ id: n.id, schema: n.data.schema }))}
+                streams={edges.map((e) => e.id)}
+                components={meta.components}
+                onChange={(patch) => {
+                  setMeta((m) => ({ ...m, ...patch }));
+                  if (patch.design_specs) touch();
+                }}
+              />
+            </FlowsheetInspector>
           )}
         </aside>
       </main>
@@ -424,6 +446,8 @@ function Editor() {
           result={result}
           stale={stale}
           onSelectStream={(id) => setSelection({ kind: "stream", id })}
+          studies={meta.sensitivity}
+          getModel={toModel}
         />
       </footer>
     </div>

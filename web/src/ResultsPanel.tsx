@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Diagrams } from "./Diagrams";
-import { fmt } from "./quantities";
-import type { SolveResult } from "./types";
+import { fmt, formatQuantity } from "./quantities";
+import { SensitivityView } from "./SensitivityView";
+import type { FlowsheetModel, SensitivityStudy, SolveResult } from "./types";
 
 // Streams that split into two liquids carry this (see Stream.to_dict); null otherwise.
 type LiquidSplit = { light: { fraction: number }; heavy: { fraction: number } } | null | undefined;
@@ -10,13 +11,18 @@ export function ResultsPanel({
   result,
   stale,
   onSelectStream,
+  studies = [],
+  getModel,
 }: {
   result: SolveResult | null;
   stale: boolean;
   onSelectStream: (id: string) => void;
+  studies?: SensitivityStudy[];
+  getModel?: () => FlowsheetModel;
 }) {
-  const [view, setView] = useState<"streams" | "diagram">("streams");
+  const [view, setView] = useState<"streams" | "diagram" | "sensitivity">("streams");
   const [diagramOpened, setDiagramOpened] = useState(false);
+  const [sensitivityOpened, setSensitivityOpened] = useState(false);
   if (!result) {
     return (
       <div className="results empty muted">
@@ -63,6 +69,17 @@ export function ResultsPanel({
           >
             Phase diagram
           </button>
+          {getModel && (
+            <button
+              className={view === "sensitivity" ? "on" : ""}
+              onClick={() => {
+                setView("sensitivity");
+                setSensitivityOpened(true);
+              }}
+            >
+              Sensitivity
+            </button>
+          )}
         </div>
         <span>
           Method <b>{result.property_method}</b>
@@ -72,8 +89,19 @@ export function ResultsPanel({
             Recycle via <b>{result.tear_streams.join(", ")}</b> converged in <b>{result.iterations}</b> iterations
           </span>
         )}
+        {(result.design_specs ?? []).map((d) => (
+          <span key={d.id} className="design-spec-summary" title={`${d.iterations} flowsheet solves`}>
+            Spec {d.id}: {d.target} = <b>{formatQuantity(d.achieved, d.quantity)}</b> with {d.vary} ={" "}
+            <b>{formatQuantity(d.vary_value, d.vary_quantity)}</b>
+          </span>
+        ))}
         {stale && <span className="warn-text">Flowsheet changed since this run</span>}
       </div>
+      {sensitivityOpened && getModel && (
+        <div hidden={view !== "sensitivity"}>
+          <SensitivityView studies={studies} getModel={getModel} />
+        </div>
+      )}
       {diagramOpened && (
         <div hidden={view !== "diagram"}>
           <Diagrams

@@ -53,6 +53,20 @@ export const UNITS: Record<string, { value: string; label: string }[]> = {
     { value: "J/mol", label: "J/mol" },
     { value: "kcal/mol", label: "kcal/mol" },
   ],
+  temperature_difference: [
+    { value: "K", label: "K" },
+    { value: "degF", label: "°F" },
+  ],
+  thermal_conductance: [
+    { value: "kW/K", label: "kW/K" },
+    { value: "W/K", label: "W/K" },
+    { value: "MW/K", label: "MW/K" },
+  ],
+  mass_flow: [
+    { value: "kg/h", label: "kg/h" },
+    { value: "kg/s", label: "kg/s" },
+    { value: "t/h", label: "t/h" },
+  ],
 };
 
 const SI_UNIT: Record<string, string> = {
@@ -66,6 +80,9 @@ const SI_UNIT: Record<string, string> = {
   area: "m2",
   time: "s",
   molar_energy: "J/mol",
+  temperature_difference: "K",
+  thermal_conductance: "W/K",
+  mass_flow: "kg/s",
 };
 
 /** Split a stored value ("80 degC" or 353.15) into number text and unit. */
@@ -108,6 +125,8 @@ const DISPLAY: Record<string, [number, number, string]> = {
   area: [1, 0, "m²"],
   time: [1, 0, "s"],
   molar_energy: [1e-3, 0, "kJ/mol"],
+  temperature_difference: [1, 0, "K"],
+  thermal_conductance: [1e-3, 0, "kW/K"],
 };
 
 /** Display unit label for a quantity ("" for dimensionless). */

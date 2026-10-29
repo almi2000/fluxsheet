@@ -416,6 +416,7 @@ export function FlowsheetInspector({
   methods,
   reactions,
   onChange,
+  children,
 }: {
   name: string;
   description: string;
@@ -430,6 +431,7 @@ export function FlowsheetInspector({
     property_method?: string;
     reactions?: Reaction[];
   }) => void;
+  children?: React.ReactNode; // further settings sections, e.g. design specs
 }) {
   const [suggestion, setSuggestion] = useState<{ method: string; reason: string } | null>(null);
   useEffect(() => {
@@ -497,6 +499,7 @@ export function FlowsheetInspector({
 
       <h3>Reactions</h3>
       <ReactionsEditor reactions={reactions} components={components} onChange={(r) => onChange({ reactions: r })} />
+      {children}
     </div>
   );
 }

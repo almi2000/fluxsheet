@@ -1,4 +1,5 @@
-"""Command line: ``fluxsheet run file.json`` and ``fluxsheet serve``."""
+"""Command line: ``fluxsheet run file.json``, ``fluxsheet sensitivity file.json`` and
+``fluxsheet serve``."""
 
 from __future__ import annotations
 
@@ -7,6 +8,7 @@ import json
 import sys
 
 from .flowsheet import FlowsheetModel
+from .sensitivity import run_sensitivity, to_csv
 from .solver import solve
 from .units import UNIT_TYPES
 
@@ -59,8 +61,34 @@ def _run(args) -> int:
     if lines:
         print()
         print("\n".join(lines))
+    for spec in result.design_specs:
+        print(f"design spec {spec['id']}: {spec['target']} = {spec['achieved']:.6g} with "
+              f"{spec['vary']} = {spec['vary_value']:.6g} ({spec['iterations']} solves)")
     for w in result.warnings:
         print(f"warning: {w}")
+    return 0
+
+
+def _sensitivity(args) -> int:
+    table = run_sensitivity(FlowsheetModel.load(args.file), args.study)
+    if not table["ok"]:
+        err = table["error"]
+        print(f"error{' in ' + err['where'] if err['where'] else ''}: {err['message']}",
+              file=sys.stderr)
+        if err["hint"]:
+            print(f"  hint: {err['hint']}", file=sys.stderr)
+        return 1
+    text = to_csv(table)
+    if args.csv:
+        with open(args.csv, "w", encoding="utf-8", newline="") as f:
+            f.write(text)
+        print(f"{len(table['rows'])} points written to {args.csv}")
+    else:
+        print(text, end="")
+    for row in table["rows"]:
+        if row["error"]:
+            print(f"warning: point {row['inputs']} failed: {row['error']['message']}",
+                  file=sys.stderr)
     return 0
 
 
@@ -78,6 +106,11 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("file")
     run.add_argument("--json", action="store_true", help="print full results as JSON")
     run.set_defaults(func=_run)
+    sens = sub.add_parser("sensitivity", help="run a sensitivity study and print it as CSV")
+    sens.add_argument("file")
+    sens.add_argument("--study", help="id of the study (default: the first)")
+    sens.add_argument("--csv", help="write the table to this file instead of printing it")
+    sens.set_defaults(func=_sensitivity)
     serve = sub.add_parser("serve", help="start the API server for the web editor")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8000)

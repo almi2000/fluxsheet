@@ -138,9 +138,50 @@ need no separate input. See `examples/steam_reforming.json` and
 `examples/ethyl_acetate.json`, and [reactions.py](src/fluxsheet/reactions.py) for units
 and conventions.
 
+## Heat integration, design specs and sensitivity studies
+
+The **Heat Exchanger** passes heat between two process streams (`hot_in` → `hot_out`,
+`cold_in` → `cold_out`), countercurrent or cocurrent. Give one of: either outlet temperature,
+the duty, the minimum approach temperature, or UA (rating). Both temperature-duty curves are
+followed through phase changes (zone analysis), so an internal pinch, e.g. where a vapor starts
+to condense, is found; a temperature cross is reported together with the largest feasible duty.
+Results: duty, UA, mean temperature difference (LMTD) and minimum approach, plus the
+temperature profile along the exchanger. See `examples/feed_effluent_exchanger.json`.
+
+A **design spec** reaches a target by adjusting one unit parameter between bounds; it is
+solved by an outer loop (secant steps, then Brent's method once the target is bracketed)
+around the flowsheet solver:
+
+```json
+"design_specs": [
+  {"id": "PURITY",
+   "target": {"stream": "DIST", "property": "mole_fraction", "component": "benzene"},
+   "value": 0.995,
+   "vary": {"unit": "COLUMN", "param": "reflux_ratio", "lower": 1.2, "upper": 5}}
+]
+```
+
+Targets are stream properties (`T`, `P`, `vapor_fraction`, `molar_flow`, `mass_flow`,
+`enthalpy_flow`, `mole_fraction`, `component_flow`) or unit results such as `duty`. A
+**sensitivity study** solves the flowsheet over a range of one or two parameters and records
+outputs given the same way:
+
+```json
+"sensitivity": [
+  {"id": "REFLUX",
+   "vary": [{"unit": "COLUMN", "param": "reflux_ratio", "lower": 1.4, "upper": 3.4, "points": 9}],
+   "outputs": [{"stream": "DIST", "property": "mole_fraction", "component": "benzene"},
+               {"unit": "COLUMN", "property": "reboiler_duty"}]}
+]
+```
+
+Run it from the **Sensitivity** tab of the editor (chart, table, CSV export) or with
+`fluxsheet sensitivity examples/benzene_toluene_purity.json --csv reflux.csv`. Both are edited
+in the flowsheet settings; see `examples/benzene_toluene_purity.json`.
+
 ## What's included
 
-**Unit operations:** Feed, Product, Mixer, Splitter, Heater/Cooler, Flash drum, Decanter
+**Unit operations:** Feed, Product, Mixer, Splitter, Heater/Cooler, Heat Exchanger, Flash drum, Decanter
 (liquid-liquid), Component splitter, Valve, Pump, Compressor.
 
 **Columns:** shortcut distillation design (Fenske, Underwood, Gilliland/Molokanov,
@@ -180,7 +221,7 @@ extend it.
 - [x] NRTL / UNIQUAC / Wilson with regressed (ChemSep) binary parameters, UNIFAC estimates for gaps
 - [ ] Parameter fitting from NIST ThermoML data
 - [x] Vapor–liquid–liquid equilibrium (decanters, three-phase flash)
-- [ ] Heat exchanger (two-sided), design specs, sensitivity studies
+- [x] Heat exchanger (two-sided), design specs, sensitivity studies
 - [x] Phase envelopes, T-xy / P-xy diagrams in the editor
 - [ ] Undo/redo, copy/paste, auto-layout in the editor
 - [ ] CAPE-OPEN interoperability
