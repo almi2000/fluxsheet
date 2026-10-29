@@ -12,6 +12,7 @@ from typing import Any
 
 from .errors import SimulationError
 from .flowsheet import FlowsheetModel
+from .property_sections import PropertySections
 from .reactions import parse_reactions
 from .stream import Stream
 from .thermo_package import METHODS, PropertyPackage, get_package, suggest_method
@@ -34,6 +35,8 @@ class SolveResult:
     units: dict[str, dict] = field(default_factory=dict)
     property_method: str | None = None
     property_method_reason: str | None = None
+    # Streams re-flashed where they pass from one property method to another.
+    property_crossings: list[dict] = field(default_factory=list)
     tear_streams: list[str] = field(default_factory=list)
     iterations: int = 0
     converged: bool = False
@@ -180,6 +183,8 @@ class Solver:
             result.property_method = pkg.method
             result.property_method_reason = reason
             self.warnings.extend(pkg.warnings)  # e.g. binary parameters estimated, not measured
+            self.sections = PropertySections(self.model, pkg, self.units, self.connections)
+            self.warnings.extend(self.sections.warnings())
             reactions = parse_reactions(self.model.reactions, pkg)
             for unit in self.units.values():
                 if hasattr(unit, "reactions"):  # reactors run the flowsheet's reactions
@@ -202,15 +207,16 @@ class Solver:
         }
         self._check_balances(pkg, streams)
         result.warnings = self.warnings
+        self.sections.annotate(result, streams, self.connections)
         return result
 
     def _run_unit(self, pkg, unit: UnitOperation, streams: dict[str, Stream]) -> dict[str, Stream]:
         inlets: dict[str, list[Stream]] = {p.name: [] for p in unit.inlets}
         for c in self.connections:
-            if c.dst_unit == unit.id:
-                inlets[c.dst_port].append(streams[c.id])
+            if c.dst_unit == unit.id:  # re-flashed if it comes from another property method
+                inlets[c.dst_port].append(self.sections.inlet(c, streams[c.id]))
         try:
-            outputs = unit.calculate(pkg, inlets)
+            outputs = unit.calculate(self.sections.package(unit.id), inlets)
         except SimulationError as exc:
             raise exc.located(unit.id)
         except Exception as exc:  # keep unexpected failures readable too
@@ -245,8 +251,9 @@ class Solver:
 
         feed_T = next(u.p["T"] for u in self.units.values() if u.type == "Feed") or 298.15
         feed_P = max(u.p["P"] for u in self.units.values() if u.type == "Feed")
+        src_pkg = {c.id: self.sections.package(c.src_unit) for c in self.connections}
         for sid in tears:
-            streams[sid] = Stream.from_flash(pkg, [0.0] * pkg.n, T=feed_T, P=feed_P)
+            streams[sid] = Stream.from_flash(src_pkg[sid], [0.0] * pkg.n, T=feed_T, P=feed_P)
 
         # Only units that feed back into a tear stream take part in the iterations. Units
         # downstream of the loop (e.g. a column on the crude product) run once at the end, so
@@ -271,7 +278,8 @@ class Solver:
                 for sid in tears:
                     new = self._wegstein(prev_x[sid], prev_g[sid], x[sid], g[sid])
                     calc = streams[sid]
-                    streams[sid] = Stream.from_flash(pkg, new[:-1], T=new[-1], P=calc.P)
+                    streams[sid] = Stream.from_flash(src_pkg[sid], new[:-1], T=new[-1],
+                                                     P=calc.P)
             prev_x, prev_g = x, g
 
         result.iterations = opts.max_iterations

@@ -1,6 +1,7 @@
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import { memo } from "react";
 import { UnitIcon } from "./icons";
+import { MethodTag } from "./PropertyMethods";
 import { formatQuantity } from "./quantities";
 import type { Params, UnitResult, UnitType } from "./types";
 
@@ -11,6 +12,8 @@ export type UnitNodeData = {
   result?: UnitResult;
   hasError?: boolean;
   stale?: boolean;
+  property_method?: string; // the unit's own override, if any
+  method?: string; // effective method, shown as a tag when the flowsheet mixes methods
 };
 
 export type UnitFlowNode = Node<UnitNodeData, "unit">;
@@ -54,6 +57,7 @@ function UnitNodeView({ id, data, selected }: NodeProps<UnitFlowNode>) {
       <UnitIcon type={data.type} />
       <div className="unit-id">{id}</div>
       {badge && <div className="unit-badge">{badge}</div>}
+      {data.method && <MethodTag method={data.method} override={!!data.property_method} />}
       {schema.outlets.map((p, i) => (
         <Handle
           key={p.name}

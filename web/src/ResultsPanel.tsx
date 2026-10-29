@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Diagrams } from "./Diagrams";
+import { MethodsSummary, shortMethod } from "./PropertyMethods";
 import { fmt } from "./quantities";
 import type { SolveResult } from "./types";
 
@@ -38,6 +39,10 @@ export function ResultsPanel({
           return s ? fmt.frac(s.heavy.fraction) : "–";
         }] as [string, (id: string) => string]]
       : []),
+    ...(new Set(ids.map((id) => result.streams[id].property_method)).size > 1
+      ? [["Property method", (id: string) => shortMethod(result.streams[id].property_method ?? "")] as
+          [string, (id: string) => string]]
+      : []),
     ["Molar flow [kmol/h]", (id) => fmt.molar(result.streams[id].molar_flow)],
     ["Mass flow [kg/h]", (id) => fmt.mass(result.streams[id].mass_flow)],
     ...components.map(
@@ -64,9 +69,7 @@ export function ResultsPanel({
             Phase diagram
           </button>
         </div>
-        <span>
-          Method <b>{result.property_method}</b>
-        </span>
+        <MethodsSummary result={result} />
         {result.tear_streams.length > 0 && (
           <span>
             Recycle via <b>{result.tear_streams.join(", ")}</b> converged in <b>{result.iterations}</b> iterations

@@ -73,6 +73,7 @@ export interface UnitModel {
   id: string;
   type: string;
   params?: Params;
+  property_method?: string; // overrides the flowsheet's property_method for this unit
   ui?: { x: number; y: number };
 }
 
@@ -133,6 +134,7 @@ export interface StreamResult {
   enthalpy_flow: number;
   component_flows: Record<string, number>;
   mole_fractions: Record<string, number>;
+  property_method?: string; // the method of the unit producing the stream
 }
 
 export interface SimError {
@@ -147,6 +149,7 @@ export interface SolveResult {
   units: Record<string, UnitResult>;
   property_method: string | null;
   property_method_reason: string | null;
+  property_crossings?: unknown[]; // streams re-flashed between methods; see PropertyMethods.tsx
   tear_streams: string[];
   iterations: number;
   converged: boolean;
