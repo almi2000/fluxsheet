@@ -106,6 +106,12 @@ Plain numbers are SI (K, Pa, mol/s, W). A stream without `to` leaves the process
 **Unit operations:** Feed, Product, Mixer, Splitter, Heater/Cooler, Flash drum, Component
 splitter, Valve, Pump, Compressor.
 
+**Columns:** shortcut distillation design (Fenske, Underwood, Gilliland/Molokanov,
+Kirkbride); rigorous distillation on equilibrium stages (MESH equations solved together by
+Newton's method, Naphtali-Sandholm) with total, partial or no condenser, optional reboiler,
+stage pressure drop and Murphree efficiency; absorber/stripper on the same stage model.
+Stage profiles (temperature, flows, compositions) show up in the inspector.
+
 **Property methods:**
 
 | Method | Use for |
@@ -123,7 +129,7 @@ extend it.
 
 ## Roadmap
 
-- [ ] Distillation: shortcut column (Fenske–Underwood–Gilliland), then rigorous MESH column
+- [x] Distillation: shortcut column (Fenske–Underwood–Gilliland), then rigorous MESH column
 - [ ] Reactors: stoichiometric, equilibrium (Gibbs), CSTR/PFR with kinetics
 - [ ] NRTL / UNIQUAC with regressed binary parameters; parameter fitting from NIST ThermoML data
 - [ ] Vapor–liquid–liquid equilibrium (decanters, three-phase flash)
