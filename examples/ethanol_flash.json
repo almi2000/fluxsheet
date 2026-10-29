@@ -1,0 +1,23 @@
+{
+  "format": "openflowsheet/1",
+  "name": "Ethanol-water flash",
+  "description": "A dilute ethanol feed is heated and flashed to enrich ethanol in the vapor.",
+  "components": ["water", "ethanol"],
+  "property_method": "auto",
+  "units": [
+    {"id": "FEED", "type": "Feed", "ui": {"x": 40, "y": 160},
+     "params": {"T": "25 degC", "P": "1.2 bar",
+                "flows": {"water": "80 kmol/h", "ethanol": "20 kmol/h"}}},
+    {"id": "HEATER", "type": "Heater", "ui": {"x": 240, "y": 160},
+     "params": {"T": "92 degC", "dP": "0.1 bar"}},
+    {"id": "DRUM", "type": "Flash", "ui": {"x": 440, "y": 160}, "params": {}},
+    {"id": "VAPOR", "type": "Product", "ui": {"x": 660, "y": 60}},
+    {"id": "LIQUID", "type": "Product", "ui": {"x": 660, "y": 260}}
+  ],
+  "streams": [
+    {"id": "S1", "from": "FEED.out", "to": "HEATER.in"},
+    {"id": "S2", "from": "HEATER.out", "to": "DRUM.in"},
+    {"id": "S3", "from": "DRUM.vapor", "to": "VAPOR.in"},
+    {"id": "S4", "from": "DRUM.liquid", "to": "LIQUID.in"}
+  ]
+}

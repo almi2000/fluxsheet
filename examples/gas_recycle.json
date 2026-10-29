@@ -1,0 +1,31 @@
+{
+  "format": "openflowsheet/1",
+  "name": "NGL recovery with gas recycle",
+  "description": "Natural gas is chilled to condense the heavier hydrocarbons. Most of the cold gas is recompressed and recycled; the rest is purged.",
+  "components": ["methane", "ethane", "propane", "n-butane"],
+  "property_method": "peng-robinson",
+  "units": [
+    {"id": "FEED", "type": "Feed", "ui": {"x": 20, "y": 80},
+     "params": {"T": "30 degC", "P": "30 bar",
+                "flows": {"methane": "70 kmol/h", "ethane": "15 kmol/h",
+                          "propane": "10 kmol/h", "n-butane": "5 kmol/h"}}},
+    {"id": "MIX", "type": "Mixer", "ui": {"x": 200, "y": 120}},
+    {"id": "CHILLER", "type": "Heater", "ui": {"x": 360, "y": 120},
+     "params": {"T": "-40 degC", "dP": "0.5 bar"}},
+    {"id": "SEP", "type": "Flash", "ui": {"x": 520, "y": 120}},
+    {"id": "SPLIT", "type": "Splitter", "ui": {"x": 680, "y": 40}, "params": {"split": 0.6}},
+    {"id": "COMP", "type": "Compressor", "ui": {"x": 440, "y": -60}, "params": {"P": "30 bar"}},
+    {"id": "FUELGAS", "type": "Product", "ui": {"x": 860, "y": 80}},
+    {"id": "NGL", "type": "Product", "ui": {"x": 700, "y": 240}}
+  ],
+  "streams": [
+    {"id": "S1", "from": "FEED.out", "to": "MIX.in"},
+    {"id": "S2", "from": "MIX.out", "to": "CHILLER.in"},
+    {"id": "S3", "from": "CHILLER.out", "to": "SEP.in"},
+    {"id": "S4", "from": "SEP.vapor", "to": "SPLIT.in"},
+    {"id": "NGL-OUT", "from": "SEP.liquid", "to": "NGL.in"},
+    {"id": "RECYCLE", "from": "SPLIT.out1", "to": "COMP.in"},
+    {"id": "R2", "from": "COMP.out", "to": "MIX.in"},
+    {"id": "PURGE", "from": "SPLIT.out2", "to": "FUELGAS.in"}
+  ]
+}
