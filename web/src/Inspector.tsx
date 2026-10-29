@@ -112,6 +112,7 @@ export function UnitInspector({
   onRename,
   onChange,
   onDelete,
+  children,
 }: {
   id: string;
   schema: UnitType;
@@ -121,6 +122,7 @@ export function UnitInspector({
   onRename: (newId: string) => string | null;
   onChange: (p: Params) => void;
   onDelete: () => void;
+  children?: React.ReactNode; // extra sections after the parameters, e.g. the property method
 }) {
   const [draftId, setDraftId] = useState(id);
   const [idError, setIdError] = useState<string | null>(null);
@@ -282,6 +284,7 @@ export function UnitInspector({
         })}
 
       {schema.params.filter((p) => !grouped.has(p.name)).map(renderParam)}
+      {children}
 
       {result && schema.result_fields.some((f) => result[f.name] !== undefined) && (
         <section className="unit-results">

@@ -234,3 +234,30 @@ table.mini th:first-child, table.mini td:first-child { text-align: left; }
 .keq-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 6px; }
 .keq-grid label { display: flex; flex-direction: column; gap: 3px; }
 .keq-grid input { width: 100%; min-width: 0; }
+
+/* Property sections: method tag on nodes and in the results summary (PropertyMethods.tsx) */
+.method-tag {
+  margin-top: 3px; padding: 0 5px; border-radius: 4px; font-size: 9px; font-weight: 600;
+  letter-spacing: 0.03em; line-height: 14px; color: var(--m, var(--muted));
+  border: 1px solid color-mix(in srgb, var(--m, var(--muted)) 45%, transparent);
+  background: color-mix(in srgb, var(--m, var(--muted)) 10%, transparent);
+}
+.method-tag.override { border-style: solid; border-width: 1.5px; }
+.method-text { color: var(--m, var(--text)) !important; }
+.m-peng-robinson { --m: #2563eb; }
+.m-srk { --m: #0891b2; }
+.m-nrtl { --m: #c2410c; }
+.m-uniquac { --m: #a16207; }
+.m-unifac { --m: #7c3aed; }
+.m-wilson { --m: #be185d; }
+.m-ideal { --m: #4b5563; }
+@media (prefers-color-scheme: dark) {
+  .m-peng-robinson { --m: #7aa2ff; }
+  .m-srk { --m: #22d3ee; }
+  .m-nrtl { --m: #fb923c; }
+  .m-uniquac { --m: #facc15; }
+  .m-unifac { --m: #c4b5fd; }
+  .m-wilson { --m: #f472b6; }
+  .m-ideal { --m: #9ca3af; }
+}
+.unit-method select { width: 100%; }

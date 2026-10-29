@@ -17,6 +17,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
 import { FlowsheetInspector, StreamInspector, UnitInspector } from "./Inspector";
 import { Palette } from "./Palette";
+import { UnitMethodField } from "./PropertyMethods";
 import { ResultsPanel } from "./ResultsPanel";
 import type { Example, FlowsheetModel, Method, Params, Reaction, SolveResult, UnitType } from "./types";
 import { UnitNode, type UnitFlowNode } from "./UnitNode";
@@ -104,6 +105,7 @@ function Editor() {
         id: n.id,
         type: n.data.type,
         params: n.data.params,
+        property_method: n.data.property_method,
         ui: { x: Math.round(n.position.x), y: Math.round(n.position.y) },
       })),
       streams: edges.map((e) => ({
@@ -133,7 +135,7 @@ function Editor() {
           id: u.id,
           type: "unit",
           position: u.ui ?? { x: 60 + (i % 5) * 200, y: 80 + Math.floor(i / 5) * 180 },
-          data: { type: u.type, params: u.params ?? {}, schema: schemas[u.type] },
+          data: { type: u.type, params: u.params ?? {}, schema: schemas[u.type], property_method: u.property_method },
         })),
       );
       setEdges(
@@ -271,14 +273,30 @@ function Editor() {
   // ---- results onto the canvas ---------------------------------------------------------
 
   const errorAt = result && !result.ok ? result.error?.where ?? null : null;
-  const shownNodes = useMemo(
-    () =>
-      nodes.map((n) => ({
-        ...n,
-        data: { ...n.data, result: result?.units[n.id], hasError: errorAt === n.id, stale },
-      })),
-    [nodes, result, errorAt, stale],
+  // The flowsheet default as solved ("auto" resolved), and each unit's effective method.
+  const defaultMethod = (!stale && result?.property_method) || meta.property_method;
+  const unitMethod = useCallback(
+    (n: UnitFlowNode): string | undefined =>
+      (!stale ? (result?.units[n.id]?.property_method as string | undefined) : undefined) ??
+      n.data.property_method ??
+      (n.data.type === "Product" ? undefined : defaultMethod),
+    [result, stale, defaultMethod],
   );
+  const shownNodes = useMemo(() => {
+    const mixed = new Set(nodes.map(unitMethod).filter(Boolean)).size > 1;
+    return nodes.map((n) => ({
+      ...n,
+      data: {
+        ...n.data, result: result?.units[n.id], hasError: errorAt === n.id, stale,
+        method: mixed ? unitMethod(n) : undefined,
+      },
+    }));
+  }, [nodes, result, errorAt, stale, unitMethod]);
+
+  const setUnitMethod = (id: string, method: string | undefined) => {
+    setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, data: { ...n.data, property_method: method } } : n)));
+    touch();
+  };
   const shownEdges = useMemo(
     () =>
       edges.map((e) => {
@@ -399,7 +417,17 @@ function Editor() {
               onRename={(newId) => renameUnit(selectedNode.id, newId)}
               onChange={(p) => updateParams(selectedNode.id, p)}
               onDelete={() => deleteUnit(selectedNode.id)}
-            />
+            >
+              <UnitMethodField
+                value={selectedNode.data.property_method}
+                flowsheetMethod={defaultMethod}
+                methods={methods}
+                result={stale ? undefined : result?.units[selectedNode.id]}
+                isProduct={selectedNode.data.type === "Product"}
+                isSeparation={["Separators", "Columns"].includes(selectedNode.data.schema.category)}
+                onChange={(m) => setUnitMethod(selectedNode.id, m)}
+              />
+            </UnitInspector>
           ) : selection?.kind === "stream" ? (
             <StreamInspector id={selection.id} result={stale ? undefined : result?.streams[selection.id]} />
           ) : (

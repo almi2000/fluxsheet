@@ -107,6 +107,34 @@ print(result.streams["NGL-OUT"]["mass_flow"] * 3600, "kg/h")
 
 Plain numbers are SI (K, Pa, mol/s, W). A stream without `to` leaves the process.
 
+### Different property methods in different parts
+
+`property_method` at the top is the default for every unit. A unit can override it with its
+own `property_method`, the way commercial simulators use property sections. In
+`examples/methanol_plant.json` the high-pressure synthesis loop runs on Peng-Robinson, while
+the degasser and the methanol/water column use NRTL:
+
+```json
+{"id": "COLUMN", "type": "DistillationColumn", "property_method": "nrtl", "params": {...}}
+```
+
+We chose a per-unit field over named sections because it keeps the file flat and each unit
+says what it does where it is defined; a "section" is simply the units that share a method.
+Products without an override follow the unit that feeds them.
+
+- Each unit calculates (flashes and energy balance) with its own method.
+- Where a stream passes from one method to another, its component flows, temperature and
+  pressure are kept and it is flashed again at that T and P with the receiving unit's
+  method. Mass is conserved exactly; the enthalpy may jump by the difference between the two
+  methods' departure functions. The result lists every such crossing
+  (`property_crossings`, with the vapor fraction on both sides and the enthalpy change) and
+  warns when a crossing changes the phase noticeably: put the boundary on a stream that is
+  clearly one phase.
+- The result reports the method each unit used, and for separation units a suggestion based
+  on what that unit actually sees (its feed composition without traces, and its pressure).
+- In the editor, the unit inspector has a **Property method** select with that suggestion,
+  and nodes carry a colored method tag whenever the flowsheet mixes methods.
+
 ## Reactions and reactors
 
 Reactions are defined once per flowsheet and picked by id in a reactor. Each is checked for
