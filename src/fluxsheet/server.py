@@ -11,8 +11,10 @@ from pydantic import BaseModel
 
 from . import __version__
 from .compounds import UnknownCompoundError, lookup, search
+from .diagrams import binary_diagram, phase_envelope
 from .errors import SimulationError
 from .flowsheet import FlowsheetModel
+from .quantities import UnitError, to_si
 from .solver import solve
 from .thermo_package import METHODS, suggest_method
 from .units import UNIT_TYPES
@@ -61,6 +63,55 @@ def suggest(body: ComponentList) -> dict:
         return suggest_method(body.components).__dict__
     except (UnknownCompoundError, SimulationError) as exc:
         raise HTTPException(400, str(exc)) from exc
+
+
+class BinaryDiagramRequest(BaseModel):
+    components: list[str]
+    method: str = "auto"
+    P: float | str | None = None  # T-xy at this pressure, e.g. "1 atm"
+    T: float | str | None = None  # P-xy at this temperature, e.g. "80 degC"
+    points: int = 41
+
+
+class EnvelopeRequest(BaseModel):
+    components: list[str]
+    fractions: list[float]
+    method: str = "peng-robinson"
+
+
+def _diagram(compute) -> dict:
+    """Run a diagram calculation; errors come back like solve errors, with a hint."""
+    try:
+        return {"ok": True, **compute()}
+    except UnknownCompoundError as exc:
+        return {"ok": False, "error": {"message": str(exc), "where": None,
+                                       "hint": "search for the compound and pick it from the list"}}
+    except UnitError as exc:
+        return {"ok": False, "error": {"message": str(exc), "where": None,
+                                       "hint": "give a number with a unit, e.g. '1 atm' or '80 degC'"}}
+    except SimulationError as exc:
+        return {"ok": False, "error": exc.to_dict()}
+
+
+def _method_for(components: list[str], method: str) -> str:
+    return suggest_method(components).method if method == "auto" else method
+
+
+@app.post("/api/diagrams/binary")
+def diagram_binary(body: BinaryDiagramRequest) -> dict:
+    """T-xy (given P) or P-xy (given T) of a binary."""
+    def compute():
+        P = to_si(body.P, "pressure") if body.P is not None else None
+        T = to_si(body.T, "temperature") if body.T is not None else None
+        return binary_diagram(body.components, _method_for(body.components, body.method),
+                              P=P, T=T, points=min(max(body.points, 5), 101))
+    return _diagram(compute)
+
+
+@app.post("/api/diagrams/envelope")
+def diagram_envelope(body: EnvelopeRequest) -> dict:
+    """Bubble and dew curves of a mixture with an equation of state."""
+    return _diagram(lambda: phase_envelope(body.components, body.fractions, body.method))
 
 
 @app.get("/api/unit-types")

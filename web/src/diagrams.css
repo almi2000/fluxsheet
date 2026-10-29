@@ -1,0 +1,36 @@
+/* Phase diagram view in the results panel. Uses the tokens from styles.css. */
+.results-tabs { margin-bottom: 8px; }
+.diagrams { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 16px; align-items: start; }
+.diagram-controls { display: flex; flex-direction: column; gap: 10px; }
+.diagram-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.diagram-field > span { font-weight: 600; }
+.diagram-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.diagram-share { display: grid; grid-template-columns: 1fr 80px; align-items: center; gap: 6px; }
+.diagram-share span { font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.diagram-plot { min-width: 0; max-width: 760px; }
+.diagram-plot .profile { margin-top: 0; }
+.diagram-plot h3 { margin-top: 0; }
+/* Sized by height so the chart fits the results panel; the width follows the aspect ratio. */
+.diagram-chart {
+  display: block; width: auto; max-width: 100%; height: clamp(170px, calc(30vh - 76px), 340px);
+  background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+}
+.diagram-chart text { fill: var(--muted); font-size: 10.5px; font-variant-numeric: tabular-nums; }
+.diagram-chart .axis-label { font-size: 11px; }
+.diagram-chart .grid { stroke: var(--border); stroke-width: 1; }
+.diagram-chart .curve { fill: none; stroke-width: 2; stroke-linejoin: round; }
+.diagram-chart .curve.liquid { stroke: var(--liquid); }
+.diagram-chart .curve.vapor { stroke: var(--vapor); }
+.diagram-chart .curve.lle { stroke: var(--twophase); stroke-dasharray: 5 3; stroke-width: 1.6; }
+.diagram-chart .marker { fill: var(--bg); stroke: var(--text); stroke-width: 1.6; }
+.diagram-legend { display: flex; flex-wrap: wrap; gap: 14px; color: var(--muted); margin: 2px 0 4px; }
+.diagram-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.swatch { display: inline-block; width: 14px; height: 0; border-top: 2px solid var(--muted); }
+.swatch.liquid { border-color: var(--liquid); }
+.swatch.vapor { border-color: var(--vapor); }
+.swatch.lle { border-top-style: dashed; border-color: var(--twophase); }
+.swatch.marker { width: 8px; height: 8px; border: 1.6px solid var(--text); border-radius: 50%; }
+
+@media (max-width: 900px) {
+  .diagrams { grid-template-columns: 1fr; }
+}

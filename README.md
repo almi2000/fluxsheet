@@ -103,8 +103,8 @@ Plain numbers are SI (K, Pa, mol/s, W). A stream without `to` leaves the process
 
 ## What's included
 
-**Unit operations:** Feed, Product, Mixer, Splitter, Heater/Cooler, Flash drum, Component
-splitter, Valve, Pump, Compressor.
+**Unit operations:** Feed, Product, Mixer, Splitter, Heater/Cooler, Flash drum, Decanter
+(liquid-liquid), Component splitter, Valve, Pump, Compressor.
 
 **Property methods:**
 
@@ -113,7 +113,16 @@ splitter, Valve, Pump, Compressor.
 | Peng-Robinson | Hydrocarbons, light gases, high pressure (ChemSep binary parameters) |
 | Soave-Redlich-Kwong | Same territory, common in gas processing |
 | UNIFAC (Dortmund) | Polar, non-ideal liquids at low/moderate pressure (water, alcohols, ketones…) |
+| NRTL | Non-ideal liquids, azeotropes and liquid-liquid splits, with ChemSep binary parameters |
+| UNIQUAC | Same territory as NRTL; ChemSep parameters, size/surface from UNIFAC groups |
+| Wilson | Miscible polar mixtures (cannot represent a liquid-liquid split) |
 | Ideal (Raoult) | Similar molecules at low pressure; single compounds |
+
+NRTL, UNIQUAC and UNIFAC flashes find a second liquid phase when there is one (vapor-liquid-
+liquid equilibrium). Binary pairs missing from ChemSep are estimated by fitting to UNIFAC, and
+every solve that uses such an estimate says so in its warnings. The **Phase diagram** view in the
+results panel plots T-xy and P-xy diagrams of any two components (with azeotropes and
+liquid-liquid regions) and phase envelopes of mixtures with an equation of state.
 
 Thermodynamics and compound data come from the excellent MIT-licensed
 [`thermo`](https://github.com/CalebBell/thermo) and
@@ -125,10 +134,11 @@ extend it.
 
 - [ ] Distillation: shortcut column (Fenske–Underwood–Gilliland), then rigorous MESH column
 - [ ] Reactors: stoichiometric, equilibrium (Gibbs), CSTR/PFR with kinetics
-- [ ] NRTL / UNIQUAC with regressed binary parameters; parameter fitting from NIST ThermoML data
-- [ ] Vapor–liquid–liquid equilibrium (decanters, three-phase flash)
+- [x] NRTL / UNIQUAC / Wilson with regressed (ChemSep) binary parameters, UNIFAC estimates for gaps
+- [ ] Parameter fitting from NIST ThermoML data
+- [x] Vapor–liquid–liquid equilibrium (decanters, three-phase flash)
 - [ ] Heat exchanger (two-sided), design specs, sensitivity studies
-- [ ] Phase envelopes, T-xy / P-xy diagrams in the editor
+- [x] Phase envelopes, T-xy / P-xy diagrams in the editor
 - [ ] Undo/redo, copy/paste, auto-layout in the editor
 - [ ] CAPE-OPEN interoperability
 

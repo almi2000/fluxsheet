@@ -1,0 +1,25 @@
+{
+  "format": "fluxsheet/1",
+  "name": "Butanol-water decanter",
+  "description": "Vapor near the water/1-butanol heteroazeotrope is condensed and settles into a butanol-rich layer over a water layer.",
+  "components": ["water", "1-butanol"],
+  "property_method": "auto",
+  "units": [
+    {"id": "FEED", "type": "Feed", "ui": {"x": 40, "y": 160},
+     "params": {"T": "100 degC", "P": "1 atm",
+                "flows": {"water": "76 kmol/h", "1-butanol": "24 kmol/h"}}},
+    {"id": "CONDENSER", "type": "Heater", "ui": {"x": 240, "y": 160},
+     "params": {"T": "40 degC"}},
+    {"id": "DECANTER", "type": "Decanter", "ui": {"x": 440, "y": 160}, "params": {}},
+    {"id": "VENT", "type": "Product", "ui": {"x": 660, "y": 60}},
+    {"id": "ORGANIC", "type": "Product", "ui": {"x": 660, "y": 160}},
+    {"id": "AQUEOUS", "type": "Product", "ui": {"x": 660, "y": 260}}
+  ],
+  "streams": [
+    {"id": "S1", "from": "FEED.out", "to": "CONDENSER.in"},
+    {"id": "S2", "from": "CONDENSER.out", "to": "DECANTER.in"},
+    {"id": "S3", "from": "DECANTER.vapor", "to": "VENT.in"},
+    {"id": "S4", "from": "DECANTER.light", "to": "ORGANIC.in"},
+    {"id": "S5", "from": "DECANTER.heavy", "to": "AQUEOUS.in"}
+  ]
+}
