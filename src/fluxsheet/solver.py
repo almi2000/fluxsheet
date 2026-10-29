@@ -97,7 +97,7 @@ class Solver:
                         where=unit.id, hint="put a Mixer in front of it",
                     )
             for port in unit.outlets:
-                if (unit.id, port.name) not in used:
+                if (unit.id, port.name) not in used and port.name not in _idle_outlets(unit):
                     self.warnings.append(f"{unit.id}: outlet {port.name!r} is not connected")
 
         if not any(u.type == "Feed" for u in self.units.values()):
@@ -224,7 +224,11 @@ class Solver:
         for uid in order:
             unit = self.units[uid]
             for port, stream in self._run_unit(pkg, unit, streams).items():
-                sid = by_source.get((uid, port), f"{uid}.{port}")
+                sid = by_source.get((uid, port))
+                if sid is None:
+                    if port in _idle_outlets(unit):
+                        continue
+                    sid = f"{uid}.{port}"
                 streams[sid] = stream
 
     def _iterate(self, pkg, order, tears, result: SolveResult) -> dict[str, Stream]:
@@ -307,6 +311,14 @@ class Solver:
                 f"mass balance does not close: in {feeds_in / 1000:.6g} kg/s, "
                 f"out {leaving / 1000:.6g} kg/s"
             )
+
+
+def _idle_outlets(unit: UnitOperation) -> tuple[str, ...]:
+    """Outlets a unit leaves empty in its configuration (e.g. a total condenser's vapor).
+    Units may define ``idle_outlets()``; unconnected idle outlets are neither listed nor
+    warned about."""
+    idle = getattr(unit, "idle_outlets", None)
+    return idle() if idle else ()
 
 
 def solve(model: FlowsheetModel | dict) -> SolveResult:

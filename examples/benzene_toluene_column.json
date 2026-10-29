@@ -1,0 +1,33 @@
+{
+  "format": "fluxsheet/1",
+  "name": "Benzene-toluene distillation",
+  "description": "An equimolar benzene-toluene feed is split into 99 % benzene and 99 % toluene. The shortcut column (top) designs the column: Fenske, Underwood, Gilliland and Kirkbride give 24 stages, feed on stage 13 and a reflux ratio of 1.79 at 1.3 times minimum. The rigorous column (bottom) simulates that design stage by stage; open it to see duties and the temperature and composition profiles.",
+  "components": ["benzene", "toluene"],
+  "property_method": "peng-robinson",
+  "units": [
+    {"id": "FEED-A", "type": "Feed", "ui": {"x": 40, "y": 60},
+     "params": {"T": "90 degC", "P": "1.5 bar",
+                "flows": {"benzene": "50 kmol/h", "toluene": "50 kmol/h"}}},
+    {"id": "SHORTCUT", "type": "ShortcutColumn", "ui": {"x": 260, "y": 60},
+     "params": {"light_key": "benzene", "heavy_key": "toluene", "lk_recovery": 0.99,
+                "hk_recovery": 0.01, "reflux_factor": 1.3, "P": "1 atm"}},
+    {"id": "D-SHORTCUT", "type": "Product", "ui": {"x": 480, "y": 0}},
+    {"id": "B-SHORTCUT", "type": "Product", "ui": {"x": 480, "y": 130}},
+    {"id": "FEED-B", "type": "Feed", "ui": {"x": 40, "y": 320},
+     "params": {"T": "90 degC", "P": "1.5 bar",
+                "flows": {"benzene": "50 kmol/h", "toluene": "50 kmol/h"}}},
+    {"id": "COLUMN", "type": "DistillationColumn", "ui": {"x": 260, "y": 320},
+     "params": {"stages": 24, "feed_stage": 13, "P": "1 atm", "condenser": "total",
+                "reboiler": "kettle", "reflux_ratio": 1.79, "distillate_rate": "50 kmol/h"}},
+    {"id": "BENZENE", "type": "Product", "ui": {"x": 480, "y": 260}},
+    {"id": "TOLUENE", "type": "Product", "ui": {"x": 480, "y": 390}}
+  ],
+  "streams": [
+    {"id": "F1", "from": "FEED-A.out", "to": "SHORTCUT.in"},
+    {"id": "D1", "from": "SHORTCUT.distillate", "to": "D-SHORTCUT.in"},
+    {"id": "B1", "from": "SHORTCUT.bottoms", "to": "B-SHORTCUT.in"},
+    {"id": "F2", "from": "FEED-B.out", "to": "COLUMN.in"},
+    {"id": "DIST", "from": "COLUMN.distillate", "to": "BENZENE.in"},
+    {"id": "BOTT", "from": "COLUMN.bottoms", "to": "TOLUENE.in"}
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "format": "fluxsheet/1",
+  "name": "Lean-oil absorber",
+  "description": "Propane is recovered from a natural gas by absorption into n-decane at 30 bar. Gas enters at the bottom, lean oil at the top; eight equilibrium stages absorb about 90 % of the propane, a third of the ethane and little methane. The heat of absorption warms the column by a few kelvin; see the temperature profile.",
+  "components": ["methane", "ethane", "propane", "n-decane"],
+  "property_method": "peng-robinson",
+  "units": [
+    {"id": "GAS", "type": "Feed", "ui": {"x": 40, "y": 260},
+     "params": {"T": "30 degC", "P": "30 bar",
+                "flows": {"methane": "85 kmol/h", "ethane": "10 kmol/h", "propane": "5 kmol/h"}}},
+    {"id": "LEAN-OIL", "type": "Feed", "ui": {"x": 40, "y": 40},
+     "params": {"T": "30 degC", "P": "30 bar", "flows": {"n-decane": "40 kmol/h"}}},
+    {"id": "ABSORBER", "type": "Absorber", "ui": {"x": 280, "y": 150},
+     "params": {"stages": 8, "P": "30 bar"}},
+    {"id": "LEAN-GAS", "type": "Product", "ui": {"x": 520, "y": 40}},
+    {"id": "RICH-OIL", "type": "Product", "ui": {"x": 520, "y": 260}}
+  ],
+  "streams": [
+    {"id": "G1", "from": "GAS.out", "to": "ABSORBER.gas_in"},
+    {"id": "L1", "from": "LEAN-OIL.out", "to": "ABSORBER.liquid_in"},
+    {"id": "G2", "from": "ABSORBER.gas_out", "to": "LEAN-GAS.in"},
+    {"id": "L2", "from": "ABSORBER.liquid_out", "to": "RICH-OIL.in"}
+  ]
+}
