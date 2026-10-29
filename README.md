@@ -72,6 +72,11 @@ fluxsheet serve                # open http://127.0.0.1:8000
 For editor development, run `fluxsheet serve` and `npm run dev` (in `web/`) side by side,
 then open http://localhost:5173.
 
+In the editor, Ctrl/⌘ Z and Ctrl/⌘ Shift Z undo and redo every change, Ctrl/⌘ C / V / D copy,
+paste and duplicate the selected units (shift-click or shift-drag to select several; copies also
+paste into another editor tab as Fluxsheet JSON), and **Arrange** lays the flowsheet out left to
+right. Press `?` for all shortcuts.
+
 **Use it from Python**
 
 ```python
@@ -182,7 +187,7 @@ extend it.
 - [x] Vapor–liquid–liquid equilibrium (decanters, three-phase flash)
 - [ ] Heat exchanger (two-sided), design specs, sensitivity studies
 - [x] Phase envelopes, T-xy / P-xy diagrams in the editor
-- [ ] Undo/redo, copy/paste, auto-layout in the editor
+- [x] Undo/redo, copy/paste, auto-layout in the editor
 - [ ] CAPE-OPEN interoperability
 
 ## Project layout

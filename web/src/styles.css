@@ -234,3 +234,28 @@ table.mini th:first-child, table.mini td:first-child { text-align: left; }
 .keq-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 6px; }
 .keq-grid label { display: flex; flex-direction: column; gap: 3px; }
 .keq-grid input { width: 100%; min-width: 0; }
+
+/* Editing: undo/redo, arrange, shortcuts, multi-selection */
+.toolbar { position: relative; }
+.toolbar-group { display: flex; gap: 4px; margin-left: 12px; }
+.icon-btn { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-width: 30px; padding: 5px 8px; }
+.icon-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.dirty-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); margin-left: 7px; vertical-align: middle; }
+.banner.info { background: var(--accent-soft); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.banner.info button { padding: 3px 10px; }
+.shortcut-help {
+  position: absolute; top: calc(100% + 6px); right: 14px; z-index: 20; width: 320px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.18); padding: 12px 14px;
+}
+.shortcut-help table { width: 100%; margin-top: 8px; font-size: 12px; }
+.shortcut-help td { padding: 4px 0; border-bottom: 1px solid var(--border); }
+.shortcut-help td:first-child { white-space: nowrap; padding-right: 12px; }
+.shortcut-help p { margin: 8px 0 0; }
+kbd {
+  display: inline-block; min-width: 20px; padding: 1px 5px; text-align: center;
+  font: 600 11px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: var(--bg); border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px;
+}
+.multi-actions { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
+.multi-actions button.danger { margin-top: 0; }
