@@ -45,7 +45,8 @@ def test_activity_methods_are_listed():
 
 @pytest.mark.parametrize("method", ["nrtl", "uniquac", "wilson"])
 def test_measured_parameters_are_used_without_warning(method):
-    pkg = get_package(("water", "ethanol"), method)
+    # ThermoML fits take precedence by default (tests/test_fitting.py); this checks ChemSep.
+    pkg = get_package(("water", "ethanol"), method, prefer_fitted=False)
     assert pkg.parameter_sources == [{"pair": "water/ethanol", "source": "ChemSep"}]
     assert pkg.warnings == []
 

@@ -34,6 +34,8 @@ class SolveResult:
     units: dict[str, dict] = field(default_factory=dict)
     property_method: str | None = None
     property_method_reason: str | None = None
+    # Where each binary parameter set came from: ThermoML fit, ChemSep or UNIFAC estimate.
+    parameter_sources: list[dict] = field(default_factory=list)
     tear_streams: list[str] = field(default_factory=list)
     iterations: int = 0
     converged: bool = False
@@ -179,6 +181,7 @@ class Solver:
             pkg, reason = self._package()
             result.property_method = pkg.method
             result.property_method_reason = reason
+            result.parameter_sources = list(pkg.parameter_sources)
             self.warnings.extend(pkg.warnings)  # e.g. binary parameters estimated, not measured
             reactions = parse_reactions(self.model.reactions, pkg)
             for unit in self.units.values():

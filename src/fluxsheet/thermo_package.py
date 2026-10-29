@@ -34,6 +34,7 @@ from thermo.unifac import DOUFIP2016, DOUFSG
 
 from .compounds import lookup
 from .errors import SimulationError
+from .fitting import store as fitted_store
 
 
 @dataclass(frozen=True)
@@ -67,14 +68,16 @@ METHODS: dict[str, Method] = {
             "nrtl",
             "NRTL",
             "Activity-coefficient model with binary parameters regressed to measured "
-            "phase-equilibrium data (ChemSep databank). The first choice for strongly non-ideal "
+            "phase-equilibrium data (Fluxsheet's NIST ThermoML fits, else the ChemSep "
+            "databank). The first choice for strongly non-ideal "
             "liquids, azeotropes and liquid-liquid splits (decanters), at low to moderate "
             "pressure. Pairs without data are estimated from UNIFAC and flagged. Ideal vapor.",
         ),
         Method(
             "uniquac",
             "UNIQUAC",
-            "Activity-coefficient model with ChemSep binary parameters; molecular size and "
+            "Activity-coefficient model with binary parameters regressed to measured data "
+            "(NIST ThermoML fits, else ChemSep); molecular size and "
             "surface from UNIFAC groups. Handles azeotropes and liquid-liquid splits. Pairs "
             "without data are estimated from UNIFAC and flagged. Ideal vapor.",
         ),
@@ -175,17 +178,19 @@ def suggest_method(components: list[str]) -> Suggestion:
         lle = (f"UNIFAC predicts that {pairs} {verb} two liquid phases at 25 °C, so expect a "
                "liquid-liquid split (a Decanter can separate it). ")
         unmeasured = [f"{a}/{b}" for a, b, ca, cb in splits
-                      if not IPDB.has_ip_specific(_GE_TABLES["nrtl"], [ca, cb], "bij")]
+                      if not IPDB.has_ip_specific(_GE_TABLES["nrtl"], [ca, cb], "bij")
+                      and fitted_store.lookup("nrtl", ca, cb) is None]
         if not unmeasured:
             return Suggestion(
                 "nrtl",
-                lle + "NRTL with ChemSep binary parameters, regressed to measured data, "
-                "describes both liquid phases and the vapor in equilibrium with them; Wilson "
-                "cannot represent a split at all.",
+                lle + "NRTL with binary parameters regressed to measured data (Fluxsheet's "
+                "NIST ThermoML fits or the ChemSep databank) describes both liquid phases and "
+                "the vapor in equilibrium with them; Wilson cannot represent a split at all.",
             )
         return Suggestion(
             "unifac",
-            lle + f"ChemSep has no measured NRTL parameters for {', '.join(unmeasured)}, so "
+            lle + f"There are no measured NRTL parameters (ChemSep or ThermoML fit) for "
+            f"{', '.join(unmeasured)}, so "
             "the predictive UNIFAC model, which also captures liquid-liquid splits, is the "
             "safer choice.",
         )
@@ -212,6 +217,8 @@ def _constants(cas_numbers: tuple[str, ...]):
 
 # Binary parameter tables from the ChemSep databank, as shipped with `thermo`.
 _GE_TABLES = {"nrtl": "ChemSep NRTL", "uniquac": "ChemSep UNIQUAC", "wilson": "ChemSep Wilson"}
+# Methods with parameters regressed by Fluxsheet to NIST ThermoML data (fluxsheet.fitting).
+_FITTED_METHODS = ("nrtl", "uniquac")
 # Methods whose liquid model can describe two coexisting liquid phases.
 LLE_METHODS = ("nrtl", "uniquac", "unifac")
 
@@ -309,7 +316,9 @@ def _estimate_binary(method: str, cas_a: str, cas_b: str):
 
 
 class PropertyPackage:
-    def __init__(self, components: list[str], method: str):
+    def __init__(self, components: list[str], method: str, prefer_fitted: bool = True):
+        """``prefer_fitted``: for NRTL and UNIQUAC, use Fluxsheet's ThermoML fits over ChemSep
+        parameters when both exist (ThermoML fits always fill pairs ChemSep lacks)."""
         if method not in METHODS:
             raise SimulationError(
                 f"unknown property method {method!r}",
@@ -320,6 +329,7 @@ class PropertyPackage:
                 "the flowsheet has no components", hint="add at least one compound"
             )
         self.method = method
+        self.prefer_fitted = prefer_fitted
         self.compounds = [lookup(c) for c in components]
         self.names = list(components)
         cas = tuple(c.cas for c in self.compounds)
@@ -403,7 +413,11 @@ class PropertyPackage:
         return FlashVL(c, p, liquid=liquid, gas=gas)
 
     def _regressed_model(self):
-        """NRTL, UNIQUAC or Wilson with ChemSep parameters; UNIFAC estimates fill the gaps."""
+        """NRTL, UNIQUAC or Wilson with measured parameters; UNIFAC estimates fill the gaps.
+
+        Per pair: Fluxsheet's ThermoML fit (NRTL, UNIQUAC; first if ``prefer_fitted``), the
+        ChemSep set, a ThermoML fit, then a UNIFAC estimate.
+        """
         c, n, table = self.consts, self.n, _GE_TABLES[self.method]
         if self.method == "uniquac":
             for name, r, q in zip(self.names, c.UNIFAC_Rs, c.UNIFAC_Qs):
@@ -422,7 +436,18 @@ class PropertyPackage:
         for i in range(n):
             for j in range(i + 1, n):
                 pair = f"{self.names[i]}/{self.names[j]}"
-                if IPDB.has_ip_specific(table, [c.CASs[i], c.CASs[j]], "bij"):
+                chemsep = IPDB.has_ip_specific(table, [c.CASs[i], c.CASs[j]], "bij")
+                fitted = (fitted_store.lookup(self.method, c.CASs[i], c.CASs[j])
+                          if self.method in _FITTED_METHODS else None)
+                if fitted is not None and (self.prefer_fitted or not chemsep):
+                    a[i][j], a[j][i] = fitted.a_ij, fitted.a_ji
+                    b[i][j], b[j][i] = fitted.b_ij, fitted.b_ji
+                    if alpha is not None:
+                        alpha[i][j] = alpha[j][i] = fitted.alpha
+                    self.parameter_sources.append({"pair": pair, "source": "ThermoML fit",
+                                                   **fitted.provenance()})
+                    continue
+                if chemsep:
                     self.parameter_sources.append({"pair": pair, "source": "ChemSep"})
                     continue
                 est = _estimate_binary(self.method, c.CASs[i], c.CASs[j])
@@ -439,7 +464,8 @@ class PropertyPackage:
                     alpha[i][j] = alpha[j][i] = alpha_value
                 self.parameter_sources.append({"pair": pair, "source": "UNIFAC estimate"})
                 self.warnings.append(
-                    f"{label}: ChemSep has no measured binary parameters for {pair}; they were "
+                    f"{label}: there are no measured binary parameters (ChemSep or ThermoML "
+                    f"fit) for {pair}; they were "
                     "estimated by fitting to UNIFAC (Dortmund) predictions. Treat results for "
                     "this pair as predictive, not data-based."
                 )
@@ -724,5 +750,6 @@ class _FlashVLLE(FlashVLN):
 
 
 @lru_cache(maxsize=16)
-def get_package(components: tuple[str, ...], method: str) -> PropertyPackage:
-    return PropertyPackage(list(components), method)
+def get_package(components: tuple[str, ...], method: str,
+                prefer_fitted: bool = True) -> PropertyPackage:
+    return PropertyPackage(list(components), method, prefer_fitted)
