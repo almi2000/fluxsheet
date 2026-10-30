@@ -20,7 +20,8 @@ classifiers = [
 dependencies = [
   "thermo>=0.4",
   "pydantic>=2.6",
-  "scipy>=1.10",  # reactor solvers; also a dependency of thermo
+  "scipy>=1.10",  # reactor solvers, parameter fitting; also a dependency of thermo
+  "defusedxml>=0.7",  # safe parsing of downloaded ThermoML files
 ]
 
 [project.optional-dependencies]

@@ -230,14 +230,16 @@ Stage profiles (temperature, flows, compositions) show up in the inspector.
 | Peng-Robinson | Hydrocarbons, light gases, high pressure (ChemSep binary parameters) |
 | Soave-Redlich-Kwong | Same territory, common in gas processing |
 | UNIFAC (Dortmund) | Polar, non-ideal liquids at low/moderate pressure (water, alcohols, ketones…) |
-| NRTL | Non-ideal liquids, azeotropes and liquid-liquid splits, with ChemSep binary parameters |
-| UNIQUAC | Same territory as NRTL; ChemSep parameters, size/surface from UNIFAC groups |
+| NRTL | Non-ideal liquids, azeotropes and liquid-liquid splits; binary parameters fitted to NIST ThermoML data, else ChemSep |
+| UNIQUAC | Same territory as NRTL; ThermoML-fitted or ChemSep parameters, size/surface from UNIFAC groups |
 | Wilson | Miscible polar mixtures (cannot represent a liquid-liquid split) |
 | Ideal (Raoult) | Similar molecules at low pressure; single compounds |
 
 NRTL, UNIQUAC and UNIFAC flashes find a second liquid phase when there is one (vapor-liquid-
-liquid equilibrium). Binary pairs missing from ChemSep are estimated by fitting to UNIFAC, and
-every solve that uses such an estimate says so in its warnings. The **Phase diagram** view in the
+liquid equilibrium). NRTL and UNIQUAC use Fluxsheet's own parameters regressed to measured
+data from the NIST ThermoML Archive where they exist (`fluxsheet fit-binary water ethanol`
+refits a pair), then ChemSep's; pairs without data are estimated by fitting to UNIFAC. Every
+solve lists the source of each binary pair, and says so in its warnings when one is estimated. The **Phase diagram** view in the
 results panel plots T-xy and P-xy diagrams of any two components (with azeotropes and
 liquid-liquid regions) and phase envelopes of mixtures with an equation of state.
 
@@ -252,7 +254,7 @@ extend it.
 - [x] Distillation: shortcut column (Fenske–Underwood–Gilliland), then rigorous MESH column
 - [x] Reactors: stoichiometric, yield, equilibrium, Gibbs, CSTR/PFR with kinetics
 - [x] NRTL / UNIQUAC / Wilson with regressed (ChemSep) binary parameters, UNIFAC estimates for gaps
-- [ ] Parameter fitting from NIST ThermoML data
+- [x] NRTL/UNIQUAC parameter fitting from NIST ThermoML data (`fluxsheet fit-binary`), seed set of common pairs
 - [x] Vapor–liquid–liquid equilibrium (decanters, three-phase flash)
 - [x] Heat exchanger (two-sided), design specs, sensitivity studies
 - [x] Phase envelopes, T-xy / P-xy diagrams in the editor

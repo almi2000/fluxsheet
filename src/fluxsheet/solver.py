@@ -35,6 +35,8 @@ class SolveResult:
     units: dict[str, dict] = field(default_factory=dict)
     property_method: str | None = None
     property_method_reason: str | None = None
+    # Where each binary parameter set came from: ThermoML fit, ChemSep or UNIFAC estimate.
+    parameter_sources: list[dict] = field(default_factory=list)
     # Streams re-flashed where they pass from one property method to another.
     property_crossings: list[dict] = field(default_factory=list)
     tear_streams: list[str] = field(default_factory=list)
@@ -183,9 +185,14 @@ class Solver:
             pkg, reason = self._package()
             result.property_method = pkg.method
             result.property_method_reason = reason
+            result.parameter_sources = list(pkg.parameter_sources)
             self.warnings.extend(pkg.warnings)  # e.g. binary parameters estimated, not measured
             self.sections = PropertySections(self.model, pkg, self.units, self.connections)
             self.warnings.extend(self.sections.warnings())
+            for method, other in self.sections.packages.items():  # per-unit methods
+                if other is not pkg:
+                    result.parameter_sources.extend({**s, "method": method}
+                                                    for s in other.parameter_sources)
             reactions = parse_reactions(self.model.reactions, pkg)
             for unit in self.units.values():
                 if hasattr(unit, "reactions"):  # reactors run the flowsheet's reactions
