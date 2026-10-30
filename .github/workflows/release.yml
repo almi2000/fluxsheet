@@ -1,0 +1,81 @@
+name: Release
+
+# Push a tag like v0.2.0 to build the editor, wheel and sdist, attach them to a GitHub
+# release and (once PyPI trusted publishing is set up) publish to PyPI.
+#
+# PyPI setup, once: on pypi.org add a "pending publisher" for project `fluxsheet` with
+# owner almi2000, repository fluxsheet, workflow release.yml, environment pypi. Then set the
+# repository variable PUBLISH_TO_PYPI to true (Settings > Secrets and variables > Actions >
+# Variables). No API token is stored anywhere.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci && npm run build
+        working-directory: web
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check that the tag matches the package version
+        run: |
+          version=$(python -c "import re; print(re.search(r'__version__ = \"(.+)\"', open('src/fluxsheet/__init__.py').read())[1])")
+          test "v$version" = "$GITHUB_REF_NAME" || { echo "tag $GITHUB_REF_NAME != version $version"; exit 1; }
+      - run: pip install build
+      - run: FLUXSHEET_REQUIRE_WEB=1 python -m build
+      - name: Smoke-test the wheel
+        run: |
+          python -m venv /tmp/check
+          /tmp/check/bin/pip install "$(ls dist/*.whl)[server]"
+          /tmp/check/bin/python -c "import fluxsheet.server as s; assert s._dist.is_dir() and any(s._examples.glob('*.json')); print('wheel ok', s.__file__)"
+          /tmp/check/bin/fluxsheet run examples/ethanol_flash.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  github-release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - name: Create the release with notes from CHANGELOG.md
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          awk -v v="$version" '$0 ~ "^## \\[" v "\\]" {f=1; next} /^## \[/ {f=0} f' CHANGELOG.md > notes.md
+          gh release create "$GITHUB_REF_NAME" dist/* --title "Fluxsheet $version" --notes-file notes.md
+
+  pypi:
+    needs: build
+    if: vars.PUBLISH_TO_PYPI == 'true'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

@@ -32,7 +32,17 @@ interfaces. Fluxsheet aims for both: a modern editor *and* a clean Python core.
 
 ## Quick start
 
-Requires Python ≥ 3.10 and, for the editor, Node.js ≥ 18.
+**Try it online** at <https://fluxsheet.boxingenieur.org>, a small public demo that limits each
+calculation to 60 s. For real work, install it locally:
+
+```bash
+pip install "fluxsheet[server]"    # Python ≥ 3.10
+fluxsheet serve                    # open http://127.0.0.1:8000
+```
+
+or run the container: `docker build -t fluxsheet . && docker run -p 8000:8000 -e FLUXSHEET_DEMO=0 fluxsheet`.
+
+**From source** (for development; the editor needs Node.js ≥ 18):
 
 ```bash
 git clone https://github.com/almi2000/fluxsheet.git

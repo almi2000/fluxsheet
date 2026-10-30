@@ -12,6 +12,7 @@ from typing import Any
 
 from .errors import SimulationError
 from .flowsheet import FlowsheetModel
+from .limits import check_deadline
 from .property_sections import PropertySections
 from .reactions import parse_reactions
 from .stream import Stream
@@ -219,6 +220,7 @@ class Solver:
         return result
 
     def _run_unit(self, pkg, unit: UnitOperation, streams: dict[str, Stream]) -> dict[str, Stream]:
+        check_deadline(unit.id)  # demo server time budget; no-op otherwise
         inlets: dict[str, list[Stream]] = {p.name: [] for p in unit.inlets}
         for c in self.connections:
             if c.dst_unit == unit.id:  # re-flashed if it comes from another property method

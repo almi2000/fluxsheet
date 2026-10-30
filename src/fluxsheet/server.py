@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import __version__
+from . import __version__, limits
 from .compounds import UnknownCompoundError, lookup, search
 from .diagrams import binary_diagram, phase_envelope
 from .errors import SimulationError
@@ -27,6 +28,26 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def _limit_body_size(request: Request, call_next):
+    """On the demo server, refuse oversized requests before reading them."""
+    size = request.headers.get("content-length")
+    if limits.DEMO and size and size.isdigit() and int(size) > limits.MAX_BODY_BYTES:
+        return JSONResponse({"detail": "request too large for the demo server"}, status_code=413)
+    return await call_next(request)
+
+
+def _limited(compute) -> dict:
+    """Run a calculation under the demo limits (no-op locally); see limits.py."""
+    try:
+        with limits.calculation():
+            return compute()
+    except limits.Busy as exc:
+        raise HTTPException(
+            503, "the demo server is busy with another calculation; please try again shortly"
+        ) from exc
 
 
 class ComponentList(BaseModel):
@@ -83,7 +104,7 @@ class EnvelopeRequest(BaseModel):
 def _diagram(compute) -> dict:
     """Run a diagram calculation; errors come back like solve errors, with a hint."""
     try:
-        return {"ok": True, **compute()}
+        return _limited(lambda: {"ok": True, **compute()})
     except UnknownCompoundError as exc:
         return {"ok": False, "error": {"message": str(exc), "where": None,
                                        "hint": "search for the compound and pick it from the list"}}
@@ -120,7 +141,14 @@ def unit_types() -> list[dict]:
     return [cls.schema() for cls in UNIT_TYPES.values()]
 
 
-_examples = Path(__file__).resolve().parents[2] / "examples"
+def _bundled(package_path: str, repo_path: str) -> Path:
+    """A data folder inside the installed package (wheel), else in the source checkout."""
+    here = Path(__file__).resolve().parent
+    bundled = here / package_path
+    return bundled if bundled.is_dir() else here.parents[1] / repo_path
+
+
+_examples = _bundled("examples", "examples")
 
 
 @app.get("/api/examples")
@@ -143,7 +171,10 @@ def example(name: str) -> dict:
 @app.post("/api/solve")
 def solve_flowsheet(model: FlowsheetModel) -> dict:
     try:
-        return solve(model).to_dict()
+        limits.check_model_size(model)
+        return _limited(lambda: solve(model).to_dict())
+    except SimulationError as exc:
+        return {"ok": False, "error": exc.to_dict()}
     except UnknownCompoundError as exc:
         return {"ok": False, "error": {"message": str(exc), "where": None,
                                        "hint": "search for the compound and pick it from the list"}}
@@ -158,13 +189,16 @@ class SensitivityRequest(BaseModel):
 def sensitivity(body: SensitivityRequest) -> dict:
     """Solve the flowsheet at every point of a sensitivity study; see sensitivity.py."""
     try:
-        return run_sensitivity(body.model, body.study)
+        limits.check_model_size(body.model)
+        return _limited(lambda: run_sensitivity(body.model, body.study))
+    except SimulationError as exc:
+        return {"ok": False, "error": exc.to_dict()}
     except UnknownCompoundError as exc:
         return {"ok": False, "error": {"message": str(exc), "where": None,
                                        "hint": "search for the compound and pick it from the list"}}
 
 
-# Serve the built web editor (web/dist) from the same origin when it exists.
-_dist = Path(__file__).resolve().parents[2] / "web" / "dist"
+# Serve the built web editor from the same origin when it exists.
+_dist = _bundled("web", "web/dist")
 if _dist.is_dir():
     app.mount("/", StaticFiles(directory=_dist, html=True), name="web")
