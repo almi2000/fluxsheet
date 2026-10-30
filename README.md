@@ -32,8 +32,7 @@ interfaces. Fluxsheet aims for both: a modern editor *and* a clean Python core.
 
 ## Quick start
 
-**Try it online** at <https://fluxsheet.boxingenieur.org>, a small public demo that limits each
-calculation to 60 s. For real work, install it locally:
+Install it locally:
 
 ```bash
 pip install "fluxsheet[server]"    # Python ≥ 3.10
