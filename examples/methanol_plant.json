@@ -1,7 +1,7 @@
 {
   "format": "fluxsheet/1",
   "name": "Methanol synthesis loop",
-  "description": "Syngas is converted to methanol in an equilibrium reactor at 250 °C and 50 bar. The product is cooled and flashed; the unconverted gas is recompressed and recycled, with a small purge to keep the inert methane from building up. The crude methanol is degassed and distilled into methanol and water. The high-pressure loop uses Peng-Robinson (the flowsheet default); the degasser and the column override it with NRTL, which describes the non-ideal methanol/water liquid with measured binary parameters.",
+  "description": "Syngas is converted to methanol in an equilibrium reactor at 250 °C and 50 bar. The product is cooled and flashed; the unconverted gas is recompressed and recycled, with a small purge to keep the inert methane from building up. The crude methanol is degassed and distilled into methanol and water. The high-pressure loop uses Peng-Robinson (the flowsheet default); the degasser and the column override it with NRTL, which describes the non-ideal methanol/water liquid with measured binary parameters. The distillate rate is set so the water leaves the column at 99.8 %; the inactive design spec BOTTOMS_PURITY finds that rate automatically if feed or conditions change (activate it in the flowsheet settings; each run then re-solves the loop a few times).",
   "components": [
     "carbon monoxide",
     "carbon dioxide",
@@ -181,7 +181,7 @@
         "condenser": "partial",
         "reboiler": "kettle",
         "reflux_ratio": 1.5,
-        "distillate_rate": "100.4 kmol/h"
+        "distillate_rate": "100.675 kmol/h"
       }
     },
     {
@@ -276,6 +276,24 @@
       "id": "BOTTOMS",
       "from": "COLUMN.bottoms",
       "to": "WATER.in"
+    }
+  ],
+  "design_specs": [
+    {
+      "id": "BOTTOMS_PURITY",
+      "target": {
+        "stream": "BOTTOMS",
+        "property": "mole_fraction",
+        "component": "water"
+      },
+      "value": 0.998,
+      "vary": {
+        "unit": "COLUMN",
+        "param": "distillate_rate",
+        "lower": "99.5 kmol/h",
+        "upper": "100.9 kmol/h"
+      },
+      "active": false
     }
   ]
 }

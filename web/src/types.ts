@@ -152,6 +152,9 @@ export interface SolveResult {
   property_method: string | null;
   property_method_reason: string | null;
   property_crossings?: unknown[]; // streams re-flashed between methods; see PropertyMethods.tsx
+  // Where each binary parameter set came from ("ThermoML fit", "ChemSep", "UNIFAC estimate",
+  // "none (ideal)"); `method` is set for pairs of a per-unit method other than the default.
+  parameter_sources?: { pair: string; source: string; method?: string }[];
   tear_streams: string[];
   iterations: number;
   converged: boolean;

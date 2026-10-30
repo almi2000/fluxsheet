@@ -46,8 +46,17 @@ def _run(args) -> int:
     print(f"Property method: {result.property_method}")
     if result.property_method_reason:
         print(f"  ({result.property_method_reason})")
+    # Binary parameter provenance, grouped by source so wide component lists stay readable.
+    by_source: dict[str, list[str]] = {}
     for src in result.parameter_sources:
-        print(f"  binary parameters {src['pair']}: {src['source']}")
+        pair = f"{src['pair']} ({src['method']})" if src.get("method") else src["pair"]
+        by_source.setdefault(src["source"], []).append(pair)
+    def rank(source: str) -> int:  # measured data first, then estimates, then nothing
+        return {"ThermoML fit": 0, "ChemSep": 1}.get(source, 2 if source.startswith("UNIFAC") else 3)
+
+    for source, pairs in sorted(by_source.items(), key=lambda kv: rank(kv[0])):
+        shown = ", ".join(pairs) if len(pairs) <= 3 else f"{', '.join(pairs[:3])} and {len(pairs) - 3} more"
+        print(f"  binary parameters, {source}: {shown}")
     if result.tear_streams:
         print(f"Recycle: tear {', '.join(result.tear_streams)}, "
               f"converged in {result.iterations} iterations")

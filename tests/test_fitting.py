@@ -323,3 +323,25 @@ def test_per_unit_method_also_uses_and_reports_the_fit():
     assert r.parameter_sources == [
         {**r.parameter_sources[0], "pair": "water/ethanol", "source": "ThermoML fit",
          "method": "nrtl"}]
+
+
+def test_cli_groups_parameter_sources_measured_first(tmp_path, capsys):
+    import json
+
+    from fluxsheet.cli import main
+
+    model = {
+        "components": ["water", "ethanol", "methane"], "property_method": "nrtl",
+        "units": [
+            {"id": "F", "type": "Feed", "params": {
+                "T": "25 degC", "P": "1 atm",
+                "flows": {"water": 1, "ethanol": 1, "methane": 0.01}}},
+        ],
+        "streams": [{"id": "S1", "from": "F.out"}],
+    }
+    path = tmp_path / "fs.json"
+    path.write_text(json.dumps(model))
+    assert main(["run", str(path)]) == 0
+    lines = [ln for ln in capsys.readouterr().out.splitlines() if ln.startswith("  binary parameters,")]
+    assert lines[0] == "  binary parameters, ThermoML fit: water/ethanol"
+    assert len(lines) == 2 and "methane" in lines[1]

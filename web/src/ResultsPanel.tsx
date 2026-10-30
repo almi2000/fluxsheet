@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Diagrams } from "./Diagrams";
-import { MethodsSummary, shortMethod } from "./PropertyMethods";
+import { MethodsSummary, ParameterSources, shortMethod } from "./PropertyMethods";
 import { fmt, formatQuantity } from "./quantities";
 import { SensitivityView } from "./SensitivityView";
 import type { FlowsheetModel, SensitivityStudy, SolveResult } from "./types";
@@ -87,6 +87,7 @@ export function ResultsPanel({
           )}
         </div>
         <MethodsSummary result={result} />
+        <ParameterSources result={result} />
         {result.tear_streams.length > 0 && (
           <span>
             Recycle via <b>{result.tear_streams.join(", ")}</b> converged in <b>{result.iterations}</b> iterations

@@ -141,3 +141,29 @@ export function MethodsSummary({ result }: { result: SolveResult }) {
     </>
   );
 }
+
+/** Binary parameter provenance at a glance: counts per source, pairs on hover. */
+export function ParameterSources({ result }: { result: SolveResult }) {
+  const sources = result.parameter_sources ?? [];
+  if (sources.length === 0) return null;
+  const bySource: Record<string, string[]> = {};
+  for (const s of sources) {
+    const pair = s.method ? `${s.pair} (${shortMethod(s.method)})` : s.pair;
+    (bySource[s.source] ??= []).push(pair);
+  }
+  // Measured data first, then estimates, then pairs without any parameters.
+  const rank = (src: string) =>
+    src === "ThermoML fit" ? 0 : src === "ChemSep" ? 1 : src.startsWith("UNIFAC") ? 2 : 3;
+  const entries = Object.entries(bySource).sort((a, b) => rank(a[0]) - rank(b[0]));
+  return (
+    <span>
+      Binary parameters{" "}
+      {entries.map(([src, pairs], i) => (
+        <span key={src} title={pairs.join("\n")} className={rank(src) >= 2 ? "warn-text" : undefined}>
+          {i > 0 && " · "}
+          <b>{pairs.length}</b> {src}
+        </span>
+      ))}
+    </span>
+  );
+}

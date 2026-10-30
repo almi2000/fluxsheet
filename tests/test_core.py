@@ -217,3 +217,14 @@ def test_units_downstream_of_a_recycle_run_once_after_convergence(monkeypatch):
     assert r.iterations > 1
     assert calls.count("NGL_HEATER") == 1
     assert calls.count("CHILLER") == r.iterations
+
+
+def test_methanol_example_meets_its_product_purities():
+    # Guards the combined example: a fixed distillate rate that no longer matches the
+    # column feed silently pushes methanol into the bottoms.
+    r = solve(FlowsheetModel.load(EXAMPLES / "methanol_plant.json"))
+    assert r.ok, r.error
+    assert r.streams["MEOH"]["mole_fractions"]["methanol"] > 0.997
+    assert r.streams["BOTTOMS"]["mole_fractions"]["water"] > 0.997
+    sources = {s["pair"]: s["source"] for s in r.parameter_sources}
+    assert sources["methanol/water"] == "ThermoML fit"
