@@ -19,13 +19,17 @@ from fluxsheet.fitting.regression import FitOptions
 SEED_PAIRS = [
     ("water", "ethanol"),
     ("water", "methanol"),
-    ("methanol", "ethanol"),
-    ("acetone", "water"),
-    ("water", "1-butanol"),
+    ("water", "1-propanol"),
+    ("water", "2-propanol"),
+    ("acetone", "methanol"),
     ("ethanol", "ethyl acetate"),
+    ("methanol", "ethyl acetate"),
     ("benzene", "toluene"),
-    ("toluene", "methylcyclohexane"),
 ]
+# Looked at but not in the set (see docs/data-sources.md): water/1-butanol (one VLE set; the
+# VLE-only fit mispredicts the liquid-liquid split, which needs a joint VLE+LLE fit), and
+# methanol/ethanol, acetone/water, toluene/methylcyclohexane (no complete T-P-x-y set in the
+# archive that passes the selection rules).
 
 
 def _fmt(stats: dict, key: str) -> str:

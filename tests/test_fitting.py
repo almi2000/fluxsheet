@@ -313,3 +313,13 @@ def test_cli_fit_binary_offline_from_cache(tmp_path, capsys):
     entry = store.load("nrtl", tmp_path)["pairs"][0]
     assert entry["sources"][0]["doi"] == "10.9999/test01"
     assert entry["n_points"] + entry["n_rejected_points"] == 5
+
+
+def test_per_unit_method_also_uses_and_reports_the_fit():
+    from test_property_sections import ethanol_flash
+
+    r = solve(ethanol_flash(drum_method="nrtl", default="unifac"))
+    assert r.ok, r.error
+    assert r.parameter_sources == [
+        {**r.parameter_sources[0], "pair": "water/ethanol", "source": "ThermoML fit",
+         "method": "nrtl"}]

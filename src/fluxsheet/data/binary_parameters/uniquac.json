@@ -8,6 +8,128 @@
     {
       "components": [
         {
+          "name": "acetone",
+          "cas": "67-64-1"
+        },
+        {
+          "name": "methanol",
+          "cas": "67-56-1"
+        }
+      ],
+      "a12": 0.0,
+      "a21": 0.0,
+      "b12": -231.6396,
+      "b21": 59.5737,
+      "fitted": [
+        "b12",
+        "b21"
+      ],
+      "T_range_K": [
+        327.96,
+        337.05
+      ],
+      "P_range_kPa": [
+        100.0,
+        101.3
+      ],
+      "n_points": 155,
+      "n_rejected_points": 1,
+      "n_datasets": 7,
+      "fit": {
+        "AAD_T_K": 0.163,
+        "RMS_T_K": 0.203,
+        "AAD_y": 0.003,
+        "RMS_y": 0.0042
+      },
+      "comparison": {
+        "ChemSep": {
+          "AAD_T_K": 0.17,
+          "RMS_T_K": 0.239,
+          "AAD_y": 0.0031,
+          "RMS_y": 0.0042
+        },
+        "UNIFAC estimate": {
+          "AAD_T_K": 0.163,
+          "RMS_T_K": 0.209,
+          "AAD_y": 0.0027,
+          "RMS_y": 0.0039
+        }
+      },
+      "sources": [
+        {
+          "doi": "10.1021/je5007373",
+          "citation": "Chen et al., J. Chem. Eng. Data 60 (2015) 612-620",
+          "datasets": [
+            "isobaric 101.3 kPa"
+          ]
+        },
+        {
+          "doi": "10.1016/j.fluid.2006.09.007",
+          "citation": "Vercher et al., Fluid Phase Equilib. 250 (2006) 131-137",
+          "datasets": [
+            "isobaric 100 kPa"
+          ]
+        },
+        {
+          "doi": "10.1021/je0603170",
+          "citation": "Orchilles et al., J. Chem. Eng. Data 52 (2007) 141-147",
+          "datasets": [
+            "isobaric 100 kPa"
+          ]
+        },
+        {
+          "doi": "10.1016/j.fluid.2017.03.014",
+          "citation": "Li et al., Fluid Phase Equilib. 442 (2017) 20-27",
+          "datasets": [
+            "isobaric 101.3 kPa"
+          ]
+        },
+        {
+          "doi": "10.1016/j.fluid.2017.11.035",
+          "citation": "Li et al., Fluid Phase Equilib. 459 (2018) 10-17",
+          "datasets": [
+            "isobaric 101 kPa"
+          ]
+        },
+        {
+          "doi": "10.1016/j.fluid.2014.10.011",
+          "citation": "Li et al., Fluid Phase Equilib. 383 (2014) 182-187",
+          "datasets": [
+            "isobaric 101.3 kPa"
+          ]
+        },
+        {
+          "doi": "10.1021/je049688b",
+          "citation": "Al-Asheh and Banat, J. Chem. Eng. Data 50 (2005) 1789-1793",
+          "datasets": [
+            "isobaric 101 kPa"
+          ]
+        }
+      ],
+      "rejected_datasets": [
+        {
+          "doi": "10.1016/j.fluid.2012.12.006",
+          "dataset": 1,
+          "conditions": "isothermal 313.34 K",
+          "points": 13,
+          "used": false,
+          "reason": "failed the point consistency test",
+          "rejected_points": 0,
+          "point_test": {
+            "passed": false,
+            "value": 0.2655
+          },
+          "area_test": {
+            "passed": false,
+            "value": 22.4455
+          }
+        }
+      ],
+      "fitted_on": "2026-10-30"
+    },
+    {
+      "components": [
+        {
           "name": "benzene",
           "cas": "71-43-2"
         },
@@ -93,7 +215,7 @@
         }
       ],
       "rejected_datasets": [],
-      "fitted_on": "2026-10-29"
+      "fitted_on": "2026-10-30"
     },
     {
       "components": [
@@ -209,7 +331,120 @@
           }
         }
       ],
-      "fitted_on": "2026-10-29"
+      "fitted_on": "2026-10-30"
+    },
+    {
+      "components": [
+        {
+          "name": "methanol",
+          "cas": "67-56-1"
+        },
+        {
+          "name": "ethyl acetate",
+          "cas": "141-78-6"
+        }
+      ],
+      "a12": 0.0,
+      "a21": 0.0,
+      "b12": 78.1243,
+      "b21": -384.8186,
+      "fitted": [
+        "b12",
+        "b21"
+      ],
+      "T_range_K": [
+        335.45,
+        348.74
+      ],
+      "P_range_kPa": [
+        100.0,
+        101.3
+      ],
+      "n_points": 57,
+      "n_rejected_points": 0,
+      "n_datasets": 3,
+      "fit": {
+        "AAD_T_K": 0.296,
+        "RMS_T_K": 0.348,
+        "AAD_y": 0.0062,
+        "RMS_y": 0.0072
+      },
+      "comparison": {
+        "ChemSep": {
+          "AAD_T_K": 0.461,
+          "RMS_T_K": 0.578,
+          "AAD_y": 0.0046,
+          "RMS_y": 0.0062
+        },
+        "UNIFAC estimate": {
+          "AAD_T_K": 0.319,
+          "RMS_T_K": 0.383,
+          "AAD_y": 0.0057,
+          "RMS_y": 0.0072
+        }
+      },
+      "sources": [
+        {
+          "doi": "10.1021/je100614r",
+          "citation": "Susial et al., J. Chem. Eng. Data 55 (2010) 5701-5706",
+          "datasets": [
+            "isobaric 100 kPa"
+          ]
+        },
+        {
+          "doi": "10.1021/acs.jced.5b00546",
+          "citation": "Zhang et al., J. Chem. Eng. Data 61 (2016) 772-779",
+          "datasets": [
+            "isobaric 101.3 kPa"
+          ]
+        },
+        {
+          "doi": "10.1021/acs.jced.8b00424",
+          "citation": "Li et al., J. Chem. Eng. Data 64 (2019) 34-41",
+          "datasets": [
+            "isobaric 101.3 kPa"
+          ]
+        }
+      ],
+      "rejected_datasets": [
+        {
+          "doi": "10.1021/je100614r",
+          "dataset": 8,
+          "conditions": "isobaric 500 kPa",
+          "points": 28,
+          "used": false,
+          "reason": "pressure above 300 kPa",
+          "rejected_points": 0,
+          "point_test": {
+            "passed": true,
+            "value": 0.0099
+          },
+          "area_test": {
+            "passed": true,
+            "value": -5.7582,
+            "note": "D = 3.4, J = 9.1"
+          }
+        },
+        {
+          "doi": "10.1021/je100614r",
+          "dataset": 8,
+          "conditions": "isobaric 700 kPa",
+          "points": 27,
+          "used": false,
+          "reason": "pressure above 300 kPa",
+          "rejected_points": 0,
+          "point_test": {
+            "passed": true,
+            "value": 0.0096
+          },
+          "area_test": {
+            "passed": true,
+            "value": -6.4857,
+            "note": "D = 2.8, J = 9.3"
+          }
+        }
+      ],
+      "fitted_on": "2026-10-30"
     },
     {
       "components": [
@@ -218,53 +453,83 @@
           "cas": "7732-18-5"
         },
         {
-          "name": "1-butanol",
-          "cas": "71-36-3"
+          "name": "1-propanol",
+          "cas": "71-23-8"
         }
       ],
-      "a12": 0.0,
-      "a21": 0.0,
-      "b12": -208.3046,
-      "b21": -168.9207,
+      "a12": -0.787508,
+      "a21": 0.228186,
+      "b12": 185.9545,
+      "b21": -280.0484,
       "fitted": [
+        "a12",
+        "a21",
         "b12",
         "b21"
       ],
       "T_range_K": [
-        365.87,
-        389.44
+        313.15,
+        369.07
       ],
       "P_range_kPa": [
-        101.3,
+        7.11,
         101.3
       ],
-      "n_points": 14,
-      "n_rejected_points": 1,
-      "n_datasets": 1,
+      "n_points": 85,
+      "n_rejected_points": 12,
+      "n_datasets": 5,
       "fit": {
-        "AAD_T_K": 0.073,
-        "RMS_T_K": 0.085,
-        "AAD_y": 0.0027,
-        "RMS_y": 0.0029
+        "AAD_T_K": 0.205,
+        "RMS_T_K": 0.269,
+        "AAD_P_pct": 0.609,
+        "RMS_P_pct": 0.734,
+        "AAD_y": 0.0059,
+        "RMS_y": 0.0078
       },
       "comparison": {
         "ChemSep": {
-          "AAD_T_K": 2.618,
-          "RMS_T_K": 2.915,
-          "AAD_y": 0.0477,
-          "RMS_y": 0.051
+          "AAD_T_K": 1.528,
+          "RMS_T_K": 1.56,
+          "AAD_P_pct": 3.391,
+          "RMS_P_pct": 3.943,
+          "AAD_y": 0.0261,
+          "RMS_y": 0.0302
         },
         "UNIFAC estimate": {
-          "AAD_T_K": 0.714,
-          "RMS_T_K": 0.892,
-          "AAD_y": 0.0203,
-          "RMS_y": 0.0262
+          "AAD_T_K": 0.38,
+          "RMS_T_K": 0.456,
+          "AAD_P_pct": 0.776,
+          "RMS_P_pct": 0.959,
+          "AAD_y": 0.0087,
+          "RMS_y": 0.0126
         }
       },
       "sources": [
         {
-          "doi": "10.1021/je700411p",
-          "citation": "Lladosa et al., J. Chem. Eng. Data 53 (2008) 108-115",
+          "doi": "10.1021/acs.jced.9b00102",
+          "citation": "Moodley et al., J. Chem. Eng. Data 64 (2019) 2657-2670",
+          "datasets": [
+            "isothermal 313.15 K",
+            "isothermal 323.15 K"
+          ]
+        },
+        {
+          "doi": "10.1016/j.jct.2016.10.001",
+          "citation": "Gupta et al., J. Chem. Thermodyn. 105 (2017) 76-85",
+          "datasets": [
+            "isobaric 101.3 kPa"
+          ]
+        },
+        {
+          "doi": "10.1021/je800436u",
+          "citation": "Orchilles et al., J. Chem. Eng. Data 53 (2008) 2426-2431",
+          "datasets": [
+            "isobaric 100 kPa"
+          ]
+        },
+        {
+          "doi": "10.1016/j.jct.2017.06.014",
+          "citation": "Cumplido et al., J. Chem. Thermodyn. 113 (2017) 219-228",
           "datasets": [
             "isobaric 101.3 kPa"
           ]
@@ -272,17 +537,103 @@
       ],
       "rejected_datasets": [
         {
-          "doi": "10.1016/j.jct.2014.07.021",
-          "dataset": 6,
-          "conditions": "isothermal 365.85 K",
-          "points": 2,
+          "doi": "10.1021/acs.jced.9b00102",
+          "dataset": 11,
+          "conditions": "isothermal 303.15 K",
+          "points": 20,
           "used": false,
-          "reason": "fewer than 3 mixture points",
+          "reason": "failed the point consistency test",
+          "rejected_points": 0,
+          "point_test": {
+            "passed": false,
+            "value": 0.0125
+          },
+          "area_test": {
+            "passed": true,
+            "value": 6.634
+          }
+        },
+        {
+          "doi": "10.1021/acs.jced.9b00102",
+          "dataset": 13,
+          "conditions": "isothermal 313.15 K",
+          "points": 46,
+          "used": false,
+          "reason": "no vapor compositions",
           "rejected_points": 0,
           "point_test": {
             "passed": null,
             "value": null,
-            "note": "fewer than 5 mixture points"
+            "note": "no vapor compositions"
+          },
+          "area_test": {
+            "passed": null,
+            "value": null,
+            "note": "no vapor compositions"
+          }
+        },
+        {
+          "doi": "10.1016/j.jct.2012.12.019",
+          "dataset": 2,
+          "conditions": "isothermal 403.20 K",
+          "points": 13,
+          "used": false,
+          "reason": "pressure above 300 kPa",
+          "rejected_points": 0,
+          "point_test": {
+            "passed": true,
+            "value": 0.0099
+          },
+          "area_test": {
+            "passed": true,
+            "value": 5.4031
+          }
+        },
+        {
+          "doi": "10.1016/j.jct.2012.12.019",
+          "dataset": 2,
+          "conditions": "isothermal 413.20 K",
+          "points": 12,
+          "used": false,
+          "reason": "pressure above 300 kPa",
+          "rejected_points": 0,
+          "point_test": {
+            "passed": true,
+            "value": 0.007
+          },
+          "area_test": {
+            "passed": true,
+            "value": 0.2313
+          }
+        },
+        {
+          "doi": "10.1016/j.jct.2012.12.019",
+          "dataset": 2,
+          "conditions": "isothermal 423.20 K",
+          "points": 12,
+          "used": false,
+          "reason": "pressure above 300 kPa",
+          "rejected_points": 0,
+          "point_test": {
+            "passed": false,
+            "value": 0.0208
+          },
+          "area_test": {
+            "passed": true,
+            "value": 1.1585
+          }
+        },
+        {
+          "doi": "10.1016/j.fluid.2017.05.012",
+          "dataset": 4,
+          "conditions": "isobaric 101 kPa",
+          "points": 16,
+          "used": false,
+          "reason": "failed the point consistency test",
+          "rejected_points": 0,
+          "point_test": {
+            "passed": false,
+            "value": 0.0357
           },
           "area_test": {
             "passed": null,
@@ -291,7 +642,7 @@
           }
         }
       ],
-      "fitted_on": "2026-10-29"
+      "fitted_on": "2026-10-30"
     },
     {
       "components": [
@@ -744,7 +1095,284 @@
           }
         }
       ],
-      "fitted_on": "2026-10-29"
+      "fitted_on": "2026-10-30"
+    },
+    {
+      "components": [
+        {
+          "name": "water",
+          "cas": "7732-18-5"
+        },
+        {
+          "name": "isopropanol",
+          "cas": "67-63-0"
+        }
+      ],
+      "a12": 0.0,
+      "a21": 0.0,
+      "b12": -98.4819,
+      "b21": -162.8948,
+      "fitted": [
+        "b12",
+        "b21"
+      ],
+      "T_range_K": [
+        353.11,
+        371.44
+      ],
+      "P_range_kPa": [
+        100.0,
+        101.3
+      ],
+      "n_points": 52,
+      "n_rejected_points": 5,
+      "n_datasets": 3,
+      "fit": {
+        "AAD_T_K": 0.277,
+        "RMS_T_K": 0.38,
+        "AAD_y": 0.0076,
+        "RMS_y": 0.0094
+      },
+      "comparison": {
+        "ChemSep": {
+          "AAD_T_K": 2.067,
+          "RMS_T_K": 2.345,
+          "AAD_y": 0.038,
+          "RMS_y": 0.0499
+        },
+        "UNIFAC estimate": {
+          "AAD_T_K": 0.332,
+          "RMS_T_K": 0.477,
+          "AAD_y": 0.0085,
+          "RMS_y": 0.0119
+        }
+      },
+      "sources": [
+        {
+          "doi": "10.1016/j.fluid.2014.02.006",
+          "citation": "Lin and Tu, Fluid Phase Equilib. 368 (2014) 104-111",
+          "datasets": [
+            "isobaric 101.3 kPa"
+          ]
+        },
+        {
+          "doi": "10.1016/j.jct.2016.10.001",
+          "citation": "Gupta et al., J. Chem. Thermodyn. 105 (2017) 76-85",
+          "datasets": [
+            "isobaric 101.3 kPa"
+          ]
+        },
+        {
+          "doi": "10.1016/j.jct.2017.02.005",
+          "citation": "Orchilles et al., J. Chem. Thermodyn. 110 (2017) 16-24",
+          "datasets": [
+            "isobaric 100 kPa"
+          ]
+        }
+      ],
+      "rejected_datasets": [
+        {
+          "doi": "10.1016/j.fluid.2017.09.010",
+          "dataset": 5,
+          "conditions": "isobaric 101 kPa",
+          "points": 18,
+          "used": false,
+          "reason": "failed the point consistency test",
+          "rejected_points": 0,
+          "point_test": {
+            "passed": false,
+            "value": 0.0141
+          },
+          "area_test": {
+            "passed": true,
+            "value": -5.5095,
+            "note": "D = 0.4, J = 5.9"
+          }
+        },
+        {
+          "doi": "10.1021/je0501336",
+          "dataset": 1,
+          "conditions": "isothermal 573.00 K",
+          "points": 6,
+          "used": false,
+          "reason": "pressure above 300 kPa",
+          "rejected_points": 0,
+          "point_test": {
+            "passed": false,
+            "value": 0.0566
+          },
+          "area_test": {
+            "passed": null,
+            "value": null,
+            "note": "data do not span x1 = 0.1 to 0.9"
+          }
+        },
+        {
+          "doi": "10.1021/je0501336",
+          "dataset": 1,
+          "conditions": "isothermal 584.00 K",
+          "points": 3,
+          "used": false,
+          "reason": "pressure above 300 kPa",
+          "rejected_points": 0,
+          "point_test": {
+            "passed": null,
+            "value": null,
+            "note": "fewer than 5 mixture points"
+          },
+          "area_test": {
+            "passed": null,
+            "value": null,
+            "note": "data do not span x1 = 0.1 to 0.9"
+          }
+        },
+        {
+          "doi": "10.1021/acs.jced.8b00895",
+          "dataset": 1,
+          "conditions": "isobaric 101.3 kPa",
+          "points": 23,
+          "used": false,
+          "reason": "failed the point consistency test",
+          "rejected_points": 0,
+          "point_test": {
+            "passed": false,
+            "value": 0.0146
+          },
+          "area_test": {
+            "passed": true,
+            "value": -2.7592,
+            "note": "D = 3.1, J = 5.9"
+          }
+        },
+        {
+          "doi": "10.1021/acs.jced.8b00228",
+          "dataset": 4,
+          "conditions": "isobaric 101.3 kPa",
+          "points": 20,
+          "used": false,
+          "reason": "failed the point consistency test",
+          "rejected_points": 0,
+          "point_test": {
+            "passed": false,
+            "value": 0.0129
+          },
+          "area_test": {
+            "passed": true,
+            "value": -5.3312,
+            "note": "D = 1.3, J = 6.7"
+          }
+        },
+        {
+          "doi": "10.1021/acs.jced.7b00523",
+          "dataset": 3,
+          "conditions": "isobaric 101.1 kPa",
+          "points": 18,
+          "used": false,
+          "reason": "failed the point consistency test",
+          "rejected_points": 0,
+          "point_test": {
+            "passed": false,
+            "value": 0.0141
+          },
+          "area_test": {
+            "passed": true,
+            "value": -5.5095,
+            "note": "D = 0.4, J = 5.9"
+          }
+        },
+        {
+          "doi": "10.1016/j.jct.2006.04.006",
+          "dataset": 3,
+          "conditions": "isobaric 101.3 kPa",
+          "points": 17,
+          "used": false,
+          "reason": "failed the point consistency test",
+          "rejected_points": 0,
+          "point_test": {
+            "passed": false,
+            "value": 0.0151
+          },
+          "area_test": {
+            "passed": true,
+            "value": -1.0001,
+            "note": "D = 6.0, J = 7.0"
+          }
+        },
+        {
+          "doi": "10.1016/j.fluid.2015.11.034",
+          "dataset": 1,
+          "conditions": "isobaric 101.3 kPa",
+          "points": 14,
+          "used": false,
+          "reason": "failed the point consistency test",
+          "rejected_points": 0,
+          "point_test": {
+            "passed": false,
+            "value": 0.0103
+          },
+          "area_test": {
+            "passed": true,
+            "value": -4.1414,
+            "note": "D = 1.0, J = 5.1"
+          }
+        },
+        {
+          "doi": "10.1021/acs.jced.8b01116",
+          "dataset": 9,
+          "conditions": "isobaric 101.3 kPa",
+          "points": 11,
+          "used": false,
+          "reason": "failed the point consistency test",
+          "rejected_points": 0,
+          "point_test": {
+            "passed": false,
+            "value": 0.0103
+          },
+          "area_test": {
+            "passed": true,
+            "value": 0.6417,
+            "note": "D = 5.1, J = 4.5"
+          }
+        },
+        {
+          "doi": "10.1021/je7003808",
+          "dataset": 1,
+          "conditions": "isobaric 101.3 kPa",
+          "points": 11,
+          "used": false,
+          "reason": "failed the point consistency test",
+          "rejected_points": 0,
+          "point_test": {
+            "passed": false,
+            "value": 0.0143
+          },
+          "area_test": {
+            "passed": true,
+            "value": 2.7895,
+            "note": "D = 4.5, J = 1.7"
+          }
+        },
+        {
+          "doi": "10.1016/j.jct.2018.04.017",
+          "dataset": 4,
+          "conditions": "isobaric 101.3 kPa",
+          "points": 3,
+          "used": false,
+          "reason": "point consistency test not possible (fewer than 5 mixture points)",
+          "rejected_points": 0,
+          "point_test": {
+            "passed": null,
+            "value": null,
+            "note": "fewer than 5 mixture points"
+          },
+          "area_test": {
+            "passed": null,
+            "value": null,
+            "note": "data do not span x1 = 0.1 to 0.9"
+          }
+        }
+      ],
+      "fitted_on": "2026-10-30"
     },
     {
       "components": [
@@ -904,7 +1532,7 @@
           }
         }
       ],
-      "fitted_on": "2026-10-29"
+      "fitted_on": "2026-10-30"
     }
   ]
 }

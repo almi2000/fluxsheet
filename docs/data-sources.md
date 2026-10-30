@@ -98,8 +98,27 @@ not used and why, and the date of the fit.
 `PropertyPackage(..., prefer_fitted=True)` (the default) takes a pair's ThermoML fit over
 ChemSep's set; with `prefer_fitted=False`, ChemSep comes first and fits only fill its gaps.
 Every solve result lists the source of each pair in `parameter_sources` (`ThermoML fit` with
-references and data range, `ChemSep`, `UNIFAC estimate`), and so does the phase-diagram view.
-Outside the stored T range a fit is an extrapolation, like any regressed parameter set.
+references and data range, `ChemSep`, `UNIFAC estimate`; units with their own method add
+entries tagged with that `method`), and so does the phase-diagram view. Outside the stored
+T range a fit is an extrapolation, like any regressed parameter set.
+
+### Seed set (fitted 2026-10-29)
+
+Water/ethanol, water/methanol, water/1-propanol, water/2-propanol, acetone/methanol,
+ethanol/ethyl acetate, methanol/ethyl acetate and benzene/toluene, each for NRTL and UNIQUAC
+(`scripts/fit_seed_pairs.py` refits all of them and prints the comparison with ChemSep and
+the UNIFAC estimate on the same points). ChemSep has no NRTL set for water/1-propanol and
+water/2-propanol, so the fits replace UNIFAC estimates there.
+
+Pairs looked at but not stored:
+
+- **water/1-butanol**: only one consistent VLE set (13 points). The fit describes it far
+  better than ChemSep, but predicts about 40 mol% water in the butanol-rich liquid at 25 °C
+  (measured: about 51 %). Partially miscible pairs need vapor-liquid and liquid-liquid data
+  fitted together; `fit-binary` prints a note when UNIFAC predicts a split.
+- **methanol/ethanol** (only T-P-x data, no vapor compositions), **acetone/water** (only
+  Henry's-law and activity-coefficient sets), **toluene/methylcyclohexane** (T-x-y without
+  pressure): no complete T-P-x-y set in the archive that the selection rules accept.
 
 ### Refitting and adding pairs
 
