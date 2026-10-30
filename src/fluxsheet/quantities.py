@@ -79,6 +79,26 @@ _UNITS: dict[str, dict[str, tuple[float, float]]] = {
         "": (1.0, 0.0),
         "%": (0.01, 0.0),
     },
+    # A temperature difference: degC and K steps are the same size, so no offset.
+    "temperature_difference": {
+        "k": (1.0, 0.0),
+        "degc": (1.0, 0.0),
+        "c": (1.0, 0.0),
+        "°c": (1.0, 0.0),
+        "degf": (5.0 / 9.0, 0.0),
+        "f": (5.0 / 9.0, 0.0),
+    },
+    # Heat transfer coefficient times area (UA).
+    "thermal_conductance": {
+        "w/k": (1.0, 0.0),
+        "kw/k": (1e3, 0.0),
+        "mw/k": (1e6, 0.0),
+    },
+    "mass_flow": {
+        "kg/s": (1.0, 0.0),
+        "kg/h": (1.0 / 3600.0, 0.0),
+        "t/h": (1.0 / 3.6, 0.0),
+    },
 }
 
 _PATTERN = re.compile(r"^\s*([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)\s*(.*?)\s*$")

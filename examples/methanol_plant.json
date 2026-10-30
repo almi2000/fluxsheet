@@ -1,7 +1,7 @@
 {
   "format": "fluxsheet/1",
   "name": "Methanol synthesis loop",
-  "description": "Syngas is converted to methanol in an equilibrium reactor at 250 °C and 50 bar. The product is cooled and flashed; the unconverted gas is recompressed and recycled, with a small purge to keep the inert methane from building up. The crude methanol is degassed and distilled into methanol and water.",
+  "description": "Syngas is converted to methanol in an equilibrium reactor at 250 °C and 50 bar. The product is cooled and flashed; the unconverted gas is recompressed and recycled, with a small purge to keep the inert methane from building up. The crude methanol is degassed and distilled into methanol and water. The high-pressure loop uses Peng-Robinson (the flowsheet default); the degasser and the column override it with NRTL, which describes the non-ideal methanol/water liquid with measured binary parameters.",
   "components": [
     "carbon monoxide",
     "carbon dioxide",
@@ -149,6 +149,7 @@
     {
       "id": "DEGASSER",
       "type": "Flash",
+      "property_method": "nrtl",
       "ui": {
         "x": 1000,
         "y": 220
@@ -168,6 +169,7 @@
     {
       "id": "COLUMN",
       "type": "DistillationColumn",
+      "property_method": "nrtl",
       "ui": {
         "x": 1140,
         "y": 280

@@ -112,6 +112,7 @@ export function UnitInspector({
   onRename,
   onChange,
   onDelete,
+  children,
 }: {
   id: string;
   schema: UnitType;
@@ -121,6 +122,7 @@ export function UnitInspector({
   onRename: (newId: string) => string | null;
   onChange: (p: Params) => void;
   onDelete: () => void;
+  children?: React.ReactNode; // extra sections after the parameters, e.g. the property method
 }) {
   const [draftId, setDraftId] = useState(id);
   const [idError, setIdError] = useState<string | null>(null);
@@ -282,6 +284,7 @@ export function UnitInspector({
         })}
 
       {schema.params.filter((p) => !grouped.has(p.name)).map(renderParam)}
+      {children}
 
       {result && schema.result_fields.some((f) => result[f.name] !== undefined) && (
         <section className="unit-results">
@@ -416,6 +419,7 @@ export function FlowsheetInspector({
   methods,
   reactions,
   onChange,
+  children,
 }: {
   name: string;
   description: string;
@@ -430,6 +434,7 @@ export function FlowsheetInspector({
     property_method?: string;
     reactions?: Reaction[];
   }) => void;
+  children?: React.ReactNode; // further settings sections, e.g. design specs
 }) {
   const [suggestion, setSuggestion] = useState<{ method: string; reason: string } | null>(null);
   useEffect(() => {
@@ -497,6 +502,7 @@ export function FlowsheetInspector({
 
       <h3>Reactions</h3>
       <ReactionsEditor reactions={reactions} components={components} onChange={(r) => onChange({ reactions: r })} />
+      {children}
     </div>
   );
 }

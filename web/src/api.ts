@@ -1,4 +1,4 @@
-import type { Compound, Example, FlowsheetModel, Method, SolveResult, UnitType } from "./types";
+import type { Compound, Example, FlowsheetModel, Method, SensitivityResult, SolveResult, UnitType } from "./types";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
@@ -34,4 +34,6 @@ export const api = {
     }),
   solve: (model: FlowsheetModel) =>
     request<SolveResult>("/solve", { method: "POST", body: JSON.stringify(model) }),
+  sensitivity: (model: FlowsheetModel, study: string) =>
+    request<SensitivityResult>("/sensitivity", { method: "POST", body: JSON.stringify({ model, study }) }),
 };

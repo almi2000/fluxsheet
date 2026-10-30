@@ -234,3 +234,55 @@ table.mini th:first-child, table.mini td:first-child { text-align: left; }
 .keq-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 6px; }
 .keq-grid label { display: flex; flex-direction: column; gap: 3px; }
 .keq-grid input { width: 100%; min-width: 0; }
+
+/* Property sections: method tag on nodes and in the results summary (PropertyMethods.tsx) */
+.method-tag {
+  margin-top: 3px; padding: 0 5px; border-radius: 4px; font-size: 9px; font-weight: 600;
+  letter-spacing: 0.03em; line-height: 14px; color: var(--m, var(--muted));
+  border: 1px solid color-mix(in srgb, var(--m, var(--muted)) 45%, transparent);
+  background: color-mix(in srgb, var(--m, var(--muted)) 10%, transparent);
+}
+.method-tag.override { border-style: solid; border-width: 1.5px; }
+.method-text { color: var(--m, var(--text)) !important; }
+.m-peng-robinson { --m: #2563eb; }
+.m-srk { --m: #0891b2; }
+.m-nrtl { --m: #c2410c; }
+.m-uniquac { --m: #a16207; }
+.m-unifac { --m: #7c3aed; }
+.m-wilson { --m: #be185d; }
+.m-ideal { --m: #4b5563; }
+@media (prefers-color-scheme: dark) {
+  .m-peng-robinson { --m: #7aa2ff; }
+  .m-srk { --m: #22d3ee; }
+  .m-nrtl { --m: #fb923c; }
+  .m-uniquac { --m: #facc15; }
+  .m-unifac { --m: #c4b5fd; }
+  .m-wilson { --m: #f472b6; }
+  .m-ideal { --m: #9ca3af; }
+}
+.unit-method select { width: 100%; }
+
+/* Editing: undo/redo, arrange, shortcuts, multi-selection */
+.toolbar { position: relative; }
+.toolbar-group { display: flex; gap: 4px; margin-left: 12px; }
+.icon-btn { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-width: 30px; padding: 5px 8px; }
+.icon-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.dirty-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); margin-left: 7px; vertical-align: middle; }
+.banner.info { background: var(--accent-soft); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.banner.info button { padding: 3px 10px; }
+.shortcut-help {
+  position: absolute; top: calc(100% + 6px); right: 14px; z-index: 20; width: 320px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.18); padding: 12px 14px;
+}
+.shortcut-help table { width: 100%; margin-top: 8px; font-size: 12px; }
+.shortcut-help td { padding: 4px 0; border-bottom: 1px solid var(--border); }
+.shortcut-help td:first-child { white-space: nowrap; padding-right: 12px; }
+.shortcut-help p { margin: 8px 0 0; }
+kbd {
+  display: inline-block; min-width: 20px; padding: 1px 5px; text-align: center;
+  font: 600 11px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: var(--bg); border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px;
+}
+.multi-actions { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
+.multi-actions button.danger { margin-top: 0; }

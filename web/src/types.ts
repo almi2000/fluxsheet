@@ -73,6 +73,7 @@ export interface UnitModel {
   id: string;
   type: string;
   params?: Params;
+  property_method?: string; // overrides the flowsheet's property_method for this unit
   ui?: { x: number; y: number };
 }
 
@@ -120,6 +121,8 @@ export interface FlowsheetModel {
   units: UnitModel[];
   streams: StreamModel[];
   reactions?: Reaction[];
+  design_specs?: DesignSpec[];
+  sensitivity?: SensitivityStudy[];
 }
 
 export interface StreamResult {
@@ -133,6 +136,7 @@ export interface StreamResult {
   enthalpy_flow: number;
   component_flows: Record<string, number>;
   mole_fractions: Record<string, number>;
+  property_method?: string; // the method of the unit producing the stream
 }
 
 export interface SimError {
@@ -147,15 +151,89 @@ export interface SolveResult {
   units: Record<string, UnitResult>;
   property_method: string | null;
   property_method_reason: string | null;
+  property_crossings?: unknown[]; // streams re-flashed between methods; see PropertyMethods.tsx
   tear_streams: string[];
   iterations: number;
   converged: boolean;
   warnings: string[];
   error: SimError | null;
+  design_specs?: DesignSpecResult[];
 }
 
 export interface Example {
   id: string;
   name: string;
   description: string;
+}
+
+// ---- design specs and sensitivity studies (see src/fluxsheet/study_models.py) ----------
+
+/** A computed value: a stream property, or a scalar result of a unit (e.g. its duty). */
+export interface VariableRef {
+  stream?: string;
+  unit?: string;
+  property: string;
+  component?: string; // for mole_fraction and component_flow
+}
+
+/** A unit parameter changed between bounds; `component` picks one entry of e.g. Feed flows. */
+export interface VariedParam {
+  unit: string;
+  param: string;
+  component?: string;
+  lower: Value;
+  upper: Value;
+}
+
+export interface DesignSpec {
+  id: string;
+  target: VariableRef;
+  value: Value;
+  vary: VariedParam;
+  tolerance?: Value;
+  max_iterations?: number;
+  active?: boolean;
+}
+
+export interface SensitivityVary extends VariedParam {
+  points?: number;
+}
+
+export interface SensitivityStudy {
+  id: string;
+  vary: SensitivityVary[];
+  outputs: VariableRef[];
+}
+
+export interface DesignSpecResult {
+  id: string;
+  converged: boolean;
+  target: string;
+  quantity: string | null;
+  value: number;
+  achieved: number;
+  vary: string;
+  vary_quantity: string | null;
+  vary_value: number;
+  iterations: number;
+}
+
+export interface SensitivityColumn {
+  label: string;
+  quantity: string | null;
+}
+
+export interface SensitivityRow {
+  inputs: number[];
+  outputs: (number | null)[];
+  error: SimError | null;
+}
+
+export interface SensitivityResult {
+  ok: boolean;
+  id?: string;
+  inputs?: SensitivityColumn[];
+  outputs?: SensitivityColumn[];
+  rows?: SensitivityRow[];
+  error?: SimError;
 }

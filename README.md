@@ -72,6 +72,11 @@ fluxsheet serve                # open http://127.0.0.1:8000
 For editor development, run `fluxsheet serve` and `npm run dev` (in `web/`) side by side,
 then open http://localhost:5173.
 
+In the editor, Ctrl/⌘ Z and Ctrl/⌘ Shift Z undo and redo every change, Ctrl/⌘ C / V / D copy,
+paste and duplicate the selected units (shift-click or shift-drag to select several; copies also
+paste into another editor tab as Fluxsheet JSON), and **Arrange** lays the flowsheet out left to
+right. Press `?` for all shortcuts.
+
 **Use it from Python**
 
 ```python
@@ -107,6 +112,34 @@ print(result.streams["NGL-OUT"]["mass_flow"] * 3600, "kg/h")
 
 Plain numbers are SI (K, Pa, mol/s, W). A stream without `to` leaves the process.
 
+### Different property methods in different parts
+
+`property_method` at the top is the default for every unit. A unit can override it with its
+own `property_method`, the way commercial simulators use property sections. In
+`examples/methanol_plant.json` the high-pressure synthesis loop runs on Peng-Robinson, while
+the degasser and the methanol/water column use NRTL:
+
+```json
+{"id": "COLUMN", "type": "DistillationColumn", "property_method": "nrtl", "params": {...}}
+```
+
+We chose a per-unit field over named sections because it keeps the file flat and each unit
+says what it does where it is defined; a "section" is simply the units that share a method.
+Products without an override follow the unit that feeds them.
+
+- Each unit calculates (flashes and energy balance) with its own method.
+- Where a stream passes from one method to another, its component flows, temperature and
+  pressure are kept and it is flashed again at that T and P with the receiving unit's
+  method. Mass is conserved exactly; the enthalpy may jump by the difference between the two
+  methods' departure functions. The result lists every such crossing
+  (`property_crossings`, with the vapor fraction on both sides and the enthalpy change) and
+  warns when a crossing changes the phase noticeably: put the boundary on a stream that is
+  clearly one phase.
+- The result reports the method each unit used, and for separation units a suggestion based
+  on what that unit actually sees (its feed composition without traces, and its pressure).
+- In the editor, the unit inspector has a **Property method** select with that suggestion,
+  and nodes carry a colored method tag whenever the flowsheet mixes methods.
+
 ## Reactions and reactors
 
 Reactions are defined once per flowsheet and picked by id in a reactor. Each is checked for
@@ -138,9 +171,50 @@ need no separate input. See `examples/steam_reforming.json` and
 `examples/ethyl_acetate.json`, and [reactions.py](src/fluxsheet/reactions.py) for units
 and conventions.
 
+## Heat integration, design specs and sensitivity studies
+
+The **Heat Exchanger** passes heat between two process streams (`hot_in` → `hot_out`,
+`cold_in` → `cold_out`), countercurrent or cocurrent. Give one of: either outlet temperature,
+the duty, the minimum approach temperature, or UA (rating). Both temperature-duty curves are
+followed through phase changes (zone analysis), so an internal pinch, e.g. where a vapor starts
+to condense, is found; a temperature cross is reported together with the largest feasible duty.
+Results: duty, UA, mean temperature difference (LMTD) and minimum approach, plus the
+temperature profile along the exchanger. See `examples/feed_effluent_exchanger.json`.
+
+A **design spec** reaches a target by adjusting one unit parameter between bounds; it is
+solved by an outer loop (secant steps, then Brent's method once the target is bracketed)
+around the flowsheet solver:
+
+```json
+"design_specs": [
+  {"id": "PURITY",
+   "target": {"stream": "DIST", "property": "mole_fraction", "component": "benzene"},
+   "value": 0.995,
+   "vary": {"unit": "COLUMN", "param": "reflux_ratio", "lower": 1.2, "upper": 5}}
+]
+```
+
+Targets are stream properties (`T`, `P`, `vapor_fraction`, `molar_flow`, `mass_flow`,
+`enthalpy_flow`, `mole_fraction`, `component_flow`) or unit results such as `duty`. A
+**sensitivity study** solves the flowsheet over a range of one or two parameters and records
+outputs given the same way:
+
+```json
+"sensitivity": [
+  {"id": "REFLUX",
+   "vary": [{"unit": "COLUMN", "param": "reflux_ratio", "lower": 1.4, "upper": 3.4, "points": 9}],
+   "outputs": [{"stream": "DIST", "property": "mole_fraction", "component": "benzene"},
+               {"unit": "COLUMN", "property": "reboiler_duty"}]}
+]
+```
+
+Run it from the **Sensitivity** tab of the editor (chart, table, CSV export) or with
+`fluxsheet sensitivity examples/benzene_toluene_purity.json --csv reflux.csv`. Both are edited
+in the flowsheet settings; see `examples/benzene_toluene_purity.json`.
+
 ## What's included
 
-**Unit operations:** Feed, Product, Mixer, Splitter, Heater/Cooler, Flash drum, Decanter
+**Unit operations:** Feed, Product, Mixer, Splitter, Heater/Cooler, Heat Exchanger, Flash drum, Decanter
 (liquid-liquid), Component splitter, Valve, Pump, Compressor.
 
 **Columns:** shortcut distillation design (Fenske, Underwood, Gilliland/Molokanov,
@@ -182,9 +256,9 @@ extend it.
 - [x] NRTL / UNIQUAC / Wilson with regressed (ChemSep) binary parameters, UNIFAC estimates for gaps
 - [x] NRTL/UNIQUAC parameter fitting from NIST ThermoML data (`fluxsheet fit-binary`), seed set of common pairs
 - [x] Vapor–liquid–liquid equilibrium (decanters, three-phase flash)
-- [ ] Heat exchanger (two-sided), design specs, sensitivity studies
+- [x] Heat exchanger (two-sided), design specs, sensitivity studies
 - [x] Phase envelopes, T-xy / P-xy diagrams in the editor
-- [ ] Undo/redo, copy/paste, auto-layout in the editor
+- [x] Undo/redo, copy/paste, auto-layout in the editor
 - [ ] CAPE-OPEN interoperability
 
 ## Project layout

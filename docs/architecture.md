@@ -18,6 +18,7 @@
 | `compounds.py` | Compound lookup and prefix search over the `chemicals` database. |
 | `thermo_package.py` | Property methods, the automatic method suggestion, and `flash()` returning a `PhaseState`. |
 | `fitting/` | Binary parameter regression: ThermoML parser and downloader, consistency tests, NRTL/UNIQUAC least-squares fits, and the parameter files in `data/binary_parameters/` that `thermo_package.py` reads. |
+| `property_sections.py` | Per-unit property method overrides: the package each unit uses, the T-P re-flash of streams crossing between methods, per-unit method suggestions. |
 | `stream.py` | `Stream`: component molar flows plus a `PhaseState`. |
 | `units/` | Unit operations. Each declares ports and parameters as data (`Param`, `Port`); the same schema validates input and generates the editor's forms. |
 | `solver.py` | Sequential-modular solver: builds the graph, tears recycles (DFS back edges), orders units topologically, iterates tears with Wegstein acceleration, checks the mass balance. |

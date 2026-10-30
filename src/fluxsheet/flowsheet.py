@@ -11,6 +11,7 @@ A flowsheet is plain JSON, meant to be read, diffed and versioned like source co
         {"id": "FEED", "type": "Feed",
          "params": {"T": "25 degC", "P": "1 atm", "flows": {"water": "60 kmol/h", ...}}},
         {"id": "H1", "type": "Heater", "params": {"T": "85 degC"}},
+        {"id": "C1", "type": "DistillationColumn", "property_method": "nrtl", ...},
         ...
       ],
       "streams": [
@@ -30,6 +31,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from .study_models import DesignSpecModel, SensitivityModel
+
 FORMAT = "fluxsheet/1"
 
 
@@ -39,6 +42,8 @@ class UnitModel(BaseModel):
     id: str
     type: str
     params: dict[str, Any] = Field(default_factory=dict)
+    # Overrides the flowsheet's property_method for this unit; see property_sections.py.
+    property_method: str | None = None
     ui: dict[str, Any] | None = None  # editor layout (position etc.); ignored by the solver
 
     @field_validator("id")
@@ -121,6 +126,8 @@ class FlowsheetModel(BaseModel):
     streams: list[StreamModel] = Field(default_factory=list)
     reactions: list[ReactionModel] | None = None  # referenced by id from reactor units
     solver: SolverOptions = Field(default_factory=SolverOptions)
+    design_specs: list[DesignSpecModel] | None = None  # solved around the flowsheet; specs.py
+    sensitivity: list[SensitivityModel] | None = None  # run on request; sensitivity.py
 
     @classmethod
     def load(cls, path: str | Path) -> FlowsheetModel:

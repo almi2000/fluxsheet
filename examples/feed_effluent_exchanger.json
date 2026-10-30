@@ -1,0 +1,41 @@
+{
+  "format": "fluxsheet/1",
+  "name": "Feed/effluent heat integration",
+  "description": "Benzene is hydrogenated to cyclohexane in a cooled reactor at 240 °C and 25 bar. The hot reactor effluent preheats the cold feed in a countercurrent feed/effluent exchanger designed for a 20 K minimum approach, so the trim heater only covers the last few degrees. The loop through the exchanger is solved as a recycle. The sensitivity study shows the trade-off behind the approach temperature: a smaller approach saves trim heat but needs a larger exchanger (UA).",
+  "components": ["benzene", "hydrogen", "cyclohexane"],
+  "property_method": "peng-robinson",
+  "reactions": [
+    {"id": "HYD", "stoichiometry": {"benzene": -1, "hydrogen": -3, "cyclohexane": 1}}
+  ],
+  "units": [
+    {"id": "FEED", "type": "Feed", "ui": {"x": 0, "y": 200},
+     "params": {"T": "40 degC", "P": "26 bar",
+                "flows": {"benzene": "20 kmol/h", "hydrogen": "120 kmol/h"}}},
+    {"id": "FEHE", "type": "HeatExchanger", "ui": {"x": 220, "y": 200},
+     "params": {"min_approach": "20 K", "dP_hot": "0.3 bar", "dP_cold": "0.3 bar"}},
+    {"id": "TRIM", "type": "Heater", "ui": {"x": 440, "y": 80}, "params": {"T": "200 degC"}},
+    {"id": "REACTOR", "type": "StoichiometricReactor", "ui": {"x": 640, "y": 80},
+     "params": {"reactions": ["HYD"], "conversions": ["0.99"], "T": "240 degC"}},
+    {"id": "COOLER", "type": "Heater", "ui": {"x": 440, "y": 320}, "params": {"T": "40 degC"}},
+    {"id": "DRUM", "type": "Flash", "ui": {"x": 640, "y": 320}},
+    {"id": "OFFGAS", "type": "Product", "ui": {"x": 840, "y": 240}},
+    {"id": "CYCLOHEXANE", "type": "Product", "ui": {"x": 840, "y": 400}}
+  ],
+  "streams": [
+    {"id": "S1", "from": "FEED.out", "to": "FEHE.cold_in"},
+    {"id": "S2", "from": "FEHE.cold_out", "to": "TRIM.in"},
+    {"id": "S3", "from": "TRIM.out", "to": "REACTOR.in"},
+    {"id": "S4", "from": "REACTOR.out", "to": "FEHE.hot_in"},
+    {"id": "S5", "from": "FEHE.hot_out", "to": "COOLER.in"},
+    {"id": "S6", "from": "COOLER.out", "to": "DRUM.in"},
+    {"id": "GAS", "from": "DRUM.vapor", "to": "OFFGAS.in"},
+    {"id": "LIQ", "from": "DRUM.liquid", "to": "CYCLOHEXANE.in"}
+  ],
+  "sensitivity": [
+    {"id": "APPROACH",
+     "vary": [{"unit": "FEHE", "param": "min_approach", "lower": "5 K", "upper": "60 K", "points": 12}],
+     "outputs": [{"unit": "TRIM", "property": "duty"},
+                 {"unit": "FEHE", "property": "UA"},
+                 {"unit": "FEHE", "property": "duty"}]}
+  ]
+}
