@@ -95,6 +95,45 @@ function ComponentTable({
   );
 }
 
+/** One stage number per feed stream; empty fields fall back to the common feed stage. */
+function StreamStageTable({
+  streams,
+  value,
+  fallback,
+  onChange,
+}: {
+  streams: string[];
+  value: Record<string, number>;
+  fallback: unknown;
+  onChange: (v: Record<string, number> | null) => void;
+}) {
+  if (streams.length < 2)
+    return <p className="muted small">Connect more feed streams to give each its own stage.</p>;
+  return (
+    <div className="component-table">
+      {streams.map((sid) => (
+        <div key={sid} className="component-row">
+          <span>{sid}</span>
+          <input
+            type="number"
+            step={1}
+            min={1}
+            value={value[sid] === undefined ? "" : String(value[sid])}
+            placeholder={fallback === undefined || fallback === null ? "" : String(fallback)}
+            onChange={(e) => {
+              // Keep only the streams still connected, so deleted streams leave nothing behind.
+              const next = Object.fromEntries(Object.entries(value).filter(([k]) => streams.includes(k)));
+              if (e.target.value === "") delete next[sid];
+              else next[sid] = Math.round(Number(e.target.value));
+              onChange(Object.keys(next).length ? next : null);
+            }}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ---- unit parameters ---------------------------------------------------------------------
 
 function noneLabel(group: string[]): string {
@@ -108,6 +147,7 @@ export function UnitInspector({
   schema,
   params,
   components,
+  inletStreams = {},
   result,
   onRename,
   onChange,
@@ -118,6 +158,7 @@ export function UnitInspector({
   schema: UnitType;
   params: Params;
   components: string[];
+  inletStreams?: Record<string, string[]>; // connected stream ids per inlet port
   result?: UnitResult;
   onRename: (newId: string) => string | null;
   onChange: (p: Params) => void;
@@ -197,6 +238,17 @@ export function UnitInspector({
               const items = e.target.value.split(",").map((v) => v.trim()).filter(Boolean);
               set(p.name, items.length ? items : null);
             }}
+          />
+        </Field>
+      );
+    if (p.quantity === "stream_stages")
+      return (
+        <Field key={p.name} param={p}>
+          <StreamStageTable
+            streams={Object.values(inletStreams).flat()}
+            value={(params[p.name] as Record<string, number>) ?? {}}
+            fallback={params.feed_stage ?? byName.feed_stage?.default}
+            onChange={(v) => set(p.name, v)}
           />
         </Field>
       );

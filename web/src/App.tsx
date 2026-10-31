@@ -11,6 +11,7 @@ import {
   useReactFlow,
   type Connection,
   type Edge,
+  type FinalConnectionState,
   type IsValidConnection,
 } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -275,6 +276,43 @@ function Editor() {
     },
     [history, edges, setEdges, touch],
   );
+
+  /**
+   * A stream dropped on a unit's body instead of a port connects to the nearest port that
+   * can take it, so the small nozzles do not have to be hit exactly.
+   */
+  const onConnectEnd = useCallback(
+    (event: MouseEvent | TouchEvent, state: FinalConnectionState) => {
+      setConnecting(false);
+      const from = state.fromHandle;
+      if (state.isValid || !from) return;
+      const point = "changedTouches" in event ? event.changedTouches[0] : event;
+      const nodeId = document.elementFromPoint(point.clientX, point.clientY)?.closest(".react-flow__node")?.getAttribute("data-id");
+      const node = nodeId ? flow.getInternalNode(nodeId) : undefined;
+      if (!node || node.id === from.nodeId) return;
+      const fromOutlet = from.type === "source";
+      const at = flow.screenToFlowPosition({ x: point.clientX, y: point.clientY });
+      const { x, y } = node.internals.positionAbsolute;
+      const best = (node.internals.handleBounds?.[fromOutlet ? "target" : "source"] ?? [])
+        .map((h) => {
+          const c: Connection = fromOutlet
+            ? { source: from.nodeId, sourceHandle: from.id ?? null, target: node.id, targetHandle: h.id ?? null }
+            : { source: node.id, sourceHandle: h.id ?? null, target: from.nodeId, targetHandle: from.id ?? null };
+          return { c, d: Math.hypot(x + h.x + h.width / 2 - at.x, y + h.y + h.height / 2 - at.y) };
+        })
+        .filter(({ c }) => isValidConnection(c))
+        .sort((a, b) => a.d - b.d)[0];
+      if (best) onConnect(best.c);
+    },
+    [flow, isValidConnection, onConnect],
+  );
+
+  /** Ids of the streams connected to each inlet port of a unit. */
+  const inletStreams = (id: string): Record<string, string[]> => {
+    const ports: Record<string, string[]> = {};
+    for (const e of edges) if (e.target === id) (ports[e.targetHandle ?? ""] ??= []).push(e.id);
+    return ports;
+  };
 
   const onDrop = useCallback(
     (e: React.DragEvent) => {
@@ -726,7 +764,7 @@ function Editor() {
             }}
             onConnect={onConnect}
             onConnectStart={() => setConnecting(true)}
-            onConnectEnd={() => setConnecting(false)}
+            onConnectEnd={onConnectEnd}
             className={connecting ? "connecting" : undefined}
             isValidConnection={isValidConnection}
             onNodeClick={(_, n) => setSelection({ kind: "unit", id: n.id })}
@@ -774,6 +812,7 @@ function Editor() {
               schema={selectedNode.data.schema}
               params={selectedNode.data.params}
               components={meta.components}
+              inletStreams={inletStreams(selectedNode.id)}
               result={stale ? undefined : result?.units[selectedNode.id]}
               onRename={(newId) => renameUnit(selectedNode.id, newId)}
               onChange={(p) => updateParams(selectedNode.id, p)}

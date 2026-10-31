@@ -22,8 +22,9 @@ from ..thermo_package import PropertyPackage
 #   "string_list"         list of names, e.g. reaction ids
 #   "composition"         {component: molar flow}
 #   "component_fractions" {component: fraction}
+#   "stream_stages"       {inlet stream id: stage number}, e.g. column feed stages
 SPECIAL_KINDS = ("integer", "choice", "component", "string_list", "composition",
-                 "component_fractions")
+                 "component_fractions", "stream_stages")
 
 
 @dataclass(frozen=True)
@@ -56,7 +57,10 @@ class ResultField:
 class Port:
     name: str
     label: str
-    multiple: bool = False  # e.g. a mixer accepts any number of inlet streams
+    # Accepts any number of streams. Unless `separate`, the solver mixes them adiabatically
+    # into one before the unit sees them; a separate port gets every stream on its own.
+    multiple: bool = False
+    separate: bool = False
 
 
 @dataclass
@@ -82,6 +86,8 @@ class UnitOperation:
         self.results: dict[str, Any] = {}
         # Tabular results along stages or reactor length; see add_profile().
         self.profiles: dict[str, dict] = {}
+        # Ids of the streams on each inlet port, in the order calculate() receives them.
+        self.inlet_ids: dict[str, list[str]] = {}
         known = {param.name for param in self.params}
         for name in self.raw:
             if name not in known:
@@ -121,6 +127,15 @@ class UnitOperation:
             if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
                 raise UnitError(f"expected a list of names, got {value!r}")
             return list(value)
+        if q == "stream_stages":
+            if not isinstance(value, dict):
+                raise UnitError(f"expected a mapping of stream to stage, got {value!r}")
+            stages = {}
+            for sid, stage in value.items():
+                if isinstance(stage, bool) or not float(stage).is_integer():
+                    raise UnitError(f"stage of {sid} must be a whole number, got {stage!r}")
+                stages[str(sid)] = int(stage)
+            return stages
         if q in ("composition", "component_fractions"):
             if not isinstance(value, dict):
                 raise UnitError(f"expected a mapping of component to value, got {value!r}")
@@ -225,8 +240,19 @@ def single_inlet(inlets: dict[str, list[Stream]], port: str = "in") -> Stream:
     return inlets[port][0]
 
 
-# Building blocks shared by many units.
-IN = Port("in", "Inlet")
+def mix_streams(pkg: PropertyPackage, streams: list[Stream], P: float | None = None) -> Stream:
+    """Adiabatic mixing; the pressure defaults to the lowest inlet pressure."""
+    P = P if P is not None else min(s.P for s in streams)
+    flows = [sum(s.flows[i] for s in streams) for i in range(pkg.n)]
+    total = sum(flows)
+    if total <= 0.0:
+        return empty_stream(pkg, streams[0].T, P)
+    return Stream.from_flash(pkg, flows, P=P, H=sum(s.enthalpy_flow for s in streams) / total)
+
+
+# Building blocks shared by many units. Most units take any number of feeds on their inlet,
+# mixed before they enter, as a Mixer in front would.
+IN = Port("in", "Inlet", multiple=True)
 OUT = Port("out", "Outlet")
 P_OUT = Param("P", "Outlet pressure", "pressure", help="Absolute outlet pressure.", min=1.0)
 DP = Param("dP", "Pressure drop", "pressure_difference",

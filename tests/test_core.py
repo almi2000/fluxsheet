@@ -228,3 +228,28 @@ def test_methanol_example_meets_its_product_purities():
     assert r.streams["BOTTOMS"]["mole_fractions"]["water"] > 0.997
     sources = {s["pair"]: s["source"] for s in r.parameter_sources}
     assert sources["methanol/water"] == "ThermoML fit"
+
+
+def test_several_feeds_on_one_inlet_are_mixed_like_a_mixer_in_front():
+    hot = {"id": "F2", "type": "Feed", "params": {"T": "70 degC", "P": "1.2 atm",
+                                                  "flows": {"water": "30 kmol/h"}}}
+    heater = {"id": "H", "type": "Heater", "params": {"duty": "200 kW"}}
+    direct = solve(flowsheet(
+        [FEED, hot, heater, {"id": "P", "type": "Product"}],
+        [{"id": "S1", "from": "F.out", "to": "H.in"}, {"id": "S2", "from": "F2.out", "to": "H.in"},
+         {"id": "S3", "from": "H.out", "to": "P.in"}]))
+    mixed = solve(flowsheet(
+        [FEED, hot, {"id": "M", "type": "Mixer"}, heater, {"id": "P", "type": "Product"}],
+        [{"id": "S1", "from": "F.out", "to": "M.in"}, {"id": "S2", "from": "F2.out", "to": "M.in"},
+         {"id": "SM", "from": "M.out", "to": "H.in"}, {"id": "S3", "from": "H.out", "to": "P.in"}]))
+    assert direct.ok, direct.error
+    assert direct.streams["S3"]["molar_flow"] == pytest.approx(130 / 3.6)
+    assert direct.streams["S3"]["T"] == pytest.approx(mixed.streams["S3"]["T"], abs=1e-6)
+    assert direct.streams["S3"]["P"] == pytest.approx(101325.0)  # lowest inlet pressure
+
+
+def test_product_takes_a_single_stream():
+    r = solve(flowsheet(
+        [FEED, {**FEED, "id": "F2"}, {"id": "P", "type": "Product"}],
+        [{"id": "S1", "from": "F.out", "to": "P.in"}, {"id": "S2", "from": "F2.out", "to": "P.in"}]))
+    assert not r.ok and "accepts only one" in r.error["message"]

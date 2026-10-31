@@ -290,3 +290,41 @@ def test_stripper_removes_light_component_from_liquid():
     assert stripped > 0.9
     comp, energy = balances(r, ["GAS", "LIQ"], ["GAS_OUT", "LIQ_OUT"])
     assert comp < 1e-6 and energy < 1e-6
+
+
+def two_feed_column(params, top="FEED1", bottom="FEED2"):
+    """Benzene-rich and toluene-rich feeds into one column."""
+    def feed(uid, flows):
+        return {"id": uid, "type": "Feed",
+                "params": {"T": "90 degC", "P": "1.5 bar", "flows": flows}}
+
+    return solve({
+        "components": ["benzene", "toluene"],
+        "property_method": "peng-robinson",
+        "units": [feed("A", {"benzene": "35 kmol/h", "toluene": "15 kmol/h"}),
+                  feed("B", {"benzene": "15 kmol/h", "toluene": "35 kmol/h"}),
+                  {"id": "C", "type": "DistillationColumn", "params": params}],
+        "streams": [{"id": top, "from": "A.out", "to": "C.in"},
+                    {"id": bottom, "from": "B.out", "to": "C.in"}]
+        + [{"id": p, "from": f"C.{p}"} for p in ("distillate", "bottoms", "vapor_distillate")],
+    })
+
+
+TWO_FEEDS = {"stages": 16, "feed_stage": 8, "reflux_ratio": 2, "distillate_rate": "50 kmol/h"}
+
+
+def test_column_with_two_feeds_on_their_own_stages_balances():
+    r = two_feed_column({**TWO_FEEDS, "feed_stages": {"FEED1": 6, "FEED2": 11}})
+    assert r.ok, r.error
+    comp, energy = balances(r, ["FEED1", "FEED2"], ["distillate", "bottoms"])
+    assert comp < 1e-6 and energy < 1e-6
+    # Feeding each stream where its composition fits beats mixing them on one stage.
+    same = two_feed_column(TWO_FEEDS)
+    purity = [res.streams["distillate"]["mole_fractions"]["benzene"] for res in (r, same)]
+    assert purity[0] > purity[1]
+
+
+def test_column_rejects_a_feed_stage_outside_the_column():
+    r = two_feed_column({**TWO_FEEDS, "feed_stages": {"FEED2": 30}})
+    assert not r.ok
+    assert "FEED2" in r.error["message"] and "outside" in r.error["message"]

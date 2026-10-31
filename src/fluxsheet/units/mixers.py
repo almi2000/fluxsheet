@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from ..stream import Stream
-from .base import IN, OUT, Param, Port, UnitOperation, empty_stream, single_inlet
+from .base import IN, OUT, Param, Port, UnitOperation, mix_streams, single_inlet
 
 
 class Mixer(UnitOperation):
@@ -12,20 +12,13 @@ class Mixer(UnitOperation):
     category = "Mixers & Splitters"
     description = "Combines any number of streams adiabatically. Outlet pressure defaults to the "\
         "lowest inlet pressure."
-    inlets = (Port("in", "Inlets", multiple=True),)
+    inlets = (Port("in", "Inlets", multiple=True, separate=True),)
     outlets = (OUT,)
     params = (Param("P", "Outlet pressure", "pressure",
                     help="Defaults to the lowest inlet pressure.", min=1.0),)
 
     def calculate(self, pkg, inlets):
-        streams = inlets["in"]
-        P = self.p["P"] if self.p["P"] is not None else min(s.P for s in streams)
-        flows = [sum(s.flows[i] for s in streams) for i in range(pkg.n)]
-        total = sum(flows)
-        if total <= 0.0:
-            return {"out": empty_stream(pkg, streams[0].T, P)}
-        H = sum(s.enthalpy_flow for s in streams) / total
-        return {"out": Stream.from_flash(pkg, flows, P=P, H=H)}
+        return {"out": mix_streams(pkg, inlets["in"], self.p["P"])}
 
 
 class Splitter(UnitOperation):

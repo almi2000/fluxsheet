@@ -49,6 +49,24 @@ describe("clipboard", () => {
     expect(f.units[0].id).toBe("MIX1");
   });
 
+  it("moves a column's feed stages to the pasted stream ids", () => {
+    const f: FlowsheetModel = {
+      ...model,
+      units: [
+        { id: "F1", type: "Feed" },
+        { id: "F2", type: "Feed" },
+        { id: "COL", type: "DistillationColumn", params: { feed_stages: { S1: 4, S2: 9 } } },
+      ],
+      streams: [
+        { id: "S1", from: "F1.out", to: "COL.in" },
+        { id: "S2", from: "F2.out", to: "COL.in" },
+      ],
+    };
+    const { units, streams } = remapFragment(f, new Set(["F1", "F2", "COL"]), new Set(["S1", "S2"]), { x: 0, y: 0 });
+    expect(streams.map((s) => s.id)).toEqual(["S3", "S4"]);
+    expect(units[2].params).toEqual({ feed_stages: { S3: 4, S4: 9 } });
+  });
+
   it("gives each pasted unit a distinct id even with the same stem", () => {
     const f: FlowsheetModel = { ...model, units: [{ id: "A1", type: "Mixer" }, { id: "A2", type: "Mixer" }], streams: [] };
     const { units } = remapFragment(f, new Set(["A1", "A2"]), new Set(), { x: 0, y: 0 });

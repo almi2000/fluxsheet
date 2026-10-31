@@ -78,6 +78,7 @@ export function remapFragment(
   });
 
   const streams: StreamModel[] = [];
+  const streamMap = new Map<string, string>();
   for (const s of fragment.streams) {
     if (!s.to) continue;
     const [fromUnit, fromPort] = s.from.split(".");
@@ -87,7 +88,20 @@ export function remapFragment(
     if (!a || !b) continue;
     const id = freshId("S", usedStreams);
     usedStreams.add(id);
+    streamMap.set(s.id, id);
     streams.push({ ...s, id, from: `${a}.${fromPort}`, to: `${b}.${toPort}` });
+  }
+  // Parameters keyed by stream id (a column's feed stage per stream) follow the new ids.
+  const oldStreams = new Set(fragment.streams.map((s) => s.id));
+  const isStreamMap = (v: unknown): v is Record<string, unknown> =>
+    !!v && typeof v === "object" && !Array.isArray(v) && Object.keys(v).length > 0 &&
+    Object.keys(v).every((k) => oldStreams.has(k));
+  for (const u of units) {
+    for (const [name, v] of Object.entries(u.params ?? {})) {
+      if (!isStreamMap(v)) continue;
+      const moved = Object.entries(v).flatMap(([k, x]) => (streamMap.has(k) ? [[streamMap.get(k)!, x]] : []));
+      u.params = { ...u.params, [name]: Object.fromEntries(moved) };
+    }
   }
   return { units, streams, idMap };
 }

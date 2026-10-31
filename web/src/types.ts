@@ -37,6 +37,7 @@ export interface PortSchema {
   name: string;
   label: string;
   multiple: boolean;
+  separate?: boolean;
 }
 
 export interface UnitType {

@@ -18,6 +18,7 @@ from .reactions import parse_reactions
 from .stream import Stream
 from .thermo_package import METHODS, PropertyPackage, get_package, suggest_method
 from .units import UNIT_TYPES, UnitOperation
+from .units.base import mix_streams
 
 
 @dataclass
@@ -221,12 +222,18 @@ class Solver:
 
     def _run_unit(self, pkg, unit: UnitOperation, streams: dict[str, Stream]) -> dict[str, Stream]:
         check_deadline(unit.id)  # demo server time budget; no-op otherwise
+        unit_pkg = self.sections.package(unit.id)
         inlets: dict[str, list[Stream]] = {p.name: [] for p in unit.inlets}
+        unit.inlet_ids = {p.name: [] for p in unit.inlets}
         for c in self.connections:
             if c.dst_unit == unit.id:  # re-flashed if it comes from another property method
                 inlets[c.dst_port].append(self.sections.inlet(c, streams[c.id]))
+                unit.inlet_ids[c.dst_port].append(c.id)
         try:
-            outputs = unit.calculate(self.sections.package(unit.id), inlets)
+            for port in unit.inlets:  # several feeds on one inlet enter as one mixed stream
+                if len(inlets[port.name]) > 1 and not port.separate:
+                    inlets[port.name] = [mix_streams(unit_pkg, inlets[port.name])]
+            outputs = unit.calculate(unit_pkg, inlets)
         except SimulationError as exc:
             raise exc.located(unit.id)
         except Exception as exc:  # keep unexpected failures readable too

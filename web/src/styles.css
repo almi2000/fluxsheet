@@ -175,6 +175,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent-soft
 /* Ports show while the pointer is over a unit, or while a stream is being drawn. */
 .react-flow__handle { width: 8px; height: 8px; min-width: 0; min-height: 0; background: var(--bg); border: 1.5px solid var(--accent); opacity: 0; transition: opacity 0.12s; }
 .react-flow__handle.source { background: var(--accent); }
+.react-flow__handle::before { content: ""; position: absolute; inset: -7px; border-radius: 50%; } /* easier to hit */
 .unit-node:hover .react-flow__handle, .unit-node.selected .react-flow__handle,
 .react-flow__handle.connectingfrom, .react-flow__handle.connectingto,
 .react-flow.connecting .react-flow__handle.target { opacity: 1; }

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from ..errors import SimulationError
 from ..stream import Stream
-from .base import IN, OUT, Param, UnitOperation
+from .base import OUT, Param, Port, UnitOperation
 
 
 class Feed(UnitOperation):
@@ -48,7 +48,7 @@ class Product(UnitOperation):
     label = "Product"
     category = "Streams"
     description = "A material stream leaving the process."
-    inlets = (IN,)
+    inlets = (Port("in", "Inlet"),)
 
     def calculate(self, pkg, inlets):
         return {}

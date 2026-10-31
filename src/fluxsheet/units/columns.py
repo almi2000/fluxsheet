@@ -165,8 +165,8 @@ class DistillationColumn(_StageColumn):
     category = "Columns"
     description = "Rigorous distillation on equilibrium stages: material, equilibrium and "\
         "energy balances of every stage solved together. Stage 1 is the condenser, the last "\
-        "stage the reboiler. Give one specification per condenser and reboiler."
-    inlets = (IN,)
+        "stage the reboiler. Give one specification per condenser and reboiler. Takes any "        "number of feeds, each on its own stage."
+    inlets = (Port("in", "Feeds", multiple=True, separate=True),)
     outlets = (Port("distillate", "Distillate"), Port("bottoms", "Bottoms"),
                Port("vapor_distillate", "Vapor distillate"))
     params = (
@@ -174,6 +174,9 @@ class DistillationColumn(_StageColumn):
               help="Equilibrium stages, counting the condenser and the reboiler."),
         Param("feed_stage", "Feed stage", "integer", default=5, min=1,
               help="Stage the feed enters, counted from the top (condenser = 1)."),
+        Param("feed_stages", "Feed stage per stream", "stream_stages",
+              help="With several feeds: the stage of each feed stream. Feeds not listed "
+              "enter the feed stage above."),
         P_TOP,
         DP_STAGE,
         Param("condenser", "Condenser", "choice", default="total",
@@ -222,39 +225,51 @@ class DistillationColumn(_StageColumn):
                       1: "set exactly one ratio or rate that fits this configuration",
                       0: "remove the specifications, or add a condenser or reboiler"}[needed],
             )
-        n, nf = self.p["stages"], self.p["feed_stage"]
+        n = self.p["stages"]
         if n < 1 + has_cond + has_reb:
             raise SimulationError(f"{n} stages is too few", where=self.id,
                                   hint="count the condenser and reboiler as stages; use at "
                                   f"least {2 + has_cond + has_reb}")
-        if not 1 + has_cond <= nf <= n:
-            raise SimulationError(
-                f"feed stage {nf} is outside the column", where=self.id,
-                hint=f"use a stage from {1 + has_cond} to {n}"
-                + (" (stage 1 is the condenser)" if has_cond else ""))
+        stages = {"feed": self.p["feed_stage"], **(self.p["feed_stages"] or {})}
+        for name, nf in stages.items():
+            if not 1 + has_cond <= nf <= n:
+                raise SimulationError(
+                    f"feed stage {nf}{'' if name == 'feed' else f' of {name}'} is outside "
+                    "the column", where=self.id,
+                    hint=f"use a stage from {1 + has_cond} to {n}"
+                    + (" (stage 1 is the condenser)" if has_cond else ""))
+
+    def _feed_stage(self, stream_id: str | None) -> int:
+        """Stage index (from 0) where a feed stream enters."""
+        return (self.p["feed_stages"] or {}).get(stream_id, self.p["feed_stage"]) - 1
 
     def idle_outlets(self) -> tuple[str, ...]:
         """Outlets this configuration leaves empty; the solver does not warn about them."""
         return ("vapor_distillate",) if self.p["condenser"] == "total" else ("distillate",)
 
     def calculate(self, pkg, inlets):
-        s = single_inlet(inlets)
-        P = self._pressures(self.p["P"] or s.P)
-        if s.total_flow <= 0.0:
+        streams = inlets["in"]
+        ids = self.inlet_ids.get("in", [])
+        F = sum(s.total_flow for s in streams)
+        P = self._pressures(self.p["P"] or min(s.P for s in streams))
+        if F <= 0.0:
             self.results.update(condenser_duty=0.0, reboiler_duty=0.0)
-            return {port.name: empty_stream(pkg, s.T, P[0] if port.name != "bottoms" else P[-1])
+            T = streams[0].T
+            return {port.name: empty_stream(pkg, T, P[0] if port.name != "bottoms" else P[-1])
                     for port in self.outlets}
+        feeds = [_feed(self._feed_stage(ids[i] if i < len(ids) else None), s)
+                 for i, s in enumerate(streams) if s.total_flow > 0.0]
         specs = {name: self.p[name] for name in SPECS if self.p[name] is not None}
         for name in ("distillate_rate", "bottoms_rate"):
-            if name in specs and specs[name] >= s.total_flow:
+            if name in specs and specs[name] >= F:
                 raise SimulationError(
                     f"{SPECS[name]} {specs[name] * 3.6:.4g} kmol/h is not below the feed "
-                    f"{s.total_flow * 3.6:.4g} kmol/h",
+                    f"{F * 3.6:.4g} kmol/h",
                     hint="both products need some flow; a good first guess for the distillate "
                     "is the feed flow of the components lighter than the heavy key",
                 )
         setup = ColumnSetup(
-            stages=self.p["stages"], P=P, feeds=[_feed(self.p["feed_stage"] - 1, s)],
+            stages=self.p["stages"], P=P, feeds=feeds,
             condenser=self.p["condenser"], reboiler=self.p["reboiler"] != "none",
             specs=specs, efficiency=self.p["efficiency"] or 1.0,
         )
@@ -281,7 +296,8 @@ class Absorber(_StageColumn):
     description = "Countercurrent gas-liquid contactor on equilibrium stages, without "\
         "condenser or reboiler: liquid enters at the top, gas at the bottom. Absorbs solutes "\
         "from a gas into a solvent, or strips them out of a liquid."
-    inlets = (Port("gas_in", "Gas in (bottom)"), Port("liquid_in", "Liquid in (top)"))
+    inlets = (Port("gas_in", "Gas in (bottom)", multiple=True),
+              Port("liquid_in", "Liquid in (top)", multiple=True))
     outlets = (Port("gas_out", "Gas out (top)"), Port("liquid_out", "Liquid out (bottom)"))
     params = (
         Param("stages", "Number of stages", "integer", default=10, min=1,

@@ -5,6 +5,18 @@ All notable changes to Fluxsheet. The format follows
 [Semantic Versioning](https://semver.org/) (before 1.0, minor versions may change the file
 format or API).
 
+## [Unreleased]
+
+### Added
+
+- **Equipment symbols:** units are drawn as shaded equipment (drums with liquid levels, a
+  column with condenser, reflux drum and reboiler, pump, stirred tank, shell and tube
+  exchanger, ...) with streams attached at their nozzles.
+- **Several feeds per unit:** most units take any number of streams on their inlet, mixed
+  adiabatically before they enter. A distillation column keeps its feeds apart and takes a
+  feed stage per stream.
+- Dropping a stream on a unit's body connects it to the nearest free port.
+
 ## [0.2.0] - 2026-10-30
 
 First packaged release: `pip install "fluxsheet[server]"` installs the simulator, the web
