@@ -1,6 +1,6 @@
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import { memo } from "react";
-import { UnitIcon } from "./icons";
+import { getSymbol, portAt, UnitIcon } from "./icons";
 import { MethodTag } from "./PropertyMethods";
 import { formatQuantity } from "./quantities";
 import type { Params, UnitResult, UnitType } from "./types";
@@ -18,10 +18,6 @@ export type UnitNodeData = {
 
 export type UnitFlowNode = Node<UnitNodeData, "unit">;
 
-function spread(i: number, n: number) {
-  return `${((i + 1) / (n + 1)) * 100}%`;
-}
-
 /** The node badge: the unit's first energy result (duty or power), if non-zero. */
 function summary(schema: UnitType, result?: UnitResult): string | null {
   if (!result) return null;
@@ -31,8 +27,12 @@ function summary(schema: UnitType, result?: UnitResult): string | null {
   return field ? formatQuantity(result[field.name], field.quantity) : null;
 }
 
+/** Handles sit on the symbol's nozzles; React Flow's own left/right placement is overridden. */
+const at = (p: { x: number; y: number }) => ({ left: p.x, top: p.y, right: "auto", transform: "translate(-50%, -50%)" });
+
 function UnitNodeView({ id, data, selected }: NodeProps<UnitFlowNode>) {
   const { schema } = data;
+  const sym = getSymbol(data.type);
   const badge = summary(schema, data.result);
   return (
     <div
@@ -44,32 +44,36 @@ function UnitNodeView({ id, data, selected }: NodeProps<UnitFlowNode>) {
       ].join(" ")}
       title={schema.description}
     >
-      {schema.inlets.map((p, i) => (
-        <Handle
-          key={p.name}
-          id={p.name}
-          type="target"
-          position={Position.Left}
-          style={{ top: spread(i, schema.inlets.length) }}
-          title={p.label}
-        />
-      ))}
-      <UnitIcon type={data.type} />
+      <div className="unit-symbol" style={{ width: sym.w, height: sym.h }}>
+        <UnitIcon type={data.type} />
+        {schema.inlets.map((p, i) => (
+          <Handle
+            key={p.name}
+            id={p.name}
+            type="target"
+            position={Position.Left}
+            style={at(portAt(sym, p.name, "in", i, schema.inlets.length))}
+            title={p.label}
+          >
+            {schema.inlets.length > 1 && <span className="port-label in">{p.label}</span>}
+          </Handle>
+        ))}
+        {schema.outlets.map((p, i) => (
+          <Handle
+            key={p.name}
+            id={p.name}
+            type="source"
+            position={Position.Right}
+            style={at(portAt(sym, p.name, "out", i, schema.outlets.length))}
+            title={p.label}
+          >
+            {schema.outlets.length > 1 && <span className="port-label">{p.label}</span>}
+          </Handle>
+        ))}
+      </div>
       <div className="unit-id">{id}</div>
       {badge && <div className="unit-badge">{badge}</div>}
       {data.method && <MethodTag method={data.method} override={!!data.property_method} />}
-      {schema.outlets.map((p, i) => (
-        <Handle
-          key={p.name}
-          id={p.name}
-          type="source"
-          position={Position.Right}
-          style={{ top: spread(i, schema.outlets.length) }}
-          title={p.label}
-        >
-          {schema.outlets.length > 1 && <span className="port-label">{p.label}</span>}
-        </Handle>
-      ))}
     </div>
   );
 }

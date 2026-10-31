@@ -18,6 +18,7 @@ import { api } from "./api";
 import { extractFragment, fragmentOrigin, parseFragment, remapFragment, type Point } from "./clipboard";
 import { useHistory } from "./history";
 import { FlowsheetInspector, StreamInspector, UnitInspector } from "./Inspector";
+import { getSymbol, portAt, SymbolDefs } from "./icons";
 import { layeredLayout } from "./layout";
 import { Palette } from "./Palette";
 import { UnitMethodField } from "./PropertyMethods";
@@ -127,6 +128,7 @@ function Editor() {
   const [stale, setStale] = useState(false);
   const [running, setRunning] = useState(false);
   const [layoutOffer, setLayoutOffer] = useState(false);
+  const [connecting, setConnecting] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const flow = useReactFlow();
@@ -417,14 +419,26 @@ function Editor() {
   const arrange = () => {
     if (nodes.length === 0) return;
     const pos = layeredLayout(
-      nodes.map((n) => ({
-        id: n.id,
-        width: n.measured?.width ?? 80,
-        height: n.measured?.height ?? 70,
-        role: n.data.type === "Feed" ? "feed" : n.data.type === "Product" ? "product" : "unit",
-        inlets: n.data.schema?.inlets.map((p) => p.name) ?? [],
-        outlets: n.data.schema?.outlets.map((p) => p.name) ?? [],
-      })),
+      nodes.map((n) => {
+        const sym = getSymbol(n.data.type);
+        const width = n.measured?.width ?? sym.w;
+        const height = n.measured?.height ?? sym.h + 20;
+        const inlets = n.data.schema?.inlets.map((p) => p.name) ?? [];
+        const outlets = n.data.schema?.outlets.map((p) => p.name) ?? [];
+        // Ports sit on the symbol's nozzles, which the layout lines up with their neighbors.
+        const portOffsets: Record<string, number> = {};
+        inlets.forEach((p, i) => (portOffsets[p] = portAt(sym, p, "in", i, inlets.length).y / height - 0.5));
+        outlets.forEach((p, i) => (portOffsets[p] = portAt(sym, p, "out", i, outlets.length).y / height - 0.5));
+        return {
+          id: n.id,
+          width,
+          height,
+          role: n.data.type === "Feed" ? "feed" : n.data.type === "Product" ? "product" : "unit",
+          inlets,
+          outlets,
+          portOffsets,
+        } as const;
+      }),
       edges,
     );
     history.commit();
@@ -603,6 +617,7 @@ function Editor() {
 
   return (
     <div className="app">
+      <SymbolDefs />
       <header className="toolbar">
         <div className="brand">
           <svg width="22" height="22" viewBox="0 0 32 32" aria-hidden="true">
@@ -710,6 +725,9 @@ function Editor() {
               if (c.some((x) => x.type === "remove")) touch();
             }}
             onConnect={onConnect}
+            onConnectStart={() => setConnecting(true)}
+            onConnectEnd={() => setConnecting(false)}
+            className={connecting ? "connecting" : undefined}
             isValidConnection={isValidConnection}
             onNodeClick={(_, n) => setSelection({ kind: "unit", id: n.id })}
             onEdgeClick={(_, e) => setSelection({ kind: "stream", id: e.id })}

@@ -15,6 +15,27 @@
   --warn: #92400e;
   --warn-soft: #fef6e7;
   --node: #ffffff;
+  --sym-line: #3b4656;
+  --sym-pipe: #4b5565;
+  --sym-m0: #8a95a5;
+  --sym-m1: #c9d0da;
+  --sym-m2: #f7f9fb;
+  --sym-b0: #1e4fa8;
+  --sym-b1: #4f86e0;
+  --sym-b2: #b3cdf6;
+  --sym-liq0: #3b82f6;
+  --sym-liq1: #a5cdfb;
+  --sym-oil0: #d98a06;
+  --sym-oil1: #fcd96b;
+  --sym-hot: #dc2626;
+  --sym-cold: #2563eb;
+  --sym-shine: #e8f0fe;
+  --sym-window: #ffffff;
+  --sym-mark: #b45309;
+  --sym-feed: #dcf3e4;
+  --sym-feed-line: #15803d;
+  --sym-product: #ece7fb;
+  --sym-product-line: #6d28d9;
   --radius: 8px;
   color-scheme: light;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -40,6 +61,27 @@
     --warn: #fbbf24;
     --warn-soft: #33270f;
     --node: #1a212c;
+    --sym-line: #161c25;
+    --sym-pipe: #9aa6b6;
+    --sym-m0: #586374;
+    --sym-m1: #97a2b1;
+    --sym-m2: #d9dfe7;
+    --sym-b0: #1c3f86;
+    --sym-b1: #3f72cc;
+    --sym-b2: #9dbcf0;
+    --sym-liq0: #2f6fd8;
+    --sym-liq1: #8fbcf5;
+    --sym-oil0: #c07a08;
+    --sym-oil1: #f5cf63;
+    --sym-hot: #f87171;
+    --sym-cold: #60a5fa;
+    --sym-shine: #dbe7fd;
+    --sym-window: #eef2f7;
+    --sym-mark: #b45309;
+    --sym-feed: #173a26;
+    --sym-feed-line: #4ade80;
+    --sym-product: #2a2147;
+    --sym-product-line: #a78bfa;
     color-scheme: dark;
   }
 }
@@ -121,23 +163,27 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent-soft
   color: var(--muted);
 }
 
-.unit-node {
-  display: flex; flex-direction: column; align-items: center;
-  min-width: 76px; padding: 8px 10px 6px; border-radius: var(--radius);
-  background: var(--node); border: 1.5px solid var(--border); color: var(--text);
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.06);
-}
-.unit-node.selected { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-.unit-node.error { border-color: var(--danger); box-shadow: 0 0 0 3px var(--danger-soft); }
+.unit-node { display: flex; flex-direction: column; align-items: center; color: var(--text); }
+.unit-symbol { position: relative; }
+.unit-symbol .unit-icon { display: block; filter: drop-shadow(0 1.5px 1.5px rgb(0 0 0 / 0.18)); }
+.unit-node.selected .unit-icon { filter: drop-shadow(0 0 1.5px var(--accent)) drop-shadow(0 0 5px var(--accent)); }
+.unit-node.error .unit-icon { filter: drop-shadow(0 0 1.5px var(--danger)) drop-shadow(0 0 5px var(--danger)); }
 .unit-node.stale .unit-badge { opacity: 0.4; }
-.unit-id { font-size: 11px; font-weight: 600; margin-top: 2px; }
-.unit-badge { font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.react-flow__handle { width: 9px; height: 9px; background: var(--bg); border: 1.5px solid var(--accent); }
+.unit-id { font-size: 11px; font-weight: 600; margin-top: 3px; padding: 0 4px; border-radius: 4px; white-space: nowrap; }
+.unit-node.selected .unit-id { background: var(--accent); color: #fff; }
+.unit-badge { font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* Ports show while the pointer is over a unit, or while a stream is being drawn. */
+.react-flow__handle { width: 8px; height: 8px; min-width: 0; min-height: 0; background: var(--bg); border: 1.5px solid var(--accent); opacity: 0; transition: opacity 0.12s; }
 .react-flow__handle.source { background: var(--accent); }
+.unit-node:hover .react-flow__handle, .unit-node.selected .react-flow__handle,
+.react-flow__handle.connectingfrom, .react-flow__handle.connectingto,
+.react-flow.connecting .react-flow__handle.target { opacity: 1; }
 .port-label {
-  position: absolute; left: 12px; top: -7px; font-size: 9px; color: var(--muted); pointer-events: none;
-  white-space: nowrap;
+  position: absolute; left: 11px; top: -8px; font-size: 9px; color: var(--muted); pointer-events: none;
+  white-space: nowrap; opacity: 0; transition: opacity 0.12s;
 }
+.port-label.in { left: auto; right: 11px; }
+.unit-node:hover .port-label, .unit-node.selected .port-label { opacity: 1; }
 
 /* ---- inspector ---- */
 .inspector-body { display: flex; flex-direction: column; }

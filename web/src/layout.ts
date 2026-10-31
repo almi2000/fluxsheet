@@ -20,6 +20,8 @@ export interface LayoutNode {
   role: "feed" | "product" | "unit";
   inlets: string[];
   outlets: string[];
+  /** Port positions, -0.5 (top) .. 0.5 (bottom); ports not listed are spread evenly. */
+  portOffsets?: Record<string, number>;
 }
 
 export interface LayoutEdge {
@@ -117,7 +119,9 @@ export function assignLayers(nodes: LayoutNode[], forward: LayoutEdge[]): Map<st
 }
 
 /** Position of an edge's port along a node's left/right side, -0.5 (top) .. 0.5 (bottom). */
-function portOffset(ports: string[], handle: string | null | undefined): number {
+function portOffset(ports: string[], handle: string | null | undefined, offsets?: Record<string, number>): number {
+  const placed = offsets?.[handle ?? ""];
+  if (placed !== undefined) return placed;
   const i = Math.max(0, ports.indexOf(handle ?? ""));
   return (i + 1) / (ports.length + 1) - 0.5;
 }
@@ -144,8 +148,8 @@ export function layeredLayout(
   for (const e of forward) {
     const s = byId.get(e.source)!;
     const t = byId.get(e.target)!;
-    const so = portOffset(s.outlets, e.sourceHandle);
-    const to = portOffset(t.inlets, e.targetHandle);
+    const so = portOffset(s.outlets, e.sourceHandle, s.portOffsets);
+    const to = portOffset(t.inlets, e.targetHandle, t.portOffsets);
     outs.get(s.id)!.push({ other: t.id, mine: so, theirs: to });
     ins.get(t.id)!.push({ other: s.id, mine: to, theirs: so });
   }

@@ -198,7 +198,20 @@ def sensitivity(body: SensitivityRequest) -> dict:
                                        "hint": "search for the compound and pick it from the list"}}
 
 
+class _EditorFiles(StaticFiles):
+    """The editor's files. index.html is revalidated on every load so a new version shows
+    up at once; the hashed files under assets/ never change and may be cached for good."""
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        if Path(path).parts[:1] == ("assets",):
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        else:
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 # Serve the built web editor from the same origin when it exists.
 _dist = _bundled("web", "web/dist")
 if _dist.is_dir():
-    app.mount("/", StaticFiles(directory=_dist, html=True), name="web")
+    app.mount("/", _EditorFiles(directory=_dist, html=True), name="web")

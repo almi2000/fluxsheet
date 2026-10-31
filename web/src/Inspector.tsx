@@ -226,7 +226,7 @@ export function UnitInspector({
   return (
     <div className="inspector-body">
       <header className="inspector-head">
-        <UnitIcon type={schema.type} size={34} />
+        <UnitIcon type={schema.type} size={38} />
         <div>
           <div className="eyebrow">{schema.label}</div>
           <input

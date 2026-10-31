@@ -24,7 +24,7 @@ export function Palette({ types }: { types: UnitType[] }) {
                     e.dataTransfer.effectAllowed = "move";
                   }}
                 >
-                  <UnitIcon type={t.type} size={30} />
+                  <UnitIcon type={t.type} size={38} />
                   <span>{t.label}</span>
                 </div>
               ))}

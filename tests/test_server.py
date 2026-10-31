@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from fluxsheet.server import app
@@ -38,3 +39,13 @@ def test_solve_reports_unknown_compound():
     model["components"] = ["water", "unobtainium"]
     body = client.post("/api/solve", json=model).json()
     assert not body["ok"] and "unobtainium" in body["error"]["message"]
+
+
+def test_editor_index_is_revalidated_and_assets_are_cached():
+    from fluxsheet.server import _dist
+
+    if not (_dist / "index.html").is_file():
+        pytest.skip("web editor not built")
+    assert client.get("/").headers["cache-control"] == "no-cache"
+    asset = next((_dist / "assets").iterdir()).name
+    assert "immutable" in client.get(f"/assets/{asset}").headers["cache-control"]
