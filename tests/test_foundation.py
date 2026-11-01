@@ -105,6 +105,22 @@ def test_phase_props_and_reactive_enthalpy():
         pkg.phase_props("solid", 300.0, 1e5, zs)
 
 
+def test_compressed_supercritical_gas_is_vapor():
+    # Hydrogen at 25 °C and 70 bar is far above its critical point; with toluene it must
+    # split into a hydrogen-rich gas and a toluene-rich liquid, not into two liquids.
+    pkg = PropertyPackage(["hydrogen", "toluene"], "peng-robinson")
+    assert pkg.flash([1.0, 0.0], T=298.15, P=70e5).phase == "vapor"
+    st = pkg.flash([0.8, 0.2], T=298.15, P=70e5)
+    assert st.phase == "two-phase" and st.VF == pytest.approx(0.79, abs=0.02)
+    assert st.y[0] > 0.99 and st.x[1] > 0.9
+    assert PropertyPackage(["hydrogen"], "peng-robinson").flash(
+        [1.0], T=298.15, P=70e5).phase == "vapor"
+    # A compressed liquid below its critical temperature stays liquid, and a superheated
+    # vapor below it stays vapor.
+    assert pkg.flash([0.0, 1.0], T=573.0, P=70e5).phase == "liquid"
+    assert pkg.flash([0.0, 1.0], T=400.0, P=1e5).phase == "vapor"
+
+
 def test_unit_results_carry_profiles_only_when_present():
     r = solve({
         "components": ["water"], "property_method": "ideal",

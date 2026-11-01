@@ -29,6 +29,7 @@ from thermo import (
     IdealGas,
     Wilson,
 )
+from thermo.bulk import BulkSettings
 from thermo.interaction_parameters import IPDB
 from thermo.unifac import DOUFIP2016, DOUFSG
 
@@ -407,10 +408,10 @@ class PropertyPackage:
                 caloric_basis="Psat",
             )
         if self.n == 1:
-            return FlashPureVLS(c, p, gas=gas, liquids=[liquid], solids=[])
+            return FlashPureVLS(c, p, gas=gas, liquids=[liquid], solids=[], settings=_SETTINGS)
         if self.supports_lle:
-            return _FlashVLLE(c, p, liquids=[liquid, liquid], gas=gas)
-        return FlashVL(c, p, liquid=liquid, gas=gas)
+            return _FlashVLLE(c, p, liquids=[liquid, liquid], gas=gas, settings=_SETTINGS)
+        return FlashVL(c, p, liquid=liquid, gas=gas, settings=_SETTINGS)
 
     def _regressed_model(self):
         """NRTL, UNIQUAC or Wilson with measured parameters; UNIFAC estimates fill the gaps.
@@ -790,6 +791,14 @@ def _combined_liquid(res, liquids, n: int) -> tuple[float, ...]:
     betas = [float(b) for b in res.betas_liquids]
     return tuple(sum(b * ph.zs[i] for b, ph in zip(betas, liquids)) / sum(betas)
                  for i in range(n))
+
+
+# Which equation-of-state root counts as vapor: a phase whose molar volume exceeds its
+# pseudo-critical volume (Kay's rule). thermo's default, the phase identification parameter,
+# calls a compressed supercritical gas a liquid (hydrogen at 25 °C and 70 bar), so a
+# hydrogen-rich gas over toluene came out as two liquids with no vapor at all. A
+# pseudo-critical temperature rule would instead call superheated benzene vapor a liquid.
+_SETTINGS = BulkSettings(VL_ID="Vpc")
 
 
 class _FlashVLLE(FlashVLN):
