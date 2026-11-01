@@ -260,7 +260,11 @@ class Solver:
                 sid = by_source.get((uid, port))
                 if sid is None:
                     if port in _idle_outlets(unit):
-                        continue
+                        if stream.total_flow <= 0.0:
+                            continue
+                        note = f"{uid}: outlet {port!r} carries flow but is not connected"
+                        if note not in self.warnings:  # once, not per recycle iteration
+                            self.warnings.append(note)
                     sid = f"{uid}.{port}"
                 streams[sid] = stream
 

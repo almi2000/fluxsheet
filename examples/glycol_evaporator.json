@@ -1,0 +1,36 @@
+{
+  "format": "fluxsheet/1",
+  "name": "Glycol recovery in a thin-film evaporator",
+  "description": "Spent glycol and a rinse water stream are blended in a stirred tank and dried in a steam-heated thin-film evaporator under vacuum. The water vapor is condensed with cooling water; the glycol residue is pumped to storage. The evaporator duty follows from U, the jacket area and the steam.",
+  "components": ["water", "ethylene glycol"],
+  "property_method": "unifac",
+  "utilities": [
+    {"id": "MPS", "type": "steam", "P": "10 bar"},
+    {"id": "CW", "type": "fluid", "T_in": "25 degC", "T_out": "35 degC", "cp": "4.18 kJ/kgK"}
+  ],
+  "units": [
+    {"id": "SPENT", "type": "Feed", "ui": {"x": 0, "y": 60},
+     "params": {"T": "40 degC", "P": "1.5 bar",
+                "flows": {"water": "40 kmol/h", "ethylene glycol": "35 kmol/h"}}},
+    {"id": "RINSE", "type": "Feed", "ui": {"x": 0, "y": 200},
+     "params": {"T": "20 degC", "P": "1.5 bar", "flows": {"water": "25 kmol/h"}}},
+    {"id": "TANK", "type": "MixingTank", "ui": {"x": 170, "y": 100},
+     "params": {"V": "4 m3"}},
+    {"id": "TFE", "type": "ThinFilmEvaporator", "ui": {"x": 360, "y": 60},
+     "params": {"P": "0.1 bar", "area": "6 m2", "utility": "MPS", "U": "1200 W/m2K"}},
+    {"id": "COND", "type": "Heater", "ui": {"x": 560, "y": 20},
+     "params": {"T": "40 degC", "utility": "CW", "U": "800 W/m2K"}},
+    {"id": "PUMP", "type": "Pump", "ui": {"x": 560, "y": 200}, "params": {"P": "3 bar"}},
+    {"id": "WATER", "type": "Product", "ui": {"x": 760, "y": 40}},
+    {"id": "GLYCOL", "type": "Product", "ui": {"x": 760, "y": 220}}
+  ],
+  "streams": [
+    {"id": "S1", "from": "SPENT.out", "to": "TANK.in"},
+    {"id": "S2", "from": "RINSE.out", "to": "TANK.in"},
+    {"id": "S3", "from": "TANK.liquid", "to": "TFE.in"},
+    {"id": "VAP", "from": "TFE.vapor", "to": "COND.in"},
+    {"id": "RES", "from": "TFE.residue", "to": "PUMP.in"},
+    {"id": "COND_WATER", "from": "COND.out", "to": "WATER.in"},
+    {"id": "PRODUCT", "from": "PUMP.out", "to": "GLYCOL.in"}
+  ]
+}

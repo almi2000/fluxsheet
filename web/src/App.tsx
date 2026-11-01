@@ -39,7 +39,9 @@ const ID_PREFIX: Record<string, string> = {
   Feed: "FEED", Product: "PROD", Mixer: "MIX", Splitter: "SPLIT", Heater: "HX", Flash: "FLASH",
   ComponentSplitter: "SEP", Valve: "VLV", Pump: "PUMP", Compressor: "COMP",
   StoichiometricReactor: "STOIC", YieldReactor: "YIELD", EquilibriumReactor: "EQ", GibbsReactor: "GIBBS",
-  CSTR: "CSTR", PFR: "PFR", HeatExchanger: "EX",
+  CSTR: "CSTR", PFR: "PFR", HeatExchanger: "EX", MixingTank: "TANK", ThinFilmEvaporator: "TFE",
+  Turbine: "TURB", MultistageCompressor: "MCOMP", Pipe: "PIPE", ExtractionColumn: "EXTR",
+  Decanter: "DEC", ShortcutColumn: "SCOL", DistillationColumn: "COL", Absorber: "ABS",
 };
 
 const DEFAULT_PARAMS: Record<string, Params> = {
@@ -52,6 +54,11 @@ const DEFAULT_PARAMS: Record<string, Params> = {
   CSTR: { V: "1 m3", phase: "liquid" },
   PFR: { V: "1 m3", phase: "gas" },
   HeatExchanger: { min_approach: "10 K" },
+  ThinFilmEvaporator: { VF: 0.5, P: "0.1 bar" },
+  Turbine: { P: "1 bar" },
+  MultistageCompressor: { P: "20 bar", stages: 3, T_cooler: "40 degC" },
+  Pipe: { length: "100 m", diameter: "100 mm" },
+  ExtractionColumn: { stages: 5 },
 };
 
 type Meta = Pick<FlowsheetModel, "name" | "description" | "components" | "property_method"> & {

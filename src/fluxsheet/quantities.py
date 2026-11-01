@@ -105,6 +105,10 @@ _UNITS: dict[str, dict[str, tuple[float, float]]] = {
         "kw/m2k": (1e3, 0.0),
         "btu/h/ft2/f": (5.678263, 0.0),
     },
+    "velocity": {
+        "m/s": (1.0, 0.0),
+        "ft/s": (0.3048, 0.0),
+    },
     "specific_heat": {
         "j/kgk": (1.0, 0.0),
         "kj/kgk": (1e3, 0.0),

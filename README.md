@@ -241,13 +241,26 @@ in the flowsheet settings; see `examples/benzene_toluene_purity.json`.
 
 ## What's included
 
-**Unit operations:** Feed, Product, Mixer, Splitter, Heater/Cooler, Heat Exchanger, Flash drum, Decanter
-(liquid-liquid), Component splitter, Valve, Pump, Compressor.
+**Unit operations:** Feed, Product, Mixer, Splitter, Mixing tank, Heater/Cooler, Heat
+Exchanger, Flash drum, Decanter (liquid-liquid), Thin-film evaporator, Component splitter,
+Valve, Pump, Compressor, Multistage compressor, Turbine/expander, Pipe.
+
+| Unit | Model |
+|---|---|
+| Mixing tank | Blends any number of feeds, vents vapor; jacket heating or cooling; residence time from the liquid volume |
+| Thin-film evaporator | Wiped or falling film in plug flow along the heated wall: sensible heating, then evaporation with the vapor drawn off as it forms (differential evaporation), so it separates better than one flash; usual under vacuum |
+| Multistage compressor | Stages of equal pressure ratio, intercoolers with condensate drain, optional aftercooler |
+| Turbine / expander | Isentropic expansion with efficiency; gas, steam (wet outlet allowed) or liquid |
+| Pipe | Darcy-Weisbach with laminar or Swamee-Jain friction factor, height change, heat loss; homogeneous two-phase flow; viscosities from `thermo` |
+| Extraction column | Countercurrent liquid-liquid stages at constant temperature (VLLE flash per stage), feed at stage 1, solvent at the last stage |
+
+Most units take several feeds on one inlet; they are mixed adiabatically before they enter.
 
 **Columns:** shortcut distillation design (Fenske, Underwood, Gilliland/Molokanov,
 Kirkbride); rigorous distillation on equilibrium stages (MESH equations solved together by
 Newton's method, Naphtali-Sandholm) with total, partial or no condenser, optional reboiler,
-stage pressure drop and Murphree efficiency; absorber/stripper on the same stage model.
+stage pressure drop and Murphree efficiency, any number of feeds on their own stages;
+absorber/stripper on the same stage model; liquid-liquid extraction column.
 Stage profiles (temperature, flows, compositions) show up in the inspector.
 
 **Property methods:**

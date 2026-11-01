@@ -21,6 +21,16 @@ format or API).
   their utility use and the UA or area a duty needs, or take U and the area of a jacket or
   coil and find the duty together with their energy balance. Heated and cooled units show
   a red or blue jacket.
+- **More unit operations:** thin-film evaporator (plug flow along the heated wall,
+  differential evaporation), mixing tank, turbine/expander, multistage compressor with
+  intercoolers and condensate drain, pipe (friction, height change, heat loss) and
+  liquid-liquid extraction column. Example `glycol_evaporator.json`.
+
+### Fixed
+
+- A pressure-enthalpy flash that thermo cannot converge (e.g. an almost pure component in a
+  mixture model) is solved by temperature with T-P flashes instead of failing.
+- A long flowsheet name no longer pushes the editor wider than the window.
 
 ## [0.2.0] - 2026-10-30
 

@@ -562,7 +562,12 @@ class PropertyPackage:
         try:
             if "VF" in spec and self.n > 1 and (self.supports_lle or self._ge is not None):
                 return self._checked_vf(zs, spec, guess)
-            res = self._flasher.flash(zs=zs, **spec)
+            try:
+                res = self._flasher.flash(zs=zs, **spec)
+            except Exception:
+                if set(spec) != {"P", "H"}:
+                    raise
+                res = self._ph_by_temperature(zs, spec["P"], spec["H"])
             return res, _incipient(res, spec.get("VF"), self.n)
         except Exception as exc:
             spec_text = ", ".join(f"{k}={v:.6g}" for k, v in spec.items())
@@ -571,6 +576,70 @@ class PropertyPackage:
                 hint="check that temperature and pressure are physically reasonable for "
                 "these compounds, or try a different property method",
             ) from exc
+
+    def flash_ph_near(self, zs: list[float], P: float, H: float, T_guess: float) -> PhaseState:
+        """Pressure-enthalpy flash from a nearby temperature, by T-P flashes.
+
+        For marching models (an evaporator film, a pipe) where the previous step's T is a
+        good start: secant steps on H(T), kept inside a bracket, need a few T-P flashes,
+        much less than a full PH flash. Falls back to ``flash`` if they do not settle.
+        """
+        def h(T: float):
+            res = self._flasher.flash(zs=zs, T=T, P=P)
+            return float(res.H()) - H, res
+
+        try:
+            T0, (f0, res) = T_guess, h(T_guess)
+            if abs(f0) <= 1e-7 * abs(H) + 1e-3:
+                return self._state(res, zs)
+            T1 = T0 + (1.0 if f0 < 0.0 else -1.0)
+            lo = hi = None
+            for _ in range(40):
+                f1, res = h(T1)
+                if abs(f1) <= 1e-7 * abs(H) + 1e-3:
+                    return self._state(res, zs)
+                if f1 < 0.0:
+                    lo = T1 if lo is None or T1 > lo else lo
+                else:
+                    hi = T1 if hi is None or T1 < hi else hi
+                step = -f1 * (T1 - T0) / (f1 - f0) if f1 != f0 else (1.0 if f1 < 0 else -1.0)
+                T_next = T1 + max(min(step, 200.0), -200.0)
+                if lo is not None and hi is not None and not lo < T_next < hi:
+                    T_next = 0.5 * (lo + hi)
+                T0, f0, T1 = T1, f1, max(T_next, 20.0)
+        except Exception:  # noqa: BLE001, S110 - any failure: use the general flash
+            pass
+        return self.flash(zs, P=P, H=H)
+
+    def _ph_by_temperature(self, zs: list[float], P: float, H: float):
+        """Pressure-enthalpy flash by solving for T with T-P flashes.
+
+        The fallback when thermo's PH flash fails, e.g. for an almost pure component in a
+        mixture model (the residue at the end of an evaporator). H rises monotonically with
+        T at fixed P, and T-P flashes stay robust there.
+        """
+        def h(T: float):
+            res = self._flasher.flash(zs=zs, T=T, P=P)
+            return float(res.H()) - H, res
+
+        lo = hi = sum(z * tb for z, tb in zip(zs, self.consts.Tbs) if tb) or 300.0
+        f_lo = f_hi = h(lo)[0]
+        step = 20.0
+        while f_lo > 0.0:
+            lo = max(lo - step, 20.0)
+            f_lo = h(lo)[0]
+            step *= 1.6
+            if lo <= 20.0 and f_lo > 0.0:
+                raise ValueError("enthalpy below the range of T-P flashes")
+        step = 20.0
+        while f_hi < 0.0:
+            hi += step
+            f_hi = h(hi)[0]
+            step *= 1.6
+            if hi > 5000.0:
+                raise ValueError("enthalpy above the range of T-P flashes")
+        T = brentq(lambda T: h(T)[0], lo, hi, xtol=1e-7, rtol=1e-12)
+        return h(T)[1]
 
     def _checked_vf(self, zs: list[float], spec: dict, guess: float | None):
         """A vapor-fraction flash that agrees with T-P flashes, which weigh liquid splits.
