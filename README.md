@@ -174,7 +174,8 @@ optional:
 | CSTR | Power-law kinetics, gas or liquid, solved for the outlet extents (and temperature) |
 | Plug flow | Power-law kinetics integrated along volume or length, with conversion, temperature and composition profiles |
 
-All reactors run isothermal, adiabatic or at a given duty, with an optional pressure drop.
+All reactors run isothermal, adiabatic, at a given duty, or cooled/heated through a jacket
+or coil (see utilities below), with an optional pressure drop.
 The energy balance uses enthalpies that include formation enthalpies, so heats of reaction
 need no separate input. See `examples/steam_reforming.json` and
 `examples/ethyl_acetate.json`, and [reactions.py](src/fluxsheet/reactions.py) for units
@@ -189,6 +190,23 @@ followed through phase changes (zone analysis), so an internal pinch, e.g. where
 to condense, is found; a temperature cross is reported together with the largest feasible duty.
 Results: duty, UA, mean temperature difference (LMTD) and minimum approach, plus the
 temperature profile along the exchanger. See `examples/feed_effluent_exchanger.json`.
+
+**Utilities** (cooling water, chilled water, steam, thermal oil, ...) are defined once per
+flowsheet and chosen on any unit with an energy balance: heaters, flash drums, decanters and
+reactors. The unit then reports the utility it uses and the UA (or, with U, the area) its
+duty needs. Give U and the area of a jacket or coil instead of a temperature or duty, and the
+duty follows from Q = UA·LMTD, solved together with the unit's energy balance: a cooled
+reactor settles where the heat of reaction and the jacket balance. Stirred vessels and drums
+are treated as well mixed; a heater's stream runs counter- or cocurrent to the utility. Steam
+condenses at its saturation temperature, with the latent heat from IAPWS-95; a fluid warms
+up or cools down between its inlet and outlet temperature, or at a flow the unit fixes.
+
+```json
+"utilities": [
+  {"id": "CW", "type": "fluid", "T_in": "25 degC", "T_out": "35 degC", "cp": "4.18 kJ/kgK"},
+  {"id": "LPS", "type": "steam", "P": "3 bar"}
+]
+```
 
 A **design spec** reaches a target by adjusting one unit parameter between bounds; it is
 solved by an outer loop (secant steps, then Brent's method once the target is bracketed)
@@ -268,6 +286,9 @@ extend it.
 - [x] Heat exchanger (two-sided), design specs, sensitivity studies
 - [x] Phase envelopes, T-xy / P-xy diagrams in the editor
 - [x] Undo/redo, copy/paste, auto-layout in the editor
+- [x] Utilities with jacket/coil heat transfer (U·A) on heaters, drums and reactors
+- [ ] Cooled plug flow reactor with co-/countercurrent coolant profile; process streams as jacket media
+- [ ] U from film coefficients (geometry, Reynolds/Nusselt, fouling)
 - [ ] CAPE-OPEN interoperability
 
 ## Project layout

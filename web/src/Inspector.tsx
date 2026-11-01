@@ -8,7 +8,7 @@ import type { Compound, Method, ParamSchema, Params, Reaction, StreamResult, Uni
 
 // ---- generic inputs ----------------------------------------------------------------------
 
-function QuantityInput({
+export function QuantityInput({
   quantity,
   value,
   placeholder,
@@ -147,6 +147,7 @@ export function UnitInspector({
   schema,
   params,
   components,
+  utilities = [],
   inletStreams = {},
   result,
   onRename,
@@ -158,6 +159,7 @@ export function UnitInspector({
   schema: UnitType;
   params: Params;
   components: string[];
+  utilities?: string[]; // ids of the flowsheet's utilities
   inletStreams?: Record<string, string[]>; // connected stream ids per inlet port
   result?: UnitResult;
   onRename: (newId: string) => string | null;
@@ -223,6 +225,22 @@ export function UnitInspector({
             ))}
             {typeof current === "string" && current && !components.includes(current) && (
               <option value={current}>{current} (not in component list)</option>
+            )}
+          </select>
+        </Field>
+      );
+    if (p.quantity === "utility")
+      return (
+        <Field key={p.name} param={p}>
+          <select value={String(current ?? "")} onChange={(e) => set(p.name, e.target.value || null)}>
+            <option value="">{utilities.length ? "None" : "None (add utilities in the flowsheet settings)"}</option>
+            {utilities.map((u) => (
+              <option key={u} value={u}>
+                {u}
+              </option>
+            ))}
+            {typeof current === "string" && current && !utilities.includes(current) && (
+              <option value={current}>{current} (not defined)</option>
             )}
           </select>
         </Field>
@@ -326,7 +344,7 @@ export function UnitInspector({
                       onChange(next);
                     }}
                   >
-                    {byName[n].label}
+                    {byName[n].tab ?? byName[n].label}
                   </button>
                 ))}
               </div>
@@ -335,14 +353,16 @@ export function UnitInspector({
           );
         })}
 
-      {schema.params.filter((p) => !grouped.has(p.name)).map(renderParam)}
+      {schema.params
+        .filter((p) => !grouped.has(p.name) && (!p.requires || (params[p.requires] ?? null) !== null))
+        .map(renderParam)}
       {children}
 
-      {result && schema.result_fields.some((f) => result[f.name] !== undefined) && (
+      {result && schema.result_fields.some((f) => result[f.name] != null) && (
         <section className="unit-results">
           <h3>Results</h3>
           {schema.result_fields
-            .filter((f) => result[f.name] !== undefined)
+            .filter((f) => result[f.name] != null)
             .map((f) => (
               <div key={f.name} className="kv">
                 <span>{f.label}</span>

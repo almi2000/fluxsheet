@@ -11,6 +11,8 @@ export interface UnitSymbol {
   ports: Record<string, PortAt>;
   /** Clip paths and the like this symbol needs, mounted once in SymbolDefs. */
   defs?: JSX.Element;
+  /** Outline of the shell; drawn as a heating or cooling jacket when a utility is set. */
+  jacket?: string;
 }
 
 const line = { stroke: "var(--sym-line)", strokeWidth: 1.2, strokeLinejoin: "round" as const };

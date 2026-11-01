@@ -114,6 +114,19 @@ class ReactionModel(BaseModel):
     keq: KeqModel | None = None
 
 
+class UtilityModel(BaseModel):
+    """A heating or cooling medium; see utilities.py."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    type: str = "fluid"  # or "steam"
+    T_in: float | str | None = None  # fluid
+    T_out: float | str | None = None  # fluid
+    cp: float | str | None = None  # fluid, default that of water
+    P: float | str | None = None  # steam, saturated
+
+
 class FlowsheetModel(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
@@ -125,6 +138,7 @@ class FlowsheetModel(BaseModel):
     units: list[UnitModel]
     streams: list[StreamModel] = Field(default_factory=list)
     reactions: list[ReactionModel] | None = None  # referenced by id from reactor units
+    utilities: list[UtilityModel] | None = None  # referenced by id from units; utilities.py
     solver: SolverOptions = Field(default_factory=SolverOptions)
     design_specs: list[DesignSpecModel] | None = None  # solved around the flowsheet; specs.py
     sensitivity: list[SensitivityModel] | None = None  # run on request; sensitivity.py

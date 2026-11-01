@@ -17,6 +17,7 @@ from .base import (
     empty_stream,
     single_inlet,
 )
+from .heat_transfer import AREA, HEAT_PARAMS, HEAT_RESULTS
 
 
 class Flash(UnitOperation):
@@ -26,15 +27,17 @@ class Flash(UnitOperation):
     description = "Separates a stream into vapor and liquid in equilibrium. Adiabatic unless a "\
         "temperature or duty is given."
     inlets = (IN,)
-    result_fields = (DUTY, ResultField("vapor_fraction", "Vapor fraction"))
+    result_fields = (DUTY, ResultField("vapor_fraction", "Vapor fraction"), *HEAT_RESULTS)
     outlets = (Port("vapor", "Vapor"), Port("liquid", "Liquid"))
     params = (
         Param("T", "Temperature", "temperature", min=0.0),
         Param("duty", "Duty", "power", help="Heat added. Defaults to zero (adiabatic)."),
+        AREA,
+        *HEAT_PARAMS,
         P_OUT,
         DP,
     )
-    exclusive_groups = (("T", "duty"), ("P", "dP"))
+    exclusive_groups = (("T", "duty", "area"), ("P", "dP"))
 
     def calculate(self, pkg, inlets):
         s = single_inlet(inlets)

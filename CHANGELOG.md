@@ -16,6 +16,11 @@ format or API).
   adiabatically before they enter. A distillation column keeps its feeds apart and takes a
   feed stage per stream.
 - Dropping a stream on a unit's body connects it to the nearest free port.
+- **Utilities and jacket heat transfer:** cooling water, steam (IAPWS-95), thermal oil and
+  other media defined per flowsheet. Heaters, flash drums, decanters and reactors report
+  their utility use and the UA or area a duty needs, or take U and the area of a jacket or
+  coil and find the duty together with their energy balance. Heated and cooled units show
+  a red or blue jacket.
 
 ## [0.2.0] - 2026-10-30
 

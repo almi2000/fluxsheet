@@ -39,6 +39,7 @@ from .base import (
     empty_stream,
     single_inlet,
 )
+from .heat_transfer import AREA, ARRANGEMENT, HEAT_PARAMS, HEAT_RESULTS
 
 T_SPEC = Param("T", "Outlet temperature", "temperature", min=0.0,
                help="Isothermal operation at this temperature.")
@@ -53,10 +54,13 @@ KEY = Param("key", "Key component", "component",
 PHASE = Param("phase", "Reacting phase", "choice", default="gas", options=("gas", "liquid"),
               help="Phase the reactions take place in; sets concentrations and activities.")
 
+# Isothermal, fixed duty, adiabatic (none of them), or a jacket/coil with a utility.
+ENERGY = (T_SPEC, DUTY_SPEC, AREA, *HEAT_PARAMS)
+
 T_OUT = ResultField("T_out", "Outlet temperature", "temperature")
 CONVERSION = ResultField("conversion", "Conversion of key component", "fraction")
 RESIDENCE_TIME = ResultField("residence_time", "Residence time (inlet conditions)", "time")
-ENERGY_GROUPS = (("T", "duty"), ("P", "dP"))
+ENERGY_GROUPS = (("T", "duty", "area"), ("P", "dP"))
 
 
 class Reactor(UnitOperation):
@@ -66,7 +70,7 @@ class Reactor(UnitOperation):
     inlets = (IN,)
     outlets = (OUT,)
     exclusive_groups = ENERGY_GROUPS
-    result_fields = (T_OUT, DUTY, CONVERSION)
+    result_fields = (T_OUT, DUTY, CONVERSION, *HEAT_RESULTS)
     reactions = ReactionSet()  # replaced by the solver with the flowsheet's reactions
 
     def calculate(self, pkg, inlets):
@@ -215,7 +219,7 @@ class StoichiometricReactor(Reactor):
               options=("sequential", "parallel"),
               help="Sequential: each conversion applies to what the previous reactions left. "
               "Parallel: all conversions refer to the inlet."),
-        T_SPEC, DUTY_SPEC, P_OUT, DP,
+        *ENERGY, P_OUT, DP,
     )
 
     def react(self, pkg, s, P):
@@ -257,14 +261,14 @@ class YieldReactor(Reactor):
     label = "Yield Reactor"
     description = ("Turns the feed into products with given mass yields, scaled so mass is "
                    "conserved. For reactions whose stoichiometry is unknown, e.g. pyrolysis.")
-    result_fields = (T_OUT, DUTY)
+    result_fields = (T_OUT, DUTY, *HEAT_RESULTS)
     params = (
         Param("yields", "Mass yields", "component_fractions",
               help="Relative mass of each product; normalized so the outlet mass equals the "
               "reacting inlet mass."),
         Param("inerts", "Inert components", "string_list",
               help="Components that pass through unchanged."),
-        T_SPEC, DUTY_SPEC, P_OUT, DP,
+        *ENERGY, P_OUT, DP,
     )
 
     def react(self, pkg, s, P):
@@ -300,7 +304,7 @@ class EquilibriumReactor(Reactor):
     description = ("Chosen reactions reach chemical equilibrium. K(T) from Gibbs energies of "
                    "formation (van 't Hoff with ideal-gas heat capacities) or from the "
                    "reaction's own correlation.")
-    params = (REACTIONS, PHASE, KEY, T_SPEC, DUTY_SPEC, P_OUT, DP)
+    params = (REACTIONS, PHASE, KEY, *ENERGY, P_OUT, DP)
 
     def react(self, pkg, s, P):
         rxns = self.select_reactions(pkg)
@@ -341,7 +345,7 @@ class GibbsReactor(Reactor):
         Param("products", "Reacting components", "string_list",
               help="Components that may form or react. Others pass through unchanged. "
               "Default: all components."),
-        KEY, T_SPEC, DUTY_SPEC, P_OUT, DP,
+        KEY, *ENERGY, P_OUT, DP,
     )
 
     def react(self, pkg, s, P):
@@ -381,7 +385,7 @@ class GibbsReactor(Reactor):
 class KineticReactor(Reactor):
     """CSTR and PFR: rates from the reactions' kinetics."""
 
-    result_fields = (T_OUT, DUTY, CONVERSION, RESIDENCE_TIME)
+    result_fields = (T_OUT, DUTY, CONVERSION, RESIDENCE_TIME, *HEAT_RESULTS)
 
     def setup(self, pkg) -> list[Reaction]:
         rxns = self.select_reactions(pkg)
@@ -438,7 +442,7 @@ class CSTR(KineticReactor):
     params = (
         REACTIONS,
         Param("V", "Volume", "volume", min=0.0, help="Volume of the reacting phase."),
-        PHASE, KEY, T_SPEC, DUTY_SPEC, P_OUT, DP,
+        PHASE, KEY, *ENERGY, P_OUT, DP,
     )
     exclusive_groups = (("V",), *ENERGY_GROUPS)
     required_groups = (("V",),)
@@ -505,10 +509,11 @@ class PFR(KineticReactor):
         Param("length", "Length", "length", min=0.0, help="Tube length; needs the diameter."),
         Param("diameter", "Diameter", "length", min=0.0,
               help="Tube inner diameter, used with the length."),
-        PHASE, KEY, T_SPEC, DUTY_SPEC, P_OUT, DP,
+        PHASE, KEY, T_SPEC, DUTY_SPEC, *HEAT_PARAMS, ARRANGEMENT, P_OUT, DP,
     )
-    exclusive_groups = (("V", "length"), *ENERGY_GROUPS)
+    exclusive_groups = (("V", "length"), ("T", "duty"), ("P", "dP"))
     required_groups = (("V", "length"),)
+    process_side = "plug"  # with a utility, the jacket is rated along the tube in a later step
     N_POINTS = 41
 
     def react(self, pkg, s, P_out):

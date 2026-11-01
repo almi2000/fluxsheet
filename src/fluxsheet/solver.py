@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from . import utilities
 from .errors import SimulationError
 from .flowsheet import FlowsheetModel
 from .limits import check_deadline
@@ -199,6 +200,10 @@ class Solver:
             for unit in self.units.values():
                 if hasattr(unit, "reactions"):  # reactors run the flowsheet's reactions
                     unit.reactions = reactions
+            media = utilities.parse_utilities(self.model.utilities)
+            for unit in self.units.values():
+                if "utility" in unit.p:  # units that can be heated or cooled by a utility
+                    utilities.attach(unit, media)
             order, tears = self._order()
             result.tear_streams = sorted(tears)
             streams = self._iterate(pkg, order, tears, result)
@@ -233,7 +238,7 @@ class Solver:
             for port in unit.inlets:  # several feeds on one inlet enter as one mixed stream
                 if len(inlets[port.name]) > 1 and not port.separate:
                     inlets[port.name] = [mix_streams(unit_pkg, inlets[port.name])]
-            outputs = unit.calculate(unit_pkg, inlets)
+            outputs = utilities.calculate(unit, unit_pkg, inlets)
         except SimulationError as exc:
             raise exc.located(unit.id)
         except Exception as exc:  # keep unexpected failures readable too

@@ -27,7 +27,8 @@ import { ResultsPanel } from "./ResultsPanel";
 import { ShortcutHelp } from "./Shortcuts";
 import { StreamEdge } from "./StreamEdge";
 import { StudiesSettings } from "./StudiesEditor";
-import type { DesignSpec, Example, FlowsheetModel, Method, Params, Reaction, SensitivityStudy, SolveResult, UnitType } from "./types";
+import type { DesignSpec, Example, FlowsheetModel, Method, Params, Reaction, SensitivityStudy, SolveResult, UnitResult, UnitType, Utility } from "./types";
+import { UtilitiesEditor } from "./UtilitiesEditor";
 import { UnitNode, type UnitFlowNode } from "./UnitNode";
 import { fmt } from "./quantities";
 
@@ -55,6 +56,7 @@ const DEFAULT_PARAMS: Record<string, Params> = {
 
 type Meta = Pick<FlowsheetModel, "name" | "description" | "components" | "property_method"> & {
   reactions: Reaction[];
+  utilities: Utility[];
   design_specs: DesignSpec[];
   sensitivity: SensitivityStudy[];
 };
@@ -62,8 +64,18 @@ type Selection = { kind: "unit" | "stream"; id: string } | null;
 
 const EMPTY_META: Meta = {
   name: "Untitled flowsheet", description: "", components: [], property_method: "auto", reactions: [],
-  design_specs: [], sensitivity: [],
+  utilities: [], design_specs: [], sensitivity: [],
 };
+
+/** Whether a unit's utility heats or cools it: from its duty once solved, else the utility. */
+function jacketOf(params: Params, result: UnitResult | undefined, utilities: Utility[]): "heat" | "cool" | undefined {
+  const u = utilities.find((x) => x.id === params.utility);
+  if (!u) return undefined;
+  const duty = result?.duty;
+  if (typeof duty === "number" && duty !== 0) return duty > 0 ? "heat" : "cool";
+  if (u.type === "steam") return "heat";
+  return parseFloat(String(u.T_in)) > parseFloat(String(u.T_out)) ? "heat" : "cool";
+}
 
 function nextId(prefix: string, taken: Set<string>) {
   let i = 1;
@@ -192,6 +204,7 @@ function Editor() {
       format: "fluxsheet/1",
       ...meta,
       reactions: meta.reactions.length ? meta.reactions : undefined,
+      utilities: meta.utilities.length ? meta.utilities : undefined,
       design_specs: meta.design_specs.length ? meta.design_specs : undefined,
       sensitivity: meta.sensitivity.length ? meta.sensitivity : undefined,
       units: nodes.map((n) => ({
@@ -228,6 +241,7 @@ function Editor() {
         components: model.components,
         property_method: model.property_method,
         reactions: model.reactions ?? [],
+        utilities: model.utilities ?? [],
         design_specs: model.design_specs ?? [],
         sensitivity: model.sensitivity ?? [],
       });
@@ -627,9 +641,10 @@ function Editor() {
       data: {
         ...n.data, result: result?.units[n.id], hasError: errorAt === n.id, stale,
         method: mixed ? unitMethod(n) : undefined,
+        jacket: jacketOf(n.data.params, result?.units[n.id], meta.utilities),
       },
     }));
-  }, [nodes, result, errorAt, stale, unitMethod]);
+  }, [nodes, result, errorAt, stale, unitMethod, meta.utilities]);
 
   const setUnitMethod = (id: string, method: string | undefined) => {
     setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, data: { ...n.data, property_method: method } } : n)));
@@ -812,6 +827,7 @@ function Editor() {
               schema={selectedNode.data.schema}
               params={selectedNode.data.params}
               components={meta.components}
+              utilities={meta.utilities.map((u) => u.id)}
               inletStreams={inletStreams(selectedNode.id)}
               result={stale ? undefined : result?.units[selectedNode.id]}
               onRename={(newId) => renameUnit(selectedNode.id, newId)}
@@ -846,6 +862,15 @@ function Editor() {
                 if (patch.components || patch.property_method || patch.reactions) touch();
               }}
             >
+              <h3>Utilities</h3>
+              <UtilitiesEditor
+                utilities={meta.utilities}
+                onChange={(utilities) => {
+                  history.commit("meta:utilities");
+                  setMeta((m) => ({ ...m, utilities }));
+                  touch();
+                }}
+              />
               <StudiesSettings
                 specs={meta.design_specs}
                 studies={meta.sensitivity}

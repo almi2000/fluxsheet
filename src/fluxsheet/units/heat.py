@@ -22,6 +22,7 @@ from .base import (
     empty_stream,
     single_inlet,
 )
+from .heat_transfer import AREA, ARRANGEMENT, HEAT_PARAMS, HEAT_RESULTS
 
 
 class Heater(UnitOperation):
@@ -31,17 +32,21 @@ class Heater(UnitOperation):
     description = "Heats or cools a stream to a target temperature, vapor fraction, or with a "\
         "given duty."
     inlets = (IN,)
-    result_fields = (DUTY,)
+    result_fields = (DUTY, *HEAT_RESULTS)
     outlets = (OUT,)
     params = (
         Param("T", "Outlet temperature", "temperature", min=0.0),
         Param("VF", "Outlet vapor fraction", "fraction", min=0.0, max=1.0),
         Param("duty", "Duty", "power", help="Positive = heating, negative = cooling."),
+        AREA,
+        *HEAT_PARAMS,
+        ARRANGEMENT,
         P_OUT,
         DP,
     )
-    exclusive_groups = (("T", "VF", "duty"), ("P", "dP"))
-    required_groups = (("T", "VF", "duty"),)
+    exclusive_groups = (("T", "VF", "duty", "area"), ("P", "dP"))
+    required_groups = (("T", "VF", "duty", "area"),)
+    process_side = "plug"
 
     def calculate(self, pkg, inlets):
         s = single_inlet(inlets)

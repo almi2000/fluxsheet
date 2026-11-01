@@ -9,6 +9,8 @@ export interface ParamSchema {
   min: number | null;
   max: number | null;
   options: string[] | null;
+  requires?: string | null; // shown only when this other parameter is set
+  tab?: string | null; // short label among the alternatives of a group
 }
 
 export interface ResultField {
@@ -113,6 +115,16 @@ export interface Reaction {
   keq?: Keq;
 }
 
+/** A heating or cooling medium (utilities.py); values may carry units, e.g. "25 degC". */
+export interface Utility {
+  id: string;
+  type: "fluid" | "steam";
+  T_in?: Value;
+  T_out?: Value;
+  cp?: Value;
+  P?: Value;
+}
+
 export interface FlowsheetModel {
   format: string;
   name: string;
@@ -122,6 +134,7 @@ export interface FlowsheetModel {
   units: UnitModel[];
   streams: StreamModel[];
   reactions?: Reaction[];
+  utilities?: Utility[];
   design_specs?: DesignSpec[];
   sensitivity?: SensitivityStudy[];
 }

@@ -23,8 +23,9 @@ from ..thermo_package import PropertyPackage
 #   "composition"         {component: molar flow}
 #   "component_fractions" {component: fraction}
 #   "stream_stages"       {inlet stream id: stage number}, e.g. column feed stages
+#   "utility"             id of a flowsheet utility (heating or cooling medium)
 SPECIAL_KINDS = ("integer", "choice", "component", "string_list", "composition",
-                 "component_fractions", "stream_stages")
+                 "component_fractions", "stream_stages", "utility")
 
 
 @dataclass(frozen=True)
@@ -37,6 +38,8 @@ class Param:
     min: float | None = None
     max: float | None = None
     options: tuple[str, ...] | None = None  # for quantity="choice"
+    requires: str | None = None  # only used (and shown) when this other parameter is set
+    tab: str | None = None  # short label when it is one of the alternatives of a group
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -80,6 +83,9 @@ class UnitOperation:
     exclusive_groups: ClassVar[tuple[tuple[str, ...], ...]] = ()
     required_groups: ClassVar[tuple[tuple[str, ...], ...]] = ()
     result_fields: ClassVar[tuple[ResultField, ...]] = ()
+    # Heat transfer with a utility (see fluxsheet.utilities): the contents are at the outlet
+    # temperature ("mixed", vessels) or go from inlet to outlet temperature ("plug").
+    process_side: ClassVar[str] = "mixed"
 
     def __post_init__(self) -> None:
         self.p: dict[str, Any] = {}
@@ -119,9 +125,9 @@ class UnitOperation:
                 raise UnitError(f"{value!r} is not an option; use one of: "
                                 f"{', '.join(param.options or ())}")
             return value
-        if q == "component":
+        if q in ("component", "utility"):
             if not isinstance(value, str) or not value:
-                raise UnitError(f"expected a component name, got {value!r}")
+                raise UnitError(f"expected a {q} name, got {value!r}")
             return value
         if q == "string_list":
             if not isinstance(value, list) or not all(isinstance(v, str) for v in value):

@@ -50,6 +50,7 @@ export const symbols: Record<string, UnitSymbol> = {
       </>
     ),
     ports: { in: { x: 1, y: 24 }, out: { x: 47, y: 24 } },
+    jacket: "M6 24a18 18 0 1 0 36 0a18 18 0 1 0 -36 0Z",
   },
   Flash: {
     w: 50,
@@ -71,6 +72,7 @@ export const symbols: Record<string, UnitSymbol> = {
       </>
     ),
     ports: { in: { x: 1, y: 44 }, vapor: { x: 49, y: 3 }, liquid: { x: 49, y: 72 } },
+    jacket: FLASH,
   },
   ComponentSplitter: {
     w: 48,

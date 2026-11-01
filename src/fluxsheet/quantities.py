@@ -99,6 +99,16 @@ _UNITS: dict[str, dict[str, tuple[float, float]]] = {
         "kg/h": (1.0 / 3600.0, 0.0),
         "t/h": (1.0 / 3.6, 0.0),
     },
+    # Overall heat transfer coefficient U.
+    "heat_transfer_coefficient": {
+        "w/m2k": (1.0, 0.0),
+        "kw/m2k": (1e3, 0.0),
+        "btu/h/ft2/f": (5.678263, 0.0),
+    },
+    "specific_heat": {
+        "j/kgk": (1.0, 0.0),
+        "kj/kgk": (1e3, 0.0),
+    },
 }
 
 _PATTERN = re.compile(r"^\s*([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)\s*(.*?)\s*$")

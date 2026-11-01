@@ -27,5 +27,6 @@ export const symbols: Record<string, UnitSymbol> = {
       </>
     ),
     ports: { in: { x: 0, y: 27 }, vapor: { x: 99, y: 3 }, light: { x: 99, y: 24 }, heavy: { x: 99, y: 50 } },
+    jacket: DRUM,
   },
 };

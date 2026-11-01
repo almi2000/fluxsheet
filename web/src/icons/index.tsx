@@ -23,8 +23,11 @@ export function portAt(sym: UnitSymbol, name: string, side: "in" | "out", index:
   return sym.ports[name] ?? { x: side === "in" ? 0 : sym.w, y: ((index + 1) / (count + 1)) * sym.h };
 }
 
-/** The symbol drawn at its natural size (canvas) or fitted into a square (palette, inspector). */
-export function UnitIcon({ type, size }: { type: string; size?: number }) {
+/**
+ * The symbol drawn at its natural size (canvas) or fitted into a square (palette, inspector),
+ * optionally wrapped in a heating or cooling jacket.
+ */
+export function UnitIcon({ type, size, jacket }: { type: string; size?: number; jacket?: "heat" | "cool" }) {
   const sym = getSymbol(type);
   return (
     <svg
@@ -35,6 +38,17 @@ export function UnitIcon({ type, size }: { type: string; size?: number }) {
       aria-hidden="true"
       className="unit-icon"
     >
+      {jacket && sym.jacket && (
+        <path
+          d={sym.jacket}
+          className={`jacket ${jacket}`}
+          fill="none"
+          stroke={jacket === "heat" ? "var(--sym-hot)" : "var(--sym-cold)"}
+          strokeWidth={8}
+          strokeOpacity={0.5}
+          strokeLinejoin="round"
+        />
+      )}
       {sym.body}
     </svg>
   );

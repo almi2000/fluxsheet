@@ -22,7 +22,7 @@ def test_registry_finds_all_builtin_units_in_palette_order():
 
 def test_schema_includes_result_fields():
     schema = UNIT_TYPES["Flash"].schema()
-    assert [f["name"] for f in schema["result_fields"]] == ["duty", "vapor_fraction"]
+    assert [f["name"] for f in schema["result_fields"]][:3] == ["duty", "vapor_fraction", "utility_flow"]
     assert UNIT_TYPES["Pump"].schema()["result_fields"][0]["quantity"] == "power"
 
 

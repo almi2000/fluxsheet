@@ -4,6 +4,8 @@ import { blue, liquid, metal, metalH, outline, pipe, type UnitSymbol } from "./s
 
 const mark = { fill: "none", stroke: "var(--sym-mark)", strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
 
+const VESSEL = "M12 20A18 9 0 0 1 48 20V70A18 9 0 0 1 12 70Z";
+
 /** Vertical reactor on legs, with the model's mark in a round window. */
 function vessel(sign: JSX.Element): UnitSymbol {
   return {
@@ -13,12 +15,13 @@ function vessel(sign: JSX.Element): UnitSymbol {
       <>
         <path {...pipe} d="M1 24H12M48 66H59" />
         <path {...pipe} d="M17 76L15 90M43 76L45 90" />
-        <path {...metal} d="M12 20A18 9 0 0 1 48 20V70A18 9 0 0 1 12 70Z" />
+        <path {...metal} d={VESSEL} />
         <circle cx="30" cy="45" r="11" fill="var(--sym-window)" stroke="var(--sym-line)" strokeWidth={1.2} />
         {sign}
       </>
     ),
     ports: { in: { x: 1, y: 24 }, out: { x: 59, y: 66 } },
+    jacket: VESSEL,
   };
 }
 
@@ -57,6 +60,7 @@ export const symbols: Record<string, UnitSymbol> = {
       </>
     ),
     ports: { in: { x: 1, y: 30 }, out: { x: 63, y: 74 } },
+    jacket: CSTR,
   },
   PFR: {
     w: 120,
@@ -71,5 +75,6 @@ export const symbols: Record<string, UnitSymbol> = {
       </>
     ),
     ports: { in: { x: 1, y: 22 }, out: { x: 119, y: 22 } },
+    jacket: "M10 10H110V34H10Z",
   },
 };

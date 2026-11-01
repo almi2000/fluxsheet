@@ -14,6 +14,7 @@ export type UnitNodeData = {
   stale?: boolean;
   property_method?: string; // the unit's own override, if any
   method?: string; // effective method, shown as a tag when the flowsheet mixes methods
+  jacket?: "heat" | "cool"; // heated or cooled by a utility
 };
 
 export type UnitFlowNode = Node<UnitNodeData, "unit">;
@@ -45,7 +46,7 @@ function UnitNodeView({ id, data, selected }: NodeProps<UnitFlowNode>) {
       title={schema.description}
     >
       <div className="unit-symbol" style={{ width: sym.w, height: sym.h }}>
-        <UnitIcon type={data.type} />
+        <UnitIcon type={data.type} jacket={data.jacket} />
         {schema.inlets.map((p, i) => (
           <Handle
             key={p.name}

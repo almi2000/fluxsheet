@@ -16,6 +16,7 @@ from .base import (
     empty_stream,
     single_inlet,
 )
+from .heat_transfer import AREA, HEAT_PARAMS, HEAT_RESULTS
 
 
 class Decanter(UnitOperation):
@@ -31,14 +32,17 @@ class Decanter(UnitOperation):
     params = (
         Param("T", "Temperature", "temperature", min=0.0),
         Param("duty", "Duty", "power", help="Heat added. Defaults to zero (adiabatic)."),
+        AREA,
+        *HEAT_PARAMS,
         P_OUT,
         DP,
     )
-    exclusive_groups = (("T", "duty"), ("P", "dP"))
+    exclusive_groups = (("T", "duty", "area"), ("P", "dP"))
     result_fields = (
         DUTY,
         ResultField("heavy_fraction", "Heavy fraction of liquid"),
         ResultField("vapor_fraction", "Vapor fraction"),
+        *HEAT_RESULTS,
     )
 
     def calculate(self, pkg, inlets):
