@@ -25,8 +25,18 @@ format or API).
   differential evaporation), mixing tank, turbine/expander, multistage compressor with
   intercoolers and condensate drain, pipe (friction, height change, heat loss) and
   liquid-liquid extraction column. Example `glycol_evaporator.json`.
+- **Product rates relative to the feed:** a distillation column takes a distillate or
+  bottoms to feed ratio, which follows the feed inside a recycle loop.
 
 ### Fixed
+
+- A compressed supercritical gas (hydrogen at 70 bar or more, nitrogen at 340 bar) is
+  identified as vapor, not liquid, while superheated vapors stay vapor.
+- A bubble or dew point that thermo converges to the other boundary is refused with an
+  error instead of returned as a plausible wrong temperature.
+- A distillation column whose feed carries dissolved hydrogen or methane starts without a
+  bubble point of the feed; when it fails, the hint names a total condenser or a distillate
+  too small for these gases as the likely cause.
 
 - A pressure-enthalpy flash that thermo cannot converge (e.g. an almost pure component in a
   mixture model) is solved by temperature with T-P flashes instead of failing.

@@ -31,11 +31,32 @@ EFFICIENCY = Param("efficiency", "Murphree efficiency", "fraction", min=0.01, ma
                    "reboiler. Defaults to 1 (equilibrium stages).")
 
 
+# Product rates given relative to the feed; converted to rates when the feed is known.
+_FEED_RATIOS = {"distillate_to_feed": "distillate to feed ratio",
+                "bottoms_to_feed": "bottoms to feed ratio"}
+
+
+def _noncondensables(pkg, feeds, F: float) -> list[str]:
+    """Feed components that stay gaseous in any ordinary condenser (critical point below
+    250 K: hydrogen, nitrogen, methane, ...), if more than traces of them are fed."""
+    total = sum(fd.flows for fd in feeds)
+    return [name for name, f, Tc in zip(pkg.names, total, pkg.consts.Tcs)
+            if Tc < 250.0 and f > 1e-4 * F]
+
+
 def _product(pkg, flows, P: float, H: float, vf: float, T: float) -> Stream:
     """A product stream with the stage's enthalpy, so the column's energy balance closes."""
     flows = [float(f) for f in flows]
-    if sum(flows) <= 0.0:
+    total = sum(flows)
+    if total <= 0.0:
         return empty_stream(pkg, T, P)
+    if not pkg.supports_lle:
+        # The stage already gives temperature, phase and composition; the same phase at the
+        # same T has exactly the stage's enthalpy. A PH flash would only find T again, and on
+        # wide-boiling mixtures it takes seconds.
+        state = pkg.phase_state("vapor" if vf == 1.0 else "liquid", T, P,
+                                [f / total for f in flows])
+        return Stream(flows, state)
     s = Stream.from_flash(pkg, flows, P=P, H=H)
     # At saturation a PH flash may land a hair on either side; pin the product's phase.
     return Stream(s.flows, _with_phase(s.state, vf, s.flows))
@@ -54,7 +75,10 @@ class _StageColumn(UnitOperation):
         return P_top + np.arange(n) * (self.p.get("dP_stage") or 0.0)
 
     def _solve(self, pkg, setup: ColumnSetup):
-        sol = solve_column(pkg, setup)
+        # Inside a recycle loop the column is solved once per pass; the previous pass is the
+        # best start for the next one.
+        sol = solve_column(pkg, setup, start=getattr(self, "_last_solution", None))
+        self._last_solution = sol
         stages = list(range(1, setup.stages + 1))
         self.add_profile("temperature", "Temperature", "Stage", stages,
                          {"T": ("temperature", sol.T.tolist())})
@@ -191,9 +215,16 @@ class DistillationColumn(_StageColumn):
         Param("distillate_rate", "Distillate rate", "molar_flow", min=0.0,
               help="Total top product flow (liquid or vapor distillate)."),
         Param("bottoms_rate", "Bottoms rate", "molar_flow", min=0.0),
+        Param("distillate_to_feed", "Distillate to feed ratio", "fraction", min=0.0, max=1.0,
+              help="D/F, molar. Follows the feed, so it suits a column inside a recycle loop, "
+              "where the feed flow changes from one pass to the next."),
+        Param("bottoms_to_feed", "Bottoms to feed ratio", "fraction", min=0.0, max=1.0,
+              help="B/F, molar."),
         EFFICIENCY,
     )
-    exclusive_groups = (("reflux_ratio", "boilup_ratio"), ("distillate_rate", "bottoms_rate"))
+    exclusive_groups = (("reflux_ratio", "boilup_ratio"),
+                        ("distillate_rate", "bottoms_rate", "distillate_to_feed",
+                         "bottoms_to_feed"))
     result_fields = (CONDENSER_DUTY, REBOILER_DUTY, ResultField("reflux_ratio", "Reflux ratio"),
                      ResultField("boilup_ratio", "Boilup ratio"),
                      ResultField("iterations", "Newton iterations"))
@@ -210,7 +241,12 @@ class DistillationColumn(_StageColumn):
             raise SimulationError("a boilup ratio needs a reboiler", where=self.id,
                                   hint="choose a kettle reboiler, or specify a distillate or "
                                   "bottoms rate instead")
-        given = [SPECS[name] for name in SPECS if self.p[name] is not None]
+        given = [label for name, label in {**SPECS, **_FEED_RATIOS}.items()
+                 if self.p[name] is not None]
+        for name, label in _FEED_RATIOS.items():
+            if self.p[name] is not None and not 0.0 < self.p[name] < 1.0:
+                raise SimulationError(f"{label} {self.p[name]:g} leaves a product empty",
+                                      where=self.id, hint="use a value between 0 and 1")
         needed = has_cond + has_reb
         if len(given) != needed:
             duties = {2: "one for the condenser and one for the reboiler",
@@ -220,8 +256,9 @@ class DistillationColumn(_StageColumn):
                 f"{'under' if len(given) < needed else 'over'}-specified: this column takes "
                 f"{duties}, but has {len(given)}{': ' + ', '.join(given) if given else ''}",
                 where=self.id,
-                hint={2: "set one of reflux ratio or boilup ratio and one of distillate rate "
-                         "or bottoms rate; a reflux ratio and a distillate rate is typical",
+                hint={2: "set one of reflux ratio or boilup ratio and one of distillate rate, "
+                         "bottoms rate or their ratio to the feed; a reflux ratio and a "
+                         "distillate rate is typical",
                       1: "set exactly one ratio or rate that fits this configuration",
                       0: "remove the specifications, or add a condenser or reboiler"}[needed],
             )
@@ -260,6 +297,10 @@ class DistillationColumn(_StageColumn):
         feeds = [_feed(self._feed_stage(ids[i] if i < len(ids) else None), s)
                  for i, s in enumerate(streams) if s.total_flow > 0.0]
         specs = {name: self.p[name] for name in SPECS if self.p[name] is not None}
+        for name, rate in (("distillate_to_feed", "distillate_rate"),
+                           ("bottoms_to_feed", "bottoms_rate")):
+            if self.p[name] is not None:
+                specs[rate] = self.p[name] * F
         for name in ("distillate_rate", "bottoms_rate"):
             if name in specs and specs[name] >= F:
                 raise SimulationError(
@@ -273,7 +314,30 @@ class DistillationColumn(_StageColumn):
             condenser=self.p["condenser"], reboiler=self.p["reboiler"] != "none",
             specs=specs, efficiency=self.p["efficiency"] or 1.0,
         )
-        sol = self._solve(pkg, setup)
+        try:
+            sol = self._solve(pkg, setup)
+        except SimulationError as exc:
+            gases = _noncondensables(pkg, feeds, F)
+            fed = sum(fd.flows for fd in feeds)
+            gas_flow = sum(float(fed[pkg.names.index(g)]) for g in gases)
+            # Only a fixed product rate tells how much room the distillate has.
+            rate_given = "distillate_rate" in specs or "bottoms_rate" in specs
+            D = specs.get("distillate_rate", F - specs.get("bottoms_rate", 0.0))
+            cause = None
+            if self.p["condenser"] == "total" and gases:
+                cause = (f"the feed carries {' and '.join(gases)}, which a total condenser "
+                         "cannot condense; use a partial condenser, or remove them upstream "
+                         "(a flash or stabilizer column)")
+            elif gases and rate_given and D < 1.05 * gas_flow:
+                cause = (f"the distillate {D * 3.6:.4g} kmol/h leaves no room for the "
+                         f"{' and '.join(gases)} fed ({gas_flow * 3.6:.4g} kmol/h), which "
+                         "cannot leave with the bottoms; raise the distillate. Inside a "
+                         "recycle loop the first passes may carry more of them than the "
+                         "converged plant")
+            if cause:
+                # The light gases are the likely cause, not a certain one: keep the original.
+                exc.hint = cause + (f". Otherwise: {exc.hint}" if exc.hint else "")
+            raise
         D = sol.distillate.sum() + sol.vapor_distillate.sum()
         B = sol.bottoms.sum()
         self.results.update(

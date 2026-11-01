@@ -1,4 +1,5 @@
 import math
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -10,6 +11,7 @@ from fluxsheet.columns import (
     gilliland_molokanov,
     kirkbride_ratio,
     solve_column,
+    stages,
     underwood_theta,
 )
 from fluxsheet.errors import SimulationError
@@ -234,6 +236,62 @@ def test_bad_column_specs_explain_themselves(params, message, hint):
     assert r.error["where"] == "C"
 
 
+def test_product_ratio_to_feed_equals_the_matching_rate():
+    by_rate = column({**BASE, "reflux_ratio": 2, "distillate_rate": "40 kmol/h"})
+    by_ratio = column({**BASE, "reflux_ratio": 2, "distillate_to_feed": 0.4})
+    by_bottoms = column({**BASE, "reflux_ratio": 2, "bottoms_to_feed": 0.6})
+    expected = by_rate.streams["distillate"]["component_flows"]
+    for r in (by_ratio, by_bottoms):
+        assert r.ok, r.error
+        for c, f in r.streams["distillate"]["component_flows"].items():
+            assert f == pytest.approx(expected[c], rel=1e-6)
+
+
+@pytest.mark.parametrize("params, message", [
+    ({"reflux_ratio": 2, "distillate_to_feed": 0.4, "distillate_rate": "40 kmol/h"},
+     "over-specified"),
+    ({"reflux_ratio": 2, "distillate_to_feed": 1.0}, "leaves a product empty"),
+])
+def test_bad_product_ratios_explain_themselves(params, message):
+    r = column({**BASE, **params})
+    assert not r.ok and message in r.error["message"]
+
+
+# Benzene column fed from a stabilizer that left traces of hydrogen and methane dissolved.
+WITH_LIGHTS = {"hydrogen": "0.06 kmol/h", "methane": "0.13 kmol/h", "benzene": "41.3 kmol/h",
+               "toluene": "56.4 kmol/h"}
+LIGHTS_COLUMN = {"stages": 22, "feed_stage": 11, "P": "1.2 bar", "reflux_ratio": 1.5,
+                 "distillate_rate": "41.5 kmol/h"}
+
+
+def test_dissolved_light_gases_leave_with_the_vapor_distillate():
+    # The feed has no bubble point at column pressure; the start estimate copes with that.
+    r = column({**LIGHTS_COLUMN, "condenser": "partial"}, flows=WITH_LIGHTS, T="40 degC",
+               components=("hydrogen", "methane", "benzene", "toluene"))
+    assert r.ok, r.error
+    top = r.streams["vapor_distillate"]["component_flows"]
+    assert top["hydrogen"] == pytest.approx(0.06 * KMOLH, rel=1e-3)
+    assert top["methane"] == pytest.approx(0.13 * KMOLH, rel=1e-3)
+    assert r.streams["vapor_distillate"]["mole_fractions"]["benzene"] > 0.9
+
+
+def test_total_condenser_with_light_gases_names_the_cause():
+    r = column({**LIGHTS_COLUMN, "condenser": "total"}, flows=WITH_LIGHTS, T="40 degC",
+               components=("hydrogen", "methane", "benzene", "toluene"))
+    assert not r.ok
+    assert "hydrogen and methane" in r.error["hint"] and "partial condenser" in r.error["hint"]
+
+
+def test_distillate_too_small_for_the_light_gases_names_the_cause():
+    flows = {"hydrogen": "1.13 kmol/h", "methane": "6.41 kmol/h", "benzene": "68.2 kmol/h",
+             "toluene": "2.9 kmol/h", "biphenyl": "13.9 kmol/h"}  # 8 % light gases
+    r = column({"stages": 8, "feed_stage": 3, "P": "3 bar", "condenser": "partial",
+                "reflux_ratio": 1.0, "distillate_to_feed": 0.08}, flows=flows, T="40 degC",
+               P="3 bar", components=("hydrogen", "methane", "benzene", "toluene", "biphenyl"))
+    assert not r.ok
+    assert "leaves no room for the hydrogen and methane" in r.error["hint"]
+
+
 def test_newton_failure_explains_itself():
     pkg = get_package(("benzene", "toluene"), "peng-robinson")
     feed = Stream.from_flash(pkg, [50 * KMOLH, 50 * KMOLH], T=363.15, P=1.5e5)
@@ -243,6 +301,73 @@ def test_newton_failure_explains_itself():
     with pytest.raises(SimulationError, match="did not converge") as info:
         solve_column(pkg, setup)
     assert "reflux" in info.value.hint
+
+
+def test_heavy_component_pushed_overhead_converges():
+    # Toluene recycle column of an HDA plant (illustrative flowsheet, see test_validation):
+    # the distillate is larger than the benzene and toluene fed, so about a kmol/h of
+    # biphenyl has to go overhead. The converged profile is far from the bubble-point start
+    # estimate and the Jacobian is nearly singular on the way; Newton used to blow the
+    # internal flows up to 1e5 kmol/h and fail.
+    flows = {"benzene": "0.1904 kmol/h", "toluene": "50.092 kmol/h",
+             "biphenyl": "4.2409 kmol/h"}
+    r = solve({
+        "components": ["hydrogen", "methane", "benzene", "toluene", "biphenyl"],
+        "property_method": "peng-robinson",
+        "units": [{"id": "F", "type": "Feed", "params": {"VF": 0, "P": "1.2 bar",
+                                                          "flows": flows}},
+                  {"id": "C", "type": "DistillationColumn", "params": {
+                      "stages": 10, "feed_stage": 5, "P": "1.2 bar", "reflux_ratio": 1.0,
+                      "distillate_to_feed": 0.94}}],
+        "streams": [{"id": "FEED", "from": "F.out", "to": "C.in"},
+                    {"id": "distillate", "from": "C.distillate"},
+                    {"id": "bottoms", "from": "C.bottoms"}],
+    })
+    assert r.ok, r.error
+    comp, energy = balances(r, ["FEED"], ["distillate", "bottoms"])
+    assert comp < 1e-9 and energy < 1e-6
+    top = r.streams["distillate"]["component_flows"]
+    assert top["biphenyl"] == pytest.approx(0.97 * KMOLH, abs=0.05 * KMOLH)
+    assert top["toluene"] > 0.999 * 50.092 * KMOLH
+
+
+def bt_setup(benzene_kmolh: float, stages: int = 20) -> tuple:
+    pkg = get_package(("benzene", "toluene"), "peng-robinson")
+    flows = [benzene_kmolh * KMOLH, (100 - benzene_kmolh) * KMOLH]
+    feed = Stream.from_flash(pkg, flows, T=363.15, P=1.5e5)
+    return pkg, ColumnSetup(stages=stages, P=np.full(stages, 101325.0),
+                            feeds=[_feed(stages // 2 - 1, feed)],
+                            specs={"reflux_ratio": 2.0, "distillate_rate": flows[0]})
+
+
+def test_warm_start_from_a_nearby_feed_gives_the_same_column(monkeypatch):
+    # As in a recycle loop: the previous pass saw a slightly different feed. The start
+    # estimate (bubble points stage by stage) costs most of the time of a solve; a warm
+    # start skips it.
+    pkg, before = bt_setup(50)
+    _, after = bt_setup(51)
+    previous = solve_column(pkg, before)
+    cold = solve_column(pkg, after)
+
+    def no_estimate(_model):
+        raise AssertionError("the warm start built a start estimate")
+
+    monkeypatch.setattr(stages, "_initial", no_estimate)
+    warm = solve_column(pkg, after, start=previous)
+    np.testing.assert_allclose(warm.distillate, cold.distillate, rtol=1e-8)
+    np.testing.assert_allclose(warm.T, cold.T, rtol=1e-10)
+    assert warm.reboiler_duty == pytest.approx(cold.reboiler_duty, rel=1e-8)
+
+
+def test_unusable_warm_start_falls_back_to_the_start_estimate():
+    pkg, setup = bt_setup(50)
+    previous = solve_column(pkg, setup)
+    key, x, F = previous.restart
+    hopeless = replace(previous, restart=(key, np.where(x > 300.0, 2000.0, x), F))
+    cold = solve_column(pkg, setup)
+    for start in (hopeless, solve_column(*bt_setup(50, stages=12))):  # wrong, or other column
+        sol = solve_column(pkg, setup, start=start)
+        np.testing.assert_allclose(sol.distillate, cold.distillate, rtol=1e-8)
 
 
 # --- absorber / stripper -----------------------------------------------------------------

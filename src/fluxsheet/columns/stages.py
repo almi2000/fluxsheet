@@ -33,7 +33,7 @@ from scipy.sparse.linalg import spsolve
 
 from ..errors import SimulationError
 from ..thermo_package import PropertyPackage
-from .saturation import bubble_point
+from .saturation import bubble_point, dew_point
 
 SPECS = {
     "reflux_ratio": "reflux ratio",
@@ -84,6 +84,8 @@ class ColumnSolution:
     condenser_duty: float  # W, heat added (negative: removed)
     reboiler_duty: float
     iterations: int
+    # The converged unknowns, for a warm start of the same column (see solve_column).
+    restart: tuple | None = field(default=None, repr=False)
 
 
 class _Model:
@@ -332,7 +334,13 @@ def _initial(m: _Model) -> np.ndarray:
     z = m.f.sum(axis=0) / m.F
     bubble = m.has_cond or m.has_reb
     if bubble:
-        T0, K0 = bubble_point(pkg, z, float(np.mean(m.P)))
+        P_mean = float(np.mean(m.P))
+        try:
+            T0, K0 = bubble_point(pkg, z, P_mean)
+        except SimulationError:
+            # A feed carrying dissolved light gases (traces of hydrogen in a benzene column)
+            # has no bubble point at column pressure; its dew point is a usable start.
+            T0, K0 = dew_point(pkg, z, P_mean)
         T = np.full(N, T0)
         K = np.tile(K0, (N, 1))
     else:
@@ -361,7 +369,12 @@ def _initial(m: _Model) -> np.ndarray:
             xs = x_new / x_new.sum(axis=1, keepdims=True)
             T_old, V_old = T.copy(), V.copy()
             for j in range(N):
-                T[j], K[j] = bubble_point(pkg, xs[j], m.P[j], T_guess=T[j])
+                try:
+                    T[j], K[j] = bubble_point(pkg, xs[j], m.P[j], T_guess=T[j])
+                except SimulationError:
+                    # No bubble point, e.g. a top stage estimated as almost pure hydrogen
+                    # and methane: keep this stage's temperature, Newton corrects it.
+                    K[j] = pkg.k_values(T[j], m.P[j], list(xs[j]), list(xs[j]))
             if m.has_cond:
                 L, V = _enthalpy_flows(m, T, xs, K, L, V, Lr, D)
             change = np.max(np.abs(V - V_old)) / m.F
@@ -431,13 +444,53 @@ def _step(m: _Model, x, dx, alpha: float):
     return xn
 
 
-def solve_column(pkg: PropertyPackage, setup: ColumnSetup) -> ColumnSolution:
+def _max_alpha(m: _Model, x, dx) -> float:
+    """Largest fraction of the Newton step within the trust limits: no stage temperature moves
+    more than _MAX_DT and no total stage flow more than doubles (or grows by more than the
+    feed). The step is shortened as a whole, so it keeps its direction; clipping single
+    variables would mix the Newton direction with arbitrary ones."""
+    N, C, nv = m.N, m.C, m.nv
+    X, D = x[: N * nv].reshape(N, nv), dx[: N * nv].reshape(N, nv)
+    alpha = min(1.0, _MAX_DT / max(np.max(np.abs(D[:, 2 * C])), 1e-30))
+    for part in (slice(0, C), slice(C, 2 * C)):  # liquid, vapor
+        total, change = X[:, part].sum(axis=1), D[:, part].sum(axis=1)
+        room = np.maximum(total, m.F)
+        grow = change > room
+        if np.any(grow):
+            alpha = min(alpha, float(np.min(room[grow] / change[grow])))
+    return alpha
+
+
+def solve_column(pkg: PropertyPackage, setup: ColumnSetup,
+                 start: ColumnSolution | None = None) -> ColumnSolution:
+    """Solve the column. ``start``, a solution of the same column for a nearby feed (the
+    previous pass of a recycle loop), replaces the start estimate: Newton then usually needs
+    two or three iterations instead of building the estimate from bubble points. If Newton
+    gets nowhere from there, the column is solved again from its own estimate."""
     m = _Model(pkg, setup)
-    x = _initial(m)
+    if start is not None and start.restart is not None:
+        key, x_old, F_old = start.restart
+        if key == _restart_key(m):
+            x = x_old.copy()
+            flows = np.ones(m.size, dtype=bool)
+            flows[2 * m.C:m.N * m.nv:m.nv] = False  # temperatures
+            flows[-3] = False  # the distillate draw ratio
+            x[flows] *= m.F / F_old  # flows and duties follow the feed
+            try:
+                return _newton(m, x, max(setup.max_iterations // 3, 1))
+            except SimulationError:
+                pass
+    return _newton(m, _initial(m), setup.max_iterations)
+
+
+def _restart_key(m: _Model) -> tuple:
+    return m.N, m.C, m.setup.condenser, m.has_reb
+
+
+def _newton(m: _Model, x, max_iterations: int) -> ColumnSolution:
     props = m.all_props(x)
     r = m.residual(x, props)
-    T_idx = np.arange(2 * m.C, m.N * m.nv, m.nv)
-    for iteration in range(1, setup.max_iterations + 1):
+    for iteration in range(1, max_iterations + 1):
         J = m.jacobian(x, props, r)
         with np.errstate(all="ignore"):
             dx = spsolve(J, -r)
@@ -447,11 +500,10 @@ def solve_column(pkg: PropertyPackage, setup: ColumnSetup) -> ColumnSolution:
                 hint="check that every component can leave the column and that the specs "
                 "are independent (e.g. not a distillate and a bottoms rate together)",
             )
-        dx[T_idx] = np.clip(dx[T_idx], -_MAX_DT, _MAX_DT)
         # Non-monotone line search: a full Newton step may raise the residual for a while
         # (the K-values are exponential in T) and still lead to fast convergence, so only
         # steps that make it much worse are cut back.
-        alpha = 1.0
+        alpha = _max_alpha(m, x, dx)
         norm = np.linalg.norm(r)
         for attempt in range(8):
             xn = _step(m, x, dx, alpha)
@@ -471,7 +523,7 @@ def solve_column(pkg: PropertyPackage, setup: ColumnSetup) -> ColumnSolution:
                 "closer to a converged case",
             )
         x, props, r = xn, props_n, rn
-        if np.max(np.abs(r)) < setup.tolerance:
+        if np.max(np.abs(r)) < m.setup.tolerance:
             return _solution(m, x, props, iteration)
 
     worst = int(np.argmax(np.abs(r)))
@@ -484,7 +536,7 @@ def solve_column(pkg: PropertyPackage, setup: ColumnSetup) -> ColumnSolution:
                 "solvent can take up the solute; changing the solvent flow or the number of "
                 "stages often helps")
     raise SimulationError(
-        f"the column did not converge in {setup.max_iterations} Newton iterations "
+        f"the column did not converge in {max_iterations} Newton iterations "
         f"(largest error: {m.describe_row(worst)}, {abs(r[worst]):.2g} scaled)", hint=hint,
     )
 
@@ -507,4 +559,5 @@ def _solution(m: _Model, x, props, iterations: int) -> ColumnSolution:
         condenser_duty=float(Qc) if m.has_cond else 0.0,
         reboiler_duty=float(Qr) if m.has_reb else 0.0,
         iterations=iterations,
+        restart=(_restart_key(m), x.copy(), m.F),
     )

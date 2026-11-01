@@ -562,14 +562,15 @@ class PropertyPackage:
         """The flash result, plus the incipient phase composition at a VF = 0 or 1 boundary."""
         try:
             if "VF" in spec and self.n > 1 and (self.supports_lle or self._ge is not None):
-                return self._checked_vf(zs, spec, guess)
-            try:
-                res = self._flasher.flash(zs=zs, **spec)
-            except Exception:
-                if set(spec) != {"P", "H"}:
-                    raise
-                res = self._ph_by_temperature(zs, spec["P"], spec["H"])
-            return res, _incipient(res, spec.get("VF"), self.n)
+                res, incipient = self._checked_vf(zs, spec, guess)
+            else:
+                try:
+                    res = self._flasher.flash(zs=zs, **spec)
+                except Exception:
+                    if set(spec) != {"P", "H"}:
+                        raise
+                    res = self._ph_by_temperature(zs, spec["P"], spec["H"])
+                incipient = _incipient(res, spec.get("VF"), self.n)
         except Exception as exc:
             spec_text = ", ".join(f"{k}={v:.6g}" for k, v in spec.items())
             raise SimulationError(
@@ -577,6 +578,38 @@ class PropertyPackage:
                 hint="check that temperature and pressure are physically reasonable for "
                 "these compounds, or try a different property method",
             ) from exc
+        if spec.get("VF") in (0.0, 1.0) and self.n > 1:
+            self._check_saturation(zs, spec, res, incipient)
+        return res, incipient
+
+    def _check_saturation(self, zs: list[float], spec: dict, res, incipient) -> None:
+        """Refuse a bubble or dew point that is not one.
+
+        The solvers in thermo can converge to the other boundary (a "bubble point" whose
+        vapor has the feed composition is a dew point), which looks like a valid number.
+        An incipient phase equal to the feed is no sign of failure: it is right at an
+        azeotrope and for a pure component.
+        """
+        def is_feed(phase_zs) -> bool:
+            return phase_zs is not None and max(abs(a - b) for a, b in zip(phase_zs, zs)) < 1e-3
+
+        bubble = spec["VF"] == 0.0
+        gas = getattr(res, "gas", None)
+        liquids = list(getattr(res, "liquids", None) or [])
+        y = tuple(gas.zs) if gas is not None else None
+        x = _combined_liquid(res, liquids, self.n) if liquids else None
+        # Only the swap is an error: next to a liquid that splits, the liquid phase shown
+        # at the bubble point need not have the feed composition.
+        requested, other = (x, y) if bubble else (y, x)
+        name = "bubble" if bubble else "dew"
+        at = ", ".join(f"{k}={v:.6g}" for k, v in spec.items() if k != "VF")
+        if is_feed(other) and not is_feed(requested):
+            raise SimulationError(
+                f"no {name} point found ({at}): the calculation converged to the "
+                f"{'dew' if bubble else 'bubble'} point instead",
+                hint="a mixture rich in a supercritical gas such as hydrogen may have no "
+                f"{name} point at this condition; specify the temperature instead",
+            )
 
     def flash_ph_near(self, zs: list[float], P: float, H: float, T_guess: float) -> PhaseState:
         """Pressure-enthalpy flash from a nearby temperature, by T-P flashes.
@@ -793,12 +826,14 @@ def _combined_liquid(res, liquids, n: int) -> tuple[float, ...]:
                  for i in range(n))
 
 
-# Which equation-of-state root counts as vapor: a phase whose molar volume exceeds its
-# pseudo-critical volume (Kay's rule). thermo's default, the phase identification parameter,
-# calls a compressed supercritical gas a liquid (hydrogen at 25 °C and 70 bar), so a
-# hydrogen-rich gas over toluene came out as two liquids with no vapor at all. A
-# pseudo-critical temperature rule would instead call superheated benzene vapor a liquid.
-_SETTINGS = BulkSettings(VL_ID="Vpc")
+# Which equation-of-state root counts as vapor: V T^2 above Vpc Tpc^2, with Kay's
+# pseudo-critical volume and temperature. thermo's default, the phase identification
+# parameter, calls a compressed supercritical gas a liquid (hydrogen at 25 °C and 70 bar),
+# so a hydrogen-rich gas over toluene came out as two liquids with no vapor at all. A
+# volume-only rule fails the same way at higher pressure (hydrogen at 130 bar, nitrogen at
+# 340 bar), a temperature-only rule calls superheated benzene vapor a liquid. This one
+# passes the pure-component phase checks in tests/test_phase_physics.py.
+_SETTINGS = BulkSettings(VL_ID="Tpc Vpc")
 
 
 class _FlashVLLE(FlashVLN):
