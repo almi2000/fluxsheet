@@ -140,6 +140,8 @@ export interface FlowsheetModel {
   sensitivity?: SensitivityStudy[];
   calculators?: unknown[]; // calculator blocks (calculator.py); kept as they are
   dynamics?: Dynamics;
+  costing?: Costing;
+  optimizations?: Optimization[];
 }
 
 export interface StreamResult {
@@ -178,6 +180,7 @@ export interface SolveResult {
   warnings: string[];
   error: SimError | null;
   design_specs?: DesignSpecResult[];
+  costing?: CostingResult | null;
 }
 
 export interface Example {
@@ -322,4 +325,127 @@ export interface DynamicResult {
   series: DynamicSeries[];
   warnings: string[];
   error?: SimError;
+}
+
+// ---- costing and optimization (see src/fluxsheet/costing.py, optimization.py) ------------
+
+export interface Costing {
+  cepci?: number;
+  hours_per_year?: number;
+  interest_rate?: number;
+  plant_life?: number;
+  annualization_factor?: number;
+  electricity_price?: number; // $/kWh
+  heating_price?: number; // $/GJ; default by temperature
+  cooling_price?: number;
+  utility_prices?: Record<string, number>;
+  material?: "CS" | "SS";
+  U?: Value;
+  tray_efficiency?: number;
+  units?: Record<string, { material?: "CS" | "SS"; U?: Value; exclude?: boolean }>;
+}
+
+export interface CostItem {
+  item: string;
+  equipment: string;
+  size: number;
+  size_unit: string;
+  parallel: number;
+  purchased_cost: number;
+  bare_module_cost: number;
+  basis: string;
+}
+
+export interface CostUtility {
+  item: string;
+  kind: "heating" | "cooling" | "electricity";
+  utility: string;
+  duty: number;
+  price: number;
+  unit_price: string;
+  cost: number;
+}
+
+export interface UnitCost {
+  type: string;
+  items: CostItem[];
+  utilities: CostUtility[];
+  notes: string[];
+  purchased_cost: number;
+  bare_module_cost: number;
+  operating_cost: number;
+}
+
+export interface CostingResult {
+  cepci: number;
+  hours_per_year: number;
+  purchased_cost: number;
+  bare_module_cost: number;
+  capital_cost: number;
+  operating_cost: number;
+  annualization_factor: number;
+  annualized_capital: number;
+  tac: number;
+  units: Record<string, UnitCost>;
+  not_costed: string[];
+}
+
+/** The current value of a unit parameter, as an expression variable. */
+export interface ParamRef {
+  unit: string;
+  param: string;
+  component?: string;
+}
+
+export interface OptimizationVary extends VariedParam {
+  start?: Value;
+}
+
+export interface Constraint {
+  expression: string;
+  relation: "<=" | ">=" | "=";
+  value: number;
+}
+
+export interface Optimization {
+  id: string;
+  variables: Record<string, VariableRef | ParamRef>;
+  objective: string;
+  sense?: "minimize" | "maximize";
+  vary: OptimizationVary[];
+  constraints?: Constraint[];
+  method?: "auto" | "slsqp" | "cobyla";
+  max_iterations?: number;
+  tolerance?: number;
+  step?: number;
+}
+
+export interface OptimizationResult {
+  ok: boolean;
+  error?: SimError;
+  id?: string;
+  sense?: string;
+  method?: string;
+  converged?: boolean;
+  message?: string;
+  iterations?: number;
+  evaluations?: number;
+  failed_evaluations?: number;
+  history?: { iteration: number; objective: number; x: number[]; max_violation: number }[];
+  objective?: { expression: string; value: number; start: number | null };
+  variables?: {
+    label: string;
+    quantity: string | null;
+    unit: string;
+    param: string;
+    component: string | null;
+    lower: number;
+    upper: number;
+    start: number;
+    value: number;
+    at_bound: boolean;
+  }[];
+  constraints?: (Constraint & { achieved: number; satisfied: boolean; active: boolean })[];
+  apply?: { unit: string; param: string; component: string | null; value: number }[];
+  result?: SolveResult;
 }

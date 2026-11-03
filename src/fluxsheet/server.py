@@ -17,6 +17,7 @@ from .dynamics.simulator import simulate
 from .dynamics.units import DYNAMIC_MODELS
 from .errors import SimulationError
 from .flowsheet import FlowsheetModel
+from .optimization import run_optimization
 from .quantities import UnitError, to_si
 from .sensitivity import run_sensitivity
 from .solver import solve
@@ -199,6 +200,24 @@ def sensitivity(body: SensitivityRequest) -> dict:
     try:
         limits.check_model_size(body.model)
         return _limited(lambda: run_sensitivity(body.model, body.study))
+    except SimulationError as exc:
+        return {"ok": False, "error": exc.to_dict()}
+    except UnknownCompoundError as exc:
+        return {"ok": False, "error": {"message": str(exc), "where": None,
+                                       "hint": "search for the compound and pick it from the list"}}
+
+
+class OptimizationRequest(BaseModel):
+    model: FlowsheetModel
+    optimization: str | None = None  # id; default: the first
+
+
+@app.post("/api/optimize")
+def optimize(body: OptimizationRequest) -> dict:
+    """Run an optimization around the flowsheet; see optimization.py."""
+    try:
+        limits.check_model_size(body.model)
+        return _limited(lambda: run_optimization(body.model, body.optimization))
     except SimulationError as exc:
         return {"ok": False, "error": exc.to_dict()}
     except UnknownCompoundError as exc:

@@ -1,0 +1,49 @@
+{
+  "format": "fluxsheet/1",
+  "name": "Ethyl acetate reactor optimization",
+  "description": "How large and how hot should the esterification reactor be? A bigger, hotter stirred tank converts more acetic acid, but costs more to build and to heat. The costing prices the reactor, the preheater and the utilities and annualizes the capital; the optimization maximizes the margin, 0.25 $/kg of ethyl acetate made minus the total annualized cost, over the reactor volume and temperature, with the reactor kept below 85 °C. Run it from the Optimization tab of the results.",
+  "components": ["acetic acid", "ethanol", "ethyl acetate", "water"],
+  "property_method": "auto",
+  "reactions": [
+    {"id": "EST",
+     "stoichiometry": {"acetic acid": -1, "ethanol": -1, "ethyl acetate": 1, "water": 1},
+     "kinetics": {"k0": 2e-7, "Ea": "50 kJ/mol", "T_ref": "70 degC",
+                  "orders": {"acetic acid": 1, "ethanol": 1}, "equilibrium_limited": true},
+     "keq": {"A": 1.386}}
+  ],
+  "units": [
+    {"id": "FEED", "type": "Feed", "ui": {"x": 0, "y": 80},
+     "params": {"T": "25 degC", "P": "3 bar",
+                "flows": {"acetic acid": "10 kmol/h", "ethanol": "10 kmol/h"}}},
+    {"id": "PREHEAT", "type": "Heater", "ui": {"x": 180, "y": 80}, "params": {"T": "60 degC"}},
+    {"id": "CSTR", "type": "CSTR", "ui": {"x": 360, "y": 80},
+     "params": {"reactions": ["EST"], "V": "2 m3", "phase": "liquid", "T": "70 degC",
+                "key": "acetic acid"}},
+    {"id": "PRODUCT", "type": "Product", "ui": {"x": 560, "y": 80}}
+  ],
+  "streams": [
+    {"id": "S1", "from": "FEED.out", "to": "PREHEAT.in"},
+    {"id": "S2", "from": "PREHEAT.out", "to": "CSTR.in"},
+    {"id": "S3", "from": "CSTR.out", "to": "PRODUCT.in"}
+  ],
+  "costing": {"cepci": 800, "hours_per_year": 8000, "interest_rate": 0.1, "plant_life": 10},
+  "sensitivity": [
+    {"id": "VOLUME",
+     "vary": [{"unit": "CSTR", "param": "V", "lower": "1 m3", "upper": "30 m3", "points": 30}],
+     "outputs": [{"stream": "S3", "property": "component_flow", "component": "ethyl acetate"},
+                 {"property": "tac"},
+                 {"unit": "CSTR", "property": "bare_module_cost"}]}
+  ],
+  "optimizations": [
+    {"id": "MARGIN",
+     "variables": {"ea": {"stream": "S3", "property": "component_flow",
+                          "component": "ethyl acetate"},
+                   "tac": {"property": "tac"},
+                   "T": {"unit": "CSTR", "param": "T"}},
+     "objective": "0.25 * ea * 0.08811 * 3600 * 8000 - tac",
+     "sense": "maximize",
+     "vary": [{"unit": "CSTR", "param": "V", "lower": "1 m3", "upper": "30 m3"},
+              {"unit": "CSTR", "param": "T", "lower": "50 degC", "upper": "95 degC"}],
+     "constraints": [{"expression": "T", "relation": "<=", "value": 358.15}]}
+  ]
+}

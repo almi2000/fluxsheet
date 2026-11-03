@@ -1,5 +1,6 @@
 """Command line: ``fluxsheet run file.json``, ``fluxsheet sensitivity file.json``,
-``fluxsheet dynamic file.json``, ``fluxsheet fit-binary`` and ``fluxsheet serve``."""
+``fluxsheet dynamic file.json``, ``fluxsheet optimize file.json``, ``fluxsheet fit-binary``
+and ``fluxsheet serve``."""
 
 from __future__ import annotations
 
@@ -72,6 +73,11 @@ def _run(args) -> int:
     if lines:
         print()
         print("\n".join(lines))
+    if result.costing:
+        c = result.costing
+        print()
+        print(f"Costing (CEPCI {c['cepci']:g}): capital {c['capital_cost']:,.0f} $, "
+              f"operating {c['operating_cost']:,.0f} $/yr, TAC {c['tac']:,.0f} $/yr")
     for spec in result.design_specs:
         print(f"design spec {spec['id']}: {spec['target']} = {spec['achieved']:.6g} with "
               f"{spec['vary']} = {spec['vary_value']:.6g} ({spec['iterations']} solves)")
@@ -195,6 +201,45 @@ def _dynamic(args) -> int:
     return 0
 
 
+def _optimize(args) -> int:
+    from .optimization import run_optimization
+
+    out = run_optimization(FlowsheetModel.load(args.file), args.id)
+    if args.json:
+        print(json.dumps(out, indent=2))
+        return 0 if out["ok"] else 1
+    if out.get("history"):
+        print(f"Optimization {out['id']} ({out['sense']}, {out['method']}): {out['message']}")
+        rows = [("Iteration", "Objective", "Max violation")]
+        rows += [(str(h["iteration"]), f"{h['objective']:.8g}", f"{h['max_violation']:.2g}")
+                 for h in out["history"]]
+        widths = [max(len(r[i]) for r in rows) for i in range(3)]
+        for k, r in enumerate(rows):
+            print("  ".join(c.rjust(w) for c, w in zip(r, widths)))
+            if k == 0:
+                print("-" * (sum(widths) + 4))
+        print(f"{out['evaluations']} flowsheet solves, {out['failed_evaluations']} failed")
+    if not out["ok"]:
+        err = out["error"]
+        print(f"error{' in ' + err['where'] if err['where'] else ''}: {err['message']}",
+              file=sys.stderr)
+        if err["hint"]:
+            print(f"  hint: {err['hint']}", file=sys.stderr)
+        return 1
+    print()
+    print(f"{'Optimum' if out['converged'] else 'Best point (not converged)'}: "
+          f"{out['objective']['expression']} = {out['objective']['value']:.8g} "
+          f"(start {out['objective']['start']:.8g})")
+    for v in out["variables"]:
+        print(f"  {v['label']} = {v['value']:.6g} (SI; bounds {v['lower']:.6g} … "
+              f"{v['upper']:.6g}{', at a bound' if v['at_bound'] else ''})")
+    for c in out["constraints"]:
+        state = "active" if c["active"] else ("met" if c["satisfied"] else "VIOLATED")
+        print(f"  constraint {c['expression']} {c['relation']} {c['value']:.6g}: "
+              f"{c['achieved']:.6g} ({state})")
+    return 0
+
+
 def _serve(args) -> int:
     import uvicorn
 
@@ -220,6 +265,11 @@ def main(argv: list[str] | None = None) -> int:
     dyn.add_argument("--all", action="store_true",
                      help="include every stream's mole fractions (many columns)")
     dyn.set_defaults(func=_dynamic)
+    opt = sub.add_parser("optimize", help="run an optimization and print the optimum")
+    opt.add_argument("file")
+    opt.add_argument("--id", help="id of the optimization (default: the first)")
+    opt.add_argument("--json", action="store_true", help="print the full report as JSON")
+    opt.set_defaults(func=_optimize)
     serve = sub.add_parser("serve", help="start the API server for the web editor")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8000)

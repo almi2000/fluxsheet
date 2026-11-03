@@ -175,6 +175,9 @@ class Simulator(Solver):
         where = cm.id
         self.measure_quantity = None
         ref = cm.measure
+        if ref.stream is None and ref.unit is None:
+            raise SimulationError(f"a controller cannot measure the costing total {ref.property}",
+                                  where=where, hint="measure a stream or unit value")
         if ref.unit is not None and ref.unit in self.model.dynamics.units:
             dyn_cls = DYNAMIC_MODELS.get(self.units[ref.unit].type)
             fields = {f.name: f for f in dyn_cls.result_fields} if dyn_cls else {}

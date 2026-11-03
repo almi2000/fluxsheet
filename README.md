@@ -259,6 +259,49 @@ they settle.
 Recycle loops converge by Wegstein's method by default; `"solver": {"acceleration": "broyden"}`
 switches to Broyden's quasi-Newton method, which handles strongly coupled loops better.
 
+### Equipment costing and optimization
+
+With a `"costing"` section every solve also prices the plant: Turton's purchased-cost
+correlations scaled by the CEPCI, bare-module factors for installation, material (carbon or
+stainless steel) and pressure. Sizes come from the solution. Column diameters come from the
+vapor load (F-factor) and their height from the trays. Drums are sized for 5 min of liquid,
+exchanger areas from |Q| / (U LMTD), pumps and compressors from their power. Utilities are
+charged per GJ; without a price, the cheapest steam level, cooling water or refrigerant that
+is hot or cold enough is chosen. The total annualized cost is
+`TAC = operating cost + CRF × 1.18 Σ bare-module cost`. Every unit then reports
+`bare_module_cost` and `operating_cost`. `{"property": "tac"}` (also `capital_cost` and
+`operating_cost`) reads the totals in design specs, sensitivity studies and optimizations.
+The estimate is of study grade (±30 %); set your own prices.
+
+An **optimization** maximizes or minimizes an expression over named variables (as in
+calculators) by varying unit parameters between bounds, with `<=`, `>=` or `=` constraints.
+Each trial point is a full solve, including design specs. It uses SLSQP on scaled variables
+with finite differences. If a trial flowsheet fails, it continues with COBYLA from the best
+feasible point. It reports the history per iteration, the optimum, which constraints are
+active, and the solution there:
+
+```json
+"costing": {"cepci": 800, "hours_per_year": 8000, "interest_rate": 0.1, "plant_life": 10},
+"optimizations": [
+  {"id": "MARGIN",
+   "variables": {"ea": {"stream": "S3", "property": "component_flow", "component": "ethyl acetate"},
+                 "tac": {"property": "tac"},
+                 "T": {"unit": "CSTR", "param": "T"}},
+   "objective": "0.25 * ea * 0.08811 * 3600 * 8000 - tac", "sense": "maximize",
+   "vary": [{"unit": "CSTR", "param": "V", "lower": "1 m3", "upper": "30 m3"},
+            {"unit": "CSTR", "param": "T", "lower": "50 degC", "upper": "95 degC"}],
+   "constraints": [{"expression": "T", "relation": "<=", "value": 358.15}]}
+]
+```
+
+```bash
+fluxsheet optimize examples/ethyl_acetate_optimization.json
+```
+
+In the editor, costing and optimizations are edited in the flowsheet settings. They run from
+the **Costing** and **Optimization** tabs of the results, and **Use optimum** writes the
+optimal parameters back into the flowsheet.
+
 ## Dynamic simulation
 
 From the steady state, Fluxsheet integrates how the plant moves over time, like a flow-driven
@@ -358,7 +401,7 @@ extend it.
 - [x] Calculator blocks; Broyden recycle convergence
 - [x] Dynamic simulation: vessel, CSTR and heater hold-ups, PID controllers, steps and ramps
 - [ ] Dynamic columns (tray hold-ups), batch reactor, pressure-driven dynamics
-- [ ] Optimization around the flowsheet (objective and constraints as formulas), equipment costing
+- [x] Optimization around the flowsheet (objective and constraints as formulas), equipment costing
 - [ ] Columns with side draws, pumparounds and reactive stages; pump and compressor curves
 - [ ] Reports (Excel, PDF), unit plug-ins
 - [ ] Cooled plug flow reactor with co-/countercurrent coolant profile; process streams as jacket media

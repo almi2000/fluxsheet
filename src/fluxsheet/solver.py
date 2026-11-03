@@ -51,6 +51,7 @@ class SolveResult:
     error: dict | None = None
     design_specs: list[dict] = field(default_factory=list)  # filled by specs.py
     calculators: list[dict] = field(default_factory=list)  # filled by calculator.py
+    costing: dict | None = None  # filled by costing.py
 
     def to_dict(self) -> dict[str, Any]:
         return self.__dict__.copy()
@@ -227,6 +228,13 @@ class Solver:
         self._check_balances(pkg, streams)
         result.warnings = self.warnings
         self.sections.annotate(result, streams, self.connections)
+        if self.model.costing is not None:
+            from .costing import estimate  # sizes and prices the solved equipment
+
+            try:
+                estimate(self.model, result, self.sections.package)
+            except SimulationError as exc:
+                result.ok, result.error = False, exc.to_dict()
         return result
 
     def _run_unit(self, pkg, unit: UnitOperation, streams: dict[str, Stream]) -> dict[str, Stream]:

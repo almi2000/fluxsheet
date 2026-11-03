@@ -4,7 +4,8 @@ import { DynamicsView } from "./DynamicsView";
 import { MethodsSummary, ParameterSources, shortMethod } from "./PropertyMethods";
 import { fmt, formatQuantity } from "./quantities";
 import { SensitivityView } from "./SensitivityView";
-import type { FlowsheetModel, SensitivityStudy, SolveResult } from "./types";
+import { CostingView, OptimizationView, money } from "./OptimizationView";
+import type { FlowsheetModel, Optimization, OptimizationResult, SensitivityStudy, SolveResult } from "./types";
 
 // Streams that split into two liquids carry this (see Stream.to_dict); null otherwise.
 type LiquidSplit = { light: { fraction: number }; heavy: { fraction: number } } | null | undefined;
@@ -15,14 +16,19 @@ export function ResultsPanel({
   onSelectStream,
   studies = [],
   getModel,
+  optimizations = [],
+  onApplyOptimum,
 }: {
   result: SolveResult | null;
   stale: boolean;
   onSelectStream: (id: string) => void;
   studies?: SensitivityStudy[];
   getModel?: () => FlowsheetModel;
+  optimizations?: Optimization[];
+  onApplyOptimum?: (values: NonNullable<OptimizationResult["apply"]>) => void;
 }) {
-  const [view, setView] = useState<"streams" | "diagram" | "sensitivity" | "dynamics">("streams");
+  const [view, setView] = useState<"streams" | "diagram" | "sensitivity" | "dynamics" | "costing" | "optimization">("streams");
+  const [optimizationOpened, setOptimizationOpened] = useState(false);
   const [diagramOpened, setDiagramOpened] = useState(false);
   const [sensitivityOpened, setSensitivityOpened] = useState(false);
   const [dynamicsOpened, setDynamicsOpened] = useState(false);
@@ -98,6 +104,22 @@ export function ResultsPanel({
               Dynamics
             </button>
           )}
+          {result.costing && (
+            <button className={view === "costing" ? "on" : ""} onClick={() => setView("costing")}>
+              Costing
+            </button>
+          )}
+          {getModel && (
+            <button
+              className={view === "optimization" ? "on" : ""}
+              onClick={() => {
+                setView("optimization");
+                setOptimizationOpened(true);
+              }}
+            >
+              Optimization
+            </button>
+          )}
         </div>
         <MethodsSummary result={result} />
         <ParameterSources result={result} />
@@ -112,6 +134,11 @@ export function ResultsPanel({
             <b>{formatQuantity(d.vary_value, d.vary_quantity)}</b>
           </span>
         ))}
+        {result.costing && (
+          <span>
+            TAC <b>{money(result.costing.tac)} $/yr</b>
+          </span>
+        )}
         {stale && <span className="warn-text">Flowsheet changed since this run</span>}
       </div>
       {sensitivityOpened && getModel && (
@@ -119,6 +146,12 @@ export function ResultsPanel({
           <SensitivityView studies={studies} getModel={getModel} />
         </div>
       )}
+      {optimizationOpened && getModel && (
+        <div hidden={view !== "optimization"}>
+          <OptimizationView optimizations={optimizations} getModel={getModel} onApply={onApplyOptimum} />
+        </div>
+      )}
+      {result.costing && view === "costing" && <CostingView costing={result.costing} />}
       {dynamicsOpened && getModel && (
         <div hidden={view !== "dynamics"}>
           <DynamicsView getModel={getModel} />
