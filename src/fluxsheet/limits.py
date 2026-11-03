@@ -3,7 +3,8 @@
 Off by default. With ``FLUXSHEET_DEMO=1`` (the online demo) every calculation request
 - waits for its turn: one calculation at a time, so a small server stays responsive,
 - has a time budget (``FLUXSHEET_MAX_SECONDS``, default 60 s), checked before every unit
-  calculation, so recycles, design specs and sensitivity studies all stop in time,
+  calculation, so recycles, design specs and sensitivity studies all stop in time
+  (optimizations also stop after ``MAX_OPTIMIZATION_ITERATIONS``),
 - and the flowsheet itself must stay within a modest size.
 Locally (``fluxsheet serve``, the CLI, Python) nothing is limited.
 """
@@ -26,7 +27,7 @@ MAX_UNITS = 60
 MAX_COMPONENTS = 20
 MAX_STUDY_POINTS = 60
 MAX_DYNAMIC_POINTS = 401
-MAX_OPTIMIZATION_ITERATIONS = 30
+MAX_OPTIMIZATION_ITERATIONS = 30  # optimizations stop there (and at the time budget)
 QUEUE_WAIT_SECONDS = 20.0
 
 _LOCAL_HINT = "install Fluxsheet locally (pip install \"fluxsheet[server]\"), where there is no limit"
@@ -78,9 +79,6 @@ def check_model_size(model, enabled: bool | None = None) -> None:
         for v in study.vary:
             points *= v.points
         checks.append((points, MAX_STUDY_POINTS, f"points in sensitivity study {study.id}"))
-    for opt in getattr(model, "optimizations", None) or []:
-        checks.append((opt.max_iterations, MAX_OPTIMIZATION_ITERATIONS,
-                       f"iterations allowed in optimization {opt.id}"))
     dynamics = getattr(model, "dynamics", None)
     if dynamics is not None:
         checks.append((dynamics.points, MAX_DYNAMIC_POINTS, "output points in the dynamic run"))

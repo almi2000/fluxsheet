@@ -89,6 +89,12 @@ class _Problem:
                                       hint="use letters, digits and _, not a function name")
             if isinstance(ref, ParamRef):
                 _read_param(work, ref, where)  # checks the reference
+                owner = self.adjusted.get((ref.unit, ref.param, ref.component))
+                if owner:  # the trial's value is not the one the solution ends up with
+                    raise SimulationError(
+                        f"variable {name}: {ref.param} of {ref.unit} is set by {owner}",
+                        where=where, hint="read the result it leads to instead, e.g. a "
+                        "stream property or unit result")
                 self.params[name] = ref
             else:
                 self.results[name] = Variable.resolve(ref, work, where)
@@ -103,7 +109,7 @@ class _Problem:
         self.worst = 0.0  # largest scaled objective seen, for COBYLA's failed trials
 
     def _check_conflicts(self) -> None:
-        taken = {}
+        self.adjusted = taken = {}
         for spec in self.model.design_specs or ():
             if spec.active:
                 taken[(spec.vary.unit, spec.vary.param, spec.vary.component)] = \
@@ -174,6 +180,7 @@ class _Problem:
         self.f_scale = abs(start.objective) if start.objective else 1.0
         self.g_scale = [max(abs(c.value), abs(lhs)) or 1.0
                         for c, lhs in zip(self.opt.constraints, start.constraints)]
+        self.worst = max((self.f(p) for p in self.cache.values() if p.ok), default=0.0)
 
     # ---- scaled functions ----------------------------------------------------------------
 
@@ -241,6 +248,10 @@ def _search(pb: _Problem) -> dict:
         mid = [0.5] * len(z0)
         if pb.evaluate(mid).ok:
             z0, first = mid, pb.evaluate(mid)
+        elif first.result.ok:  # solved, but a variable or expression has no value
+            raise SimulationError(
+                f"cannot evaluate the objective or constraints at the start point: "
+                f"{_describe(first.error)}", where=opt.id, hint=(first.error or {}).get("hint"))
         else:
             raise SimulationError(
                 f"the flowsheet fails at the start point: {_describe(first.error)}",
@@ -252,9 +263,14 @@ def _search(pb: _Problem) -> dict:
     ineq = [k for k, c in enumerate(opt.constraints) if c.relation != "="]
     eq = [k for k, c in enumerate(opt.constraints) if c.relation == "="]
     used, message, converged, retry, stopped = [], "", False, False, None
+    final: list[tuple[float, ...]] = []  # the last iterate of the search
+    max_iterations = opt.max_iterations
+    if limits.DEMO:
+        max_iterations = min(max_iterations, limits.MAX_OPTIMIZATION_ITERATIONS)
 
     def record(zk) -> None:
         p = pb.evaluate(zk)
+        final[:] = [p.z]
         if p.ok and pb.x(p.z) != history[-1]["x"]:  # a last call may repeat the point
             history.append(_entry(pb, len(history), p))
 
@@ -288,7 +304,8 @@ def _search(pb: _Problem) -> dict:
                 res = minimize(fun, np.array(z0), jac=lambda z: pb.gradients(z)[0],
                                method="SLSQP", bounds=[(0.0, 1.0)] * n,
                                constraints=constraints, callback=record,
-                               options={"maxiter": opt.max_iterations, "ftol": opt.tolerance})
+                               options={"maxiter": max_iterations, "ftol": opt.tolerance})
+                final[:] = [pb.evaluate(res.x).z]
                 message, converged = res.message, res.status == 0
                 retry = res.status not in (0, 9)
             except _Abort as exc:
@@ -300,7 +317,7 @@ def _search(pb: _Problem) -> dict:
                 message = f"SLSQP: {message}"
         if opt.method == "cobyla" or (opt.method == "auto" and not converged and retry):
             used.append("COBYLA")
-            best = _best(pb)
+            best = _best(pb, final)
             start = best.z if best is not None else z0
 
             def fun_c(z):
@@ -318,15 +335,16 @@ def _search(pb: _Problem) -> dict:
             cons = [{"type": "ineq", "fun": con_c}] if opt.constraints else []
             res = minimize(fun_c, np.array(start), method="COBYLA",
                            bounds=[(0.0, 1.0)] * n, constraints=cons, callback=record,
-                           options={"maxiter": max(opt.max_iterations * (n + 1), 20),
+                           options={"maxiter": max(max_iterations * (n + 1), 20),
                                     "rhobeg": 0.1, "tol": opt.tolerance})
+            final[:] = [pb.evaluate(res.x).z]
             converged = bool(res.success)
             message = f"{message}: {res.message}" if message else res.message
     except SimulationError as exc:  # the demo server's time limit
         stopped = exc.to_dict()
         message = exc.message
 
-    best = _best(pb)
+    best = _best(pb, final)
     report = {
         "id": opt.id, "sense": opt.sense, "method": " → ".join(used),
         "converged": converged and stopped is None, "message": str(message),
@@ -346,9 +364,19 @@ def _search(pb: _Problem) -> dict:
     return {"ok": True, **report, **_describe_point(pb, best, z0)}
 
 
-def _best(pb: _Problem) -> _Point | None:
+def _best(pb: _Problem, final: list) -> _Point | None:
+    """The best feasible point evaluated; the search's last iterate when it is feasible and
+    as good within the tolerance, so the answer is not a finite-difference neighbour that
+    leans on the constraint tolerance."""
     feasible = [p for p in pb.cache.values() if p.ok and pb.violation(p) <= FEASIBILITY]
-    return min(feasible, key=pb.f) if feasible else None
+    if not feasible:
+        return None
+    best = min(feasible, key=pb.f)
+    last = pb.cache.get(final[0]) if final else None
+    if (last is not None and any(last is p for p in feasible)
+            and pb.f(last) <= pb.f(best) + pb.opt.tolerance):
+        return last
+    return best
 
 
 def _entry(pb: _Problem, k: int, p: _Point) -> dict:

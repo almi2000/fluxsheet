@@ -122,7 +122,7 @@ def test_a_result_objective_with_a_design_spec_inside():
                    vary=[{**FEED_T, "lower": 290, "upper": 329}])
     assert out["ok"], out.get("error")
     res = out["result"]
-    assert res["units"]["H1"]["duty"] == pytest.approx(1e3, rel=1e-3)
+    assert res["units"]["H1"]["duty"] == pytest.approx(1e3, rel=5e-3)  # f within ftol
     assert res["streams"]["S2"]["T"] == pytest.approx(330.0, abs=1e-4)
     assert 300.0 < out["variables"][0]["value"] < 329.0
 
@@ -236,12 +236,37 @@ def test_demo_time_limit_stops_the_run(monkeypatch):
     assert not out["ok"] and "longer than" in out["error"]["message"]
 
 
-def test_demo_caps_the_iterations():
-    model = FlowsheetModel.model_validate({**water_heater(), "optimizations": [
-        {"id": "A", "objective": "1", "max_iterations": 200,
-         "vary": [{**FEED_T, "lower": 290, "upper": 320}]}]})
-    with pytest.raises(Exception, match="iterations"):
-        limits.check_model_size(model, enabled=True)
+def test_demo_caps_the_iterations_without_refusing_the_flowsheet(monkeypatch):
+    data = json.loads((EXAMPLES / "ethyl_acetate_optimization.json").read_text("utf-8"))
+    data["optimizations"][0]["max_iterations"] = 200
+    model = FlowsheetModel.model_validate(data)
+    limits.check_model_size(model, enabled=True)  # a plain Run must still work
+    monkeypatch.setattr(limits, "DEMO", True)
+    monkeypatch.setattr(limits, "MAX_OPTIMIZATION_ITERATIONS", 1)
+    out = run_optimization(model)
+    assert out["ok"] and out["iterations"] <= 2  # SLSQP may need a second call for its last
+
+
+def test_cobyla_with_an_equality_constraint():
+    out = optimize(water_heater(), variables={"T": FEED_T, "P": FEED_P}, method="cobyla",
+                   objective="(T / 300)**2 + (P / 3e5)**2",
+                   vary=[{**FEED_T, "lower": 250, "upper": 400},
+                         {**FEED_P, "lower": "1 bar", "upper": "5 bar"}],
+                   constraints=[{"expression": "T / 300 + P / 3e5", "relation": "=",
+                                 "value": 2.0}])
+    assert out["ok"] and out["method"] == "COBYLA"
+    T, P = (v["value"] for v in out["variables"])
+    assert T / 300 + P / 3e5 == pytest.approx(2.0, abs=1e-3)
+    assert T == pytest.approx(300.0, rel=1e-2)
+
+
+def test_a_parameter_variable_a_design_spec_adjusts_is_refused():
+    model = water_heater({"duty": "2 kW"}, design_specs=[
+        {"id": "TOUT", "target": {"stream": "S2", "property": "T"}, "value": "330 K",
+         "vary": {"unit": "H1", "param": "duty", "lower": "-10 kW", "upper": "20 kW"}}])
+    out = optimize(model, variables={"Q": {"unit": "H1", "param": "duty"}}, objective="Q",
+                   vary=[{**FEED_T, "lower": 290, "upper": 320}])
+    assert not out["ok"] and "set by design spec TOUT" in out["error"]["message"]
 
 
 def test_optimize_endpoint():
@@ -368,3 +393,61 @@ def test_costing_names_unknown_units():
     result = solve(FlowsheetModel.model_validate(
         {**water_heater(), "costing": {"units": {"NOPE": {"material": "SS"}}}}))
     assert not result.ok and "NOPE" in result.error["message"]
+
+
+def test_trays_count_in_purchased_and_bare_module_cost():
+    from fluxsheet.costing import BASE_CEPCI, TRAYS, _quantity_factor
+
+    data = json.loads((EXAMPLES / "benzene_toluene_column.json").read_text("utf-8"))
+    data.pop("design_specs", None)
+    r = costed(data)
+    col = next(u for u in r.costing["units"].values() if u["type"] == "DistillationColumn")
+    trays = next(i for i in col["items"] if i["item"] == "trays")
+    N = int(trays["basis"].split()[0])
+    expected = TRAYS.cost(trays["size"])[0] * N * _quantity_factor(N) * 800 / BASE_CEPCI
+    assert trays["purchased_cost"] == pytest.approx(expected)
+    assert trays["bare_module_cost"] == pytest.approx(expected)  # FBM 1, carbon steel
+
+
+def test_pump_electricity_and_drum_holdup():
+    model = pump("1.2 bar", "5 bar", "20 bar")
+    model.pop("optimizations")
+    r = costed(model, electricity_price=0.1)
+    W = r.units["PUMP"]["power"]
+    (use,) = r.costing["units"]["PUMP"]["utilities"]
+    assert use["kind"] == "electricity"
+    assert use["cost"] == pytest.approx(W / 1e3 * 8000 * 0.1)
+    (item,) = r.costing["units"]["PUMP"]["items"]
+    assert item["size"] == pytest.approx(W / 1e3)
+    # A liquid-only drum holds 5 min of liquid when half full.
+    data = json.loads((EXAMPLES / "ethanol_flash.json").read_text("utf-8"))
+    r = costed(data)
+    drums = [(uid, u) for uid, u in r.costing["units"].items() if u["type"] == "Flash"]
+    assert drums
+    for uid, u in drums:
+        vessel = next(i for i in u["items"] if i["item"] == "vessel")
+        assert vessel["size"] > 0
+        if "5 min liquid" in vessel["basis"]:
+            liquid = next(s for sid, s in r.streams.items()
+                          if any(m.id == sid and m.source == f"{uid}.liquid"
+                                 for m in FlowsheetModel.model_validate(data).streams))
+            # 2 x 5 min of liquid at a density between 500 and 1200 kg/m3
+            assert vessel["size"] > 2 * 300 * liquid["mass_flow"] / 1200
+            assert vessel["size"] < 2 * 300 * liquid["mass_flow"] / 500
+
+
+def test_absorber_has_no_condenser_or_reboiler():
+    data = json.loads((EXAMPLES / "propane_absorber.json").read_text("utf-8"))
+    r = costed(data)
+    absorber = r.costing["units"]["ABSORBER"]
+    assert {i["item"] for i in absorber["items"]} == {"shell", "trays"}
+    assert absorber["utilities"] == []
+
+
+def test_costing_totals_agree_between_the_file_format_and_the_costing():
+    from fluxsheet.costing import SUMMARY_FIELDS
+    from fluxsheet.study_models import COSTING_TOTALS
+
+    assert set(COSTING_TOTALS) == set(SUMMARY_FIELDS)
+    r = costed(water_heater())
+    assert set(COSTING_TOTALS) <= set(r.costing)

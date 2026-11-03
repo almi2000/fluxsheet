@@ -289,10 +289,12 @@ class _Estimate:
         return ins, outs
 
     def item(self, cost: _UnitCost, what: str, corr: Correlation, size: float,
-             bare: float | tuple[float, float, float], basis: str) -> None:
-        """Add a piece of equipment; ``bare`` is FBM or (B1, B2, FM·FP)."""
+             bare: float | tuple[float, float, float], basis: str, count: float = 1.0) -> None:
+        """Add a piece of equipment; ``bare`` is FBM or (B1, B2, FM·FP); ``count`` multiplies
+        both costs (trays: their number times the quantity factor)."""
         base, n = corr.cost(size)
-        fbm = bare if isinstance(bare, float) else bare[0] + bare[1] * bare[2]
+        base *= count
+        fbm = bare[0] + bare[1] * bare[2] if isinstance(bare, tuple) else bare
         cost.items.append({
             "item": what, "equipment": corr.label, "size": size, "size_unit": corr.size,
             "parallel": n, "purchased_cost": base * self.index,
@@ -312,7 +314,7 @@ class _Estimate:
         ures = ures or {}
         utility_id = self.model_unit(uid).params.get("utility")
         ut, note = default_utility(Q, T_proc)
-        if note:
+        if note and utility_id is None:
             cost.notes.append(note)
         if utility_id is not None and utility_id in self.c.utility_prices:
             price, label = self.c.utility_prices[utility_id], f"utility {utility_id}"
@@ -425,21 +427,20 @@ def _drum(e: _Estimate, cost: _UnitCost, uid: str, ures: dict) -> None:
     else:
         vapor = outs.get("vapor")
         liquids = [s for port, s in outs.items() if port != "vapor" and s["molar_flow"] > 0]
-        P = _pmax(ins, outs)
-        T = (vapor or (liquids or ins)[0])["T"]
+        P = _pmax(ins, outs)  # for the wall thickness
         pkg = e.packages(uid)
         mws = pkg.mws
-        Q_liq, rho_L = 0.0, 800.0
-        for s in liquids:
+        Q_liq, m_liq = 0.0, 0.0
+        for s in liquids:  # liquid products leave saturated, at their own T and P
             zs = [s["mole_fractions"][c] for c in e.model.components]
-            Vm = pkg.flash(zs, P=s["P"], VF=0.0).V  # saturated liquid molar volume
-            Q_liq += s["molar_flow"] * Vm
-            rho_L = s["mass_flow"] / max(s["molar_flow"] * Vm, 1e-30)
+            Q_liq += s["molar_flow"] * pkg.flash(zs, T=s["T"], P=s["P"]).V
+            m_liq += s["mass_flow"]
+        rho_L = m_liq / Q_liq if Q_liq > 0 else 800.0
         V = 2.0 * Q_liq * HOLDUP
         basis = "5 min liquid at half full, L/D 3"
         if vapor is not None and vapor["molar_flow"] > 0:
             M = sum(vapor["mole_fractions"][c] * mw for c, mw in zip(e.model.components, mws))
-            rho_V = P * M / 1e3 / (R_GAS * T)
+            rho_V = vapor["P"] * M / 1e3 / (R_GAS * vapor["T"])
             u = SOUDERS_BROWN_K * math.sqrt(max(rho_L - rho_V, 0.0) / rho_V)
             D_vap = math.sqrt(4.0 * vapor["mass_flow"] / (rho_V * u * math.pi)) if u > 0 else 0
             V_vap = math.pi / 4.0 * D_vap ** 2 * 3.0 * D_vap
@@ -550,8 +551,8 @@ def _column(e: _Estimate, cost: _UnitCost, uid: str, ures: dict) -> None:
         fp = vessel_pressure_factor(P_bot, D)
         e.item(cost, "shell", VESSEL, math.pi / 4.0 * D * D * H,
                (2.25, 1.82, FM_VESSEL[mat] * fp), f"D {D:.2f} m, H {H:.1f} m, {trays} trays")
-        e.item(cost, "trays", TRAYS, area, FBM_TRAYS[mat] * trays * _quantity_factor(trays),
-               f"{trays} sieve trays")
+        e.item(cost, "trays", TRAYS, area, FBM_TRAYS[mat], f"{trays} sieve trays",
+               count=trays * _quantity_factor(trays))
     if condenser:
         e.heat(cost, uid, "condenser", ures.get("condenser_duty"), (T_top2, T_top), P_top)
     if reboiler:

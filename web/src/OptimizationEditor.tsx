@@ -213,6 +213,11 @@ function VariableRow({
   );
 }
 
+/** ``text`` with the variable ``from`` renamed to ``to`` (names are identifiers). */
+function rename(text: string, from: string, to: string) {
+  return text.replace(new RegExp(`\\b${from}\\b`, "g"), to);
+}
+
 function freeName(taken: string[]) {
   for (const n of ["x", "y", "z", "a", "b", "c"]) if (!taken.includes(n)) return n;
   return nextId("v", taken);
@@ -258,7 +263,14 @@ export function OptimizationsEditor({
                     taken={names}
                     costing={costing}
                     shared={shared}
-                    onRename={(m) => setVars(Object.fromEntries(Object.entries(opt.variables).map(([k, v]) => [k === n ? m : k, v])))}
+                    onRename={(m) =>
+                      set(i, {
+                        ...opt,
+                        variables: Object.fromEntries(Object.entries(opt.variables).map(([k, v]) => [k === n ? m : k, v])),
+                        objective: rename(opt.objective, n, m),
+                        constraints: cons.map((c) => ({ ...c, expression: rename(c.expression, n, m) })),
+                      })
+                    }
                     onChange={(v) => setVars({ ...opt.variables, [n]: v })}
                     onRemove={() => setVars(Object.fromEntries(Object.entries(opt.variables).filter(([k]) => k !== n)))}
                   />
