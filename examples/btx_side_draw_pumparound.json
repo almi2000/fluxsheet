@@ -1,0 +1,27 @@
+{
+  "format": "fluxsheet/1",
+  "name": "BTX column with side draw and pumparound",
+  "description": "A benzene-toluene-xylene feed is split three ways in one rigorous column: benzene overhead, a toluene-rich liquid side draw from stage 16 and xylene from the reboiler. A pumparound takes 40 kmol/h of liquid from stage 8, cools it by 60 kW and returns it to stage 5, moving part of the condenser duty down the column where the heat is at a higher temperature. Open the column to see the stage profiles and the pumparound's return temperature.",
+  "components": ["benzene", "toluene", "o-xylene"],
+  "property_method": "peng-robinson",
+  "units": [
+    {"id": "FEED", "type": "Feed", "ui": {"x": 40, "y": 140},
+     "params": {"T": "107 degC", "P": "1.5 bar",
+                "flows": {"benzene": "40 kmol/h", "toluene": "30 kmol/h", "o-xylene": "30 kmol/h"}}},
+    {"id": "COLUMN", "type": "DistillationColumn", "ui": {"x": 260, "y": 80},
+     "params": {"stages": 24, "feed_stage": 9, "P": "1.5 bar", "condenser": "total",
+                "reboiler": "kettle", "reflux_ratio": 3, "distillate_rate": "40 kmol/h",
+                "side_draws": [{"stage": 16, "phase": "liquid", "rate": "28 kmol/h"}],
+                "pumparounds": [{"from_stage": 8, "to_stage": 5, "rate": "40 kmol/h",
+                                 "duty": "-60 kW"}]}},
+    {"id": "BENZENE", "type": "Product", "ui": {"x": 480, "y": 20}},
+    {"id": "TOLUENE", "type": "Product", "ui": {"x": 480, "y": 160}},
+    {"id": "XYLENE", "type": "Product", "ui": {"x": 480, "y": 300}}
+  ],
+  "streams": [
+    {"id": "F", "from": "FEED.out", "to": "COLUMN.in"},
+    {"id": "DIST", "from": "COLUMN.distillate", "to": "BENZENE.in"},
+    {"id": "SIDE", "from": "COLUMN.side1", "to": "TOLUENE.in"},
+    {"id": "BOTT", "from": "COLUMN.bottoms", "to": "XYLENE.in"}
+  ]
+}

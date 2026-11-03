@@ -15,7 +15,21 @@ Equations of stage j (x = l / L, y = v / V):
 
 where s_j = s on a total condenser and 0 elsewhere. A total condenser replaces its equilibrium
 equations by v_i0 = 0 and adds its bubble-point condition sum(K x) = 1 as the first global
-equation (otherwise s = 0). Each existing duty pairs with one specification (reflux ratio,
+equation (otherwise s = 0).
+
+Side draws, pumparounds, stage duties and reactions extend these equations without new
+unknowns:
+
+- A side draw or a pumparound withdraws a ratio r of the flow continuing from its stage
+  (w_ij = r l_ij, or r v_ij for a vapor draw). r is constant for a draw given as a fraction of
+  the stage's outflow and W / L_j for one given as a flow, so it depends on stage j alone.
+- A pumparound returns its liquid r l_a to stage b as a feed with enthalpy r L_a h_a + Q, or
+  with the enthalpy of x_a at its return temperature (a TP flash), and so couples stage a to a
+  stage that may be far away; its source stage gets its own finite-difference evaluation.
+- A stage duty adds to Q_j.
+- A kinetic reactive stage with liquid hold-up V_j forms g_ij = V_j sum_r nu_ri r_r(T_j, x_j)
+  of component i, and its energy balance gains sum_i g_ij hf_i: the enthalpies exclude the
+  formation enthalpies hf, so this is the heat of reaction at the stage (as in the reactors). Each existing duty pairs with one specification (reflux ratio,
 distillate rate, bottoms rate or boilup ratio); a missing condenser or reboiler fixes its
 duty at zero. The Jacobian is block-tridiagonal apart from the global rows and columns; it is
 built by finite differences with column coloring, so each Newton step costs about four
@@ -56,6 +70,26 @@ class StageFeed:
 
 
 @dataclass
+class SideDraw:
+    stage: int  # 0-based
+    phase: str  # "liquid" or "vapor"
+    rate: float | None = None  # mol/s
+    fraction: float | None = None  # of the stage's total liquid (vapor) outflow
+
+
+@dataclass
+class Pumparound:
+    """Liquid drawn from stage `source`, heated or cooled, returned to stage `target`."""
+
+    source: int  # 0-based
+    target: int
+    rate: float | None = None  # mol/s
+    fraction: float | None = None  # of the source stage's total liquid outflow
+    duty: float | None = None  # W, heat added; zero if neither duty nor T is given
+    T: float | None = None  # K, return temperature
+
+
+@dataclass
 class ColumnSetup:
     stages: int
     P: np.ndarray  # Pa, per stage
@@ -64,6 +98,13 @@ class ColumnSetup:
     reboiler: bool = True
     specs: dict[str, float] = field(default_factory=dict)
     efficiency: float = 1.0  # Murphree vapor efficiency of stages other than condenser/reboiler
+    draws: list[SideDraw] = field(default_factory=list)
+    pumparounds: list[Pumparound] = field(default_factory=list)
+    stage_duties: dict[int, float] = field(default_factory=dict)  # stage -> W added
+    # Kinetic liquid-phase reactions (reactions.Reaction) on stages with a liquid hold-up.
+    reactions: list = field(default_factory=list)
+    holdup: dict[int, float] = field(default_factory=dict)  # stage -> m3 of liquid
+    formation_enthalpies: np.ndarray | None = None  # J/mol per component (0 if unknown)
     max_iterations: int = 60
     tolerance: float = 1e-10  # on the scaled residuals
 
@@ -84,6 +125,11 @@ class ColumnSolution:
     condenser_duty: float  # W, heat added (negative: removed)
     reboiler_duty: float
     iterations: int
+    side_draws: list[np.ndarray] = field(default_factory=list)  # component flows per draw
+    pumparound_flows: list[np.ndarray] = field(default_factory=list)
+    pumparound_duties: list[float] = field(default_factory=list)  # W
+    pumparound_return_H: list[float] = field(default_factory=list)  # W, enthalpy flow returned
+    generation: np.ndarray | None = None  # stages x components, mol/s formed by reactions
     # The converged unknowns, for a warm start of the same column (see solve_column).
     restart: tuple | None = field(default=None, repr=False)
 
@@ -119,6 +165,29 @@ class _Model:
         self.y_bottom_in = self.fv[-1] / fv_bottom if fv_bottom > 0 else None
         if self.y_bottom_in is None:
             self.eta[-1] = 1.0
+        # Withdrawals per stage: (key, rate, fraction), key ("draw", k) or ("pa", k).
+        self.draws, self.pas = list(setup.draws), list(setup.pumparounds)
+        self.liq_w: list[list] = [[] for _ in range(N)]
+        self.vap_w: list[list] = [[] for _ in range(N)]
+        for k, d in enumerate(self.draws):
+            (self.liq_w if d.phase == "liquid" else self.vap_w)[d.stage].append(
+                (("draw", k), d.rate, d.fraction))
+        for k, pa in enumerate(self.pas):
+            self.liq_w[pa.source].append((("pa", k), pa.rate, pa.fraction))
+        self.withdrawing = [j for j in range(N) if self.liq_w[j] or self.vap_w[j]]
+        self.pa_sources = sorted({pa.source for pa in self.pas})
+        self.Qs = np.zeros(N)
+        for j, q in setup.stage_duties.items():
+            self.Qs[j] += q
+        self.holdup = np.zeros(N)
+        for j, vol in setup.holdup.items():
+            self.holdup[j] += vol
+        self.reactions = list(setup.reactions) if self.holdup.any() else []
+        self.nu = np.array([r.nu for r in self.reactions]) if self.reactions else None
+        if not self.reactions:
+            self.holdup[:] = 0.0
+        self.hf = (np.zeros(C) if setup.formation_enthalpies is None
+                   else np.asarray(setup.formation_enthalpies, dtype=float))
         self.spec_rows = []  # (global row index, spec name, value)
         duty_rows = [1] * self.has_cond + [2] * self.has_reb
         for row, (name, value) in zip(duty_rows, setup.specs.items()):
@@ -134,11 +203,16 @@ class _Model:
     # ---- properties ----------------------------------------------------------------------
 
     def stage_props(self, j: int, l, v, T: float):
-        """K-values, liquid and vapor molar enthalpy of stage j."""
+        """K-values, liquid and vapor molar enthalpy of stage j, the components its reactions
+        form (mol/s) and the molar enthalpy of each pumparound that returns its liquid at a
+        fixed temperature ({pumparound: J/mol})."""
         pkg, P = self.pkg, self.P[j]
         lp = np.maximum(l, 0.0)
         x = lp / lp.sum() if lp.sum() > 0 else np.full(self.C, 1.0 / self.C)
         liq = pkg.phase_props("liquid", T, P, list(x))
+        gen = self.generation(j, x, T, liq.V)
+        ret = {k: pkg.flash(list(x), T=pa.T, P=self.P[pa.target]).H
+               for k, pa in enumerate(self.pas) if pa.source == j and pa.T is not None}
         if j == 0 and self.total:
             # No vapor leaves a total condenser; use the vapor in equilibrium with its liquid.
             y = x
@@ -146,12 +220,36 @@ class _Model:
                 vap = pkg.phase_props("vapor", T, P, list(y))
                 K = np.exp(np.asarray(liq.lnphi) - np.asarray(vap.lnphi))
                 y = K * x / np.sum(K * x)
-            return K, liq.H, 0.0
+            return K, liq.H, 0.0, gen, ret
         vp = np.maximum(v, 0.0)
         y = vp / vp.sum() if vp.sum() > 0 else x
         vap = pkg.phase_props("vapor", T, P, list(y))
         K = np.exp(np.asarray(liq.lnphi) - np.asarray(vap.lnphi))
-        return K, liq.H, vap.H
+        return K, liq.H, vap.H, gen, ret
+
+    def generation(self, j: int, x, T: float, Vm: float) -> np.ndarray:
+        """Components formed by the reactions on stage j, mol/s, at liquid mole fractions x
+        and molar volume Vm."""
+        if self.holdup[j] <= 0.0:
+            return np.zeros(self.C)
+        rates = np.array([r.rate(self.pkg, T, self.P[j], x, Vm, "liquid")
+                          for r in self.reactions])
+        return self.holdup[j] * (rates @ self.nu)
+
+    def withdrawal_ratios(self, j: int, L: float, V: float) -> dict:
+        """Each withdrawal of stage j over the flow continuing from it (L down, V up). A
+        fraction is of the stage's whole outflow in that phase, every withdrawal included."""
+        out = {}
+        for items, flow in ((self.liq_w[j], L), (self.vap_w[j], V)):
+            if not items:
+                continue
+            flow = max(flow, 1e-12 * self.F)
+            rates = sum(r for _, r, f in items if r is not None)
+            fsum = sum(f for _, r, f in items if f is not None)
+            outflow = (flow + rates) / (1.0 - fsum)
+            for key, r, f in items:
+                out[key] = (r if r is not None else f * outflow) / flow
+        return out
 
     def all_props(self, x, stages=None, base=None):
         l, v, T, *_ = self.unpack(x)
@@ -169,17 +267,33 @@ class _Model:
         K = np.array([p[0] for p in props])
         h = np.array([p[1] for p in props])
         Hv = np.array([p[2] for p in props])
+        gen = np.array([p[3] for p in props])
         xm = l / np.where(L > 0, L, 1.0)[:, None]
         ym = v / np.where(V > 0, V, 1.0)[:, None]
         draw = np.zeros(N)
         if self.total:
             draw[0] = s
+        draw_v = np.zeros(N)
+        f_ret = np.zeros((N, C))  # pumparound returns
+        H_ret = np.zeros(N)
+        for j in self.withdrawing:
+            for (kind, k), r in self.withdrawal_ratios(j, L[j], V[j]).items():
+                if kind == "pa" or self.draws[k].phase == "liquid":
+                    draw[j] += r
+                else:
+                    draw_v[j] += r
+                if kind == "pa":
+                    pa = self.pas[k]
+                    f_ret[pa.target] += r * l[j]
+                    H_ret[pa.target] += r * L[j] * (
+                        props[j][4][k] if pa.T is not None else h[j]) + (pa.duty or 0.0)
         zero = np.zeros((1, C))
         l_in = np.vstack([zero, l[:-1]])
         v_in = np.vstack([v[1:], zero])
 
         R = np.empty((N, self.nv))
-        R[:, :C] = ((1.0 + draw)[:, None] * l + v - l_in - v_in - self.f) / self.F
+        R[:, :C] = ((1.0 + draw)[:, None] * l + (1.0 + draw_v)[:, None] * v - l_in - v_in
+                    - self.f - f_ret - gen) / self.F
 
         y_in = np.vstack([ym[1:], self.y_bottom_in if self.y_bottom_in is not None else zero])
         eta = self.eta[:, None]
@@ -192,9 +306,10 @@ class _Model:
             Q[0] = Qc
         if self.has_reb:
             Q[-1] = Qr
-        out = (1.0 + draw) * L * h + V * Hv
+        out = (1.0 + draw) * L * h + (1.0 + draw_v) * V * Hv
         energy = out - np.concatenate([[0.0], (L * h)[:-1]]) \
-            - np.concatenate([(V * Hv)[1:], [0.0]]) - self.HF - Q
+            - np.concatenate([(V * Hv)[1:], [0.0]]) - self.HF - Q - self.Qs - H_ret \
+            + gen @ self.hf
         if raw_energy:
             return energy
         R[:, 2 * C] = energy / self.E
@@ -219,11 +334,14 @@ class _Model:
 
     def jacobian(self, x, props, r0):
         """Finite-difference Jacobian. Stages three apart share an evaluation; the bottom stage
-        and the global unknowns get their own, because the global rows see stage 0 and N-1."""
+        and the global unknowns get their own, because the global rows see stage 0 and N-1,
+        and so does the source stage of each pumparound, which reaches its return stage."""
         N, nv = self.N, self.nv
         rows, cols, vals = [], [], []
         steps = self._steps(x)
-        groups = [list(range(m, N - 1, 3)) for m in range(3)] + [[N - 1]]
+        src = set(self.pa_sources)
+        groups = [[j for j in range(m, N - 1, 3) if j not in src] for m in range(3)]
+        groups += [[j] for j in sorted(src | {N - 1})]
         n_stage_rows = N * nv
         for group in groups:
             if not group:
@@ -238,6 +356,9 @@ class _Model:
                     col = j * nv + k
                     lo, hi = max(j - 1, 0) * nv, min(j + 2, N) * nv
                     touched = list(range(lo, hi))
+                    for b in sorted({pa.target for pa in self.pas if pa.source == j}):
+                        if not lo <= b * nv < hi:
+                            touched += list(range(b * nv, (b + 1) * nv))
                     if j in (0, N - 1):
                         touched += list(range(n_stage_rows, self.size))
                     d = dr[touched] / steps[col]
@@ -281,17 +402,26 @@ class _Model:
 
 # ---- initial estimate ------------------------------------------------------------------------
 
-def _initial(m: _Model) -> np.ndarray:
-    """Constant-molar-overflow flows from the specifications, then sweeps of tridiagonal
-    component balances: for distillation with bubble-point temperatures and flows from enthalpy
-    balances (Wang-Henke), for absorbers at a fixed linear temperature profile (sum-rates),
-    because their gas may have no bubble point at all."""
-    N, C, pkg = m.N, m.C, m.pkg
-    vap = m.fv.sum(axis=1)
-    liq = m.f.sum(axis=1) - vap
-    Fv = vap[1:].sum() if m.has_cond else vap.sum()
-    Fl = liq.sum()
+def _withdrawals(m: _Model, L, V):
+    """Side draw flows per stage (liquid, vapor) and pumparound flows at total flows L, V."""
+    wl, wv, pa = np.zeros(m.N), np.zeros(m.N), np.zeros(len(m.pas))
+    L, V = np.maximum(L, 1e-12 * m.F), np.maximum(V, 1e-12 * m.F)  # as withdrawal_ratios
+    for j in m.withdrawing:
+        for (kind, k), r in m.withdrawal_ratios(j, L[j], V[j]).items():
+            if kind == "pa":
+                pa[k] = r * L[j]
+            elif m.draws[k].phase == "liquid":
+                wl[j] += r * L[j]
+            else:
+                wv[j] += r * V[j]
+    return wl, wv, pa
 
+
+def _cmo_flows(m: _Model, liq, vap, wl, wv, pa):
+    """Constant-molar-overflow flows from the specifications with the given withdrawals.
+    Returns L, V, reflux Lr, boilup Vb, top and bottom product."""
+    Fv = (vap[1:].sum() if m.has_cond else vap.sum()) - wv.sum()
+    Fl = liq.sum() - wl.sum()
     # Unknowns: reflux Lr (with condenser) and boilup Vb (with reboiler). D = Vb + Fv - Lr,
     # B = Lr + Fl - Vb. Each specification is linear in them.
     names = ["Lr"] * m.has_cond + ["Vb"] * m.has_reb
@@ -306,13 +436,37 @@ def _initial(m: _Model) -> np.ndarray:
     u = dict(zip(names, np.linalg.solve(np.array(A), np.array(rhs)) if names else []))
     Lr, Vb = u.get("Lr", 0.0), u.get("Vb", 0.0)
 
-    L = Lr + np.cumsum(liq)
+    L = Lr + np.cumsum(liq - wl)
     L[-1] -= Vb
-    V = Vb + np.cumsum(vap[::-1])[::-1]
+    V = Vb + np.cumsum((vap - wv)[::-1])[::-1]
+    for k, p in enumerate(m.pas):  # liquid carried past the stages between source and return
+        a, b = p.source, p.target
+        lo = max(min(a, b), 1 if m.has_cond else 0)  # the reflux stays at its specification
+        if b < a:
+            L[lo:a] += pa[k]
+        else:
+            L[lo:b] -= pa[k]
     D = V[1] - Lr if m.has_cond else V[0]
     if m.has_cond:
         V[0] = 0.0 if m.total else D
-    B = L[-1]
+    return L, V, Lr, Vb, D, L[-1]
+
+
+def _initial(m: _Model) -> np.ndarray:
+    """Constant-molar-overflow flows from the specifications, then sweeps of tridiagonal
+    component balances: for distillation with bubble-point temperatures and flows from enthalpy
+    balances (Wang-Henke), for absorbers at a fixed linear temperature profile (sum-rates),
+    because their gas may have no bubble point at all. Side draws given as fractions and
+    pumparounds follow the flows; reactions enter the sweeps with the rates of the previous
+    one."""
+    N, C, pkg = m.N, m.C, m.pkg
+    vap = m.fv.sum(axis=1)
+    liq = m.f.sum(axis=1) - vap
+    wl, wv, pa = np.zeros(N), np.zeros(N), np.zeros(len(m.pas))
+    for _ in range(4):  # withdrawals given as fractions depend on the flows
+        L, V, Lr, Vb, D, B = _cmo_flows(m, liq, vap, wl, wv, pa)
+        wl, wv, pa = _withdrawals(m, L, V)
+    L, V, Lr, Vb, D, B = _cmo_flows(m, liq, vap, wl, wv, pa)
     problems = []
     if D <= 1e-9 * m.F:
         problems.append(f"top product {D * 3.6:.4g} kmol/h")
@@ -323,11 +477,23 @@ def _initial(m: _Model) -> np.ndarray:
     if m.has_reb and Vb <= 0.0:
         problems.append(f"boilup {Vb * 3.6:.4g} kmol/h")
     if problems:
+        drawn = wl.sum() + wv.sum()
         raise SimulationError(
             "the specifications cannot be met with this feed: they imply "
             + ", ".join(problems),
-            hint=f"the total feed is {m.F * 3.6:.4g} kmol/h; choose product rates between "
-            "zero and the feed, and positive reflux and boilup ratios",
+            hint=f"the total feed is {m.F * 3.6:.4g} kmol/h"
+            + (f" and the side draws take {drawn * 3.6:.4g} kmol/h" if drawn > 0 else "")
+            + "; choose product rates between zero and the feed, and positive reflux and "
+            "boilup ratios",
+        )
+    inner = range(1 if m.has_cond else 0, N - 1 if m.has_reb else N)
+    dry = [j for j in inner if L[j] <= 0.0 or (V[j] <= 0.0 and j > 0)]
+    if dry and (m.draws or m.pas):
+        j = dry[0]
+        raise SimulationError(
+            f"the side draws and pumparounds leave no {'liquid' if L[j] <= 0 else 'vapor'} "
+            f"flowing on stage {j + 1} (estimate {min(L[j], V[j]) * 3.6:.4g} kmol/h)",
+            hint="lower the side draw or pumparound flows, or raise the reflux or boilup",
         )
 
     # Component balance sweeps with fixed flows.
@@ -355,15 +521,29 @@ def _initial(m: _Model) -> np.ndarray:
         K = np.array([pkg.k_values(T[j], m.P[j], list(x_ref), list(y_ref)) for j in range(N)])
     draw = D / Lr if m.total else 0.0
     xs = np.tile(z, (N, 1))
+    gen = np.zeros((N, C))
+    reactive = np.flatnonzero(m.holdup)
     for _ in range(20 if bubble else 40):
+        # Reactions at the previous composition: production on the right-hand side,
+        # consumption (proportional to x) on the diagonal, which keeps x positive.
+        for j in reactive:
+            Vm = pkg.phase_props("liquid", T[j], m.P[j], list(xs[j])).V
+            gen[j] = 0.5 * gen[j] + 0.5 * m.generation(j, xs[j], T[j], Vm)
+        consume = np.maximum(-gen, 0.0) / np.maximum(xs, 1e-14)
+        rhs = m.f + np.maximum(gen, 0.0)
+        for k, p in enumerate(m.pas):
+            rhs[p.target] += pa[k] * xs[p.source]
+        out_l = L + wl
+        for k, p in enumerate(m.pas):
+            out_l[p.source] += pa[k]
         ab = np.zeros((3, N))
         x_new = np.empty((N, C))
         for i in range(C):
             ab[0, 1:] = -(V[1:] * K[1:, i])  # super-diagonal: vapor from below
-            ab[1, :] = L + V * K[:, i]
+            ab[1, :] = out_l + (V + wv) * K[:, i] + consume[:, i]
             ab[1, 0] += draw * L[0]
             ab[2, :-1] = -L[:-1]  # sub-diagonal: liquid from above
-            x_new[:, i] = solve_banded((1, 1), ab, m.f[:, i])
+            x_new[:, i] = solve_banded((1, 1), ab, rhs[:, i])
         x_new = np.maximum(x_new, 1e-14)
         if bubble:
             xs = x_new / x_new.sum(axis=1, keepdims=True)
@@ -376,7 +556,8 @@ def _initial(m: _Model) -> np.ndarray:
                     # and methane: keep this stage's temperature, Newton corrects it.
                     K[j] = pkg.k_values(T[j], m.P[j], list(xs[j]), list(xs[j]))
             if m.has_cond:
-                L, V = _enthalpy_flows(m, T, xs, K, L, V, Lr, D)
+                L, V = _enthalpy_flows(m, T, xs, K, L, V, Lr, D, wl, wv, pa, gen)
+                wl, wv, pa = _withdrawals(m, L, V)
             change = np.max(np.abs(V - V_old)) / m.F
             if np.max(np.abs(T - T_old)) < 0.05 and change < 1e-4:
                 break
@@ -407,21 +588,46 @@ def _initial(m: _Model) -> np.ndarray:
     return x0
 
 
-def _enthalpy_flows(m: _Model, T, xs, K, L, V, Lr: float, D: float):
+def _enthalpy_flows(m: _Model, T, xs, K, L, V, Lr: float, D: float, wl, wv, pa, gen):
     """Vapor and liquid flows from enthalpy balances around the top of the column, with
-    reflux and distillate held. Keeps the previous flows if the balances give nonsense."""
+    reflux and distillate held. Keeps the previous flows if the balances give nonsense.
+
+    The envelope over stages 0..j: V_j+1 H_j+1 + HF + Qc + E_in = L_j h_j + D h_D + E_out
+    with L_j = V_j+1 + F + M_in - D - M_out; side draws, pumparounds that cross the envelope,
+    stage duties and reactions make up the M and E terms."""
     N, pkg = m.N, m.pkg
     ys = K * xs
     ys /= ys.sum(axis=1, keepdims=True)
     h = np.array([pkg.phase_props("liquid", T[j], m.P[j], list(xs[j])).H for j in range(N)])
     H = np.array([pkg.phase_props("vapor", T[j], m.P[j], list(ys[j])).H for j in range(N)])
     h_d = h[0] if m.total else H[0]
-    q_cond = Lr * h[0] + D * h_d - (Lr + D) * H[1]
-    Fs = np.cumsum(m.f.sum(axis=1))
-    HFs = np.cumsum(m.HF)
+    # Per stage: material and enthalpy entering besides feeds and stage-to-stage flows.
+    m_in = gen.sum(axis=1) - wl - wv
+    e_in = m.Qs - gen @ m.hf - wl * h - wv * H
+    Fs = np.cumsum(m.f.sum(axis=1) + m_in)
+    HFs = np.cumsum(m.HF + e_in)
+    pa_m, pa_e = np.zeros(N), np.zeros(N)  # pumparound terms per envelope 0..j
+    for k, p in enumerate(m.pas):
+        a, b = p.source, p.target
+        q = p.duty or 0.0
+        if p.T is not None:
+            q = pa[k] * (pkg.flash(list(xs[a]), T=p.T, P=m.P[b]).H - h[a])
+        for j in range(N):
+            if b <= j < a:  # returns into the envelope
+                pa_m[j] += pa[k]
+                pa_e[j] += pa[k] * h[a] + q
+            elif a <= j < b:  # leaves it
+                pa_m[j] -= pa[k]
+                pa_e[j] -= pa[k] * h[a]
+            elif a <= j and b <= j:
+                pa_e[j] += q
+    Fs, HFs = Fs + pa_m, HFs + pa_e
+    # The condenser balance (envelope j = 0, L_0 = Lr) gives its duty.
+    V1 = Lr + D - Fs[0]
+    q_cond = Lr * h[0] + D * h_d - V1 * H[1] - HFs[0]
     V_new, L_new = V.copy(), L.copy()
+    V_new[1] = V1
     for j in range(1, N - 1):
-        # Envelope over stages 0..j: V_j+1 H_j+1 + HF + Qc = L_j h_j + D h_D, L_j = V_j+1 - D + F.
         V_new[j + 1] = ((Fs[j] - D) * h[j] + D * h_d - HFs[j] - q_cond) / (H[j + 1] - h[j])
         L_new[j] = V_new[j + 1] - D + Fs[j]
     if np.all(V_new[1:] > 0) and np.all(L_new > 0):
@@ -484,7 +690,9 @@ def solve_column(pkg: PropertyPackage, setup: ColumnSetup,
 
 
 def _restart_key(m: _Model) -> tuple:
-    return m.N, m.C, m.setup.condenser, m.has_reb
+    return (m.N, m.C, m.setup.condenser, m.has_reb,
+            tuple((d.stage, d.phase) for d in m.draws),
+            tuple((p.source, p.target) for p in m.pas), tuple(np.flatnonzero(m.holdup)))
 
 
 def _newton(m: _Model, x, max_iterations: int) -> ColumnSolution:
@@ -550,14 +758,30 @@ def _solution(m: _Model, x, props, iterations: int) -> ColumnSolution:
     ym = np.where(V[:, None] > 0, v / np.where(V > 0, V, 1.0)[:, None], K * xm)
     ym /= ym.sum(axis=1, keepdims=True)
     zero = np.zeros(m.C)
+    h = np.array([p[1] for p in props])
+    draws, pa_flows, pa_duties, pa_H = [None] * len(m.draws), [], [], []
+    ratios = {key: r for j in m.withdrawing
+              for key, r in m.withdrawal_ratios(j, L[j], V[j]).items()}
+    for k, d in enumerate(m.draws):
+        draws[k] = ratios["draw", k] * (l if d.phase == "liquid" else v)[d.stage]
+    for k, pa in enumerate(m.pas):
+        r, a = ratios["pa", k], pa.source
+        H_in = r * L[a] * h[a]
+        H_ret = r * L[a] * props[a][4][k] if pa.T is not None else H_in + (pa.duty or 0.0)
+        pa_flows.append(r * l[a])
+        pa_duties.append(float(H_ret - H_in))
+        pa_H.append(float(H_ret))
     return ColumnSolution(
         T=T.copy(), P=m.P.copy(), L=L, V=V, x=xm, y=ym,
-        h=np.array([p[1] for p in props]), Hv=np.array([p[2] for p in props]),
+        h=h, Hv=np.array([p[2] for p in props]),
         distillate=s * l[0] if m.total else zero,
         vapor_distillate=zero if m.total else v[0].copy(),
         bottoms=l[-1].copy(),
         condenser_duty=float(Qc) if m.has_cond else 0.0,
         reboiler_duty=float(Qr) if m.has_reb else 0.0,
         iterations=iterations,
+        side_draws=draws, pumparound_flows=pa_flows, pumparound_duties=pa_duties,
+        pumparound_return_H=pa_H,
+        generation=np.array([p[3] for p in props]) if m.reactions else None,
         restart=(_restart_key(m), x.copy(), m.F),
     )

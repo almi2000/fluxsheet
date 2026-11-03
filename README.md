@@ -314,7 +314,11 @@ Most units take several feeds on one inlet; they are mixed adiabatically before 
 **Columns:** shortcut distillation design (Fenske, Underwood, Gilliland/Molokanov,
 Kirkbride); rigorous distillation on equilibrium stages (MESH equations solved together by
 Newton's method, Naphtali-Sandholm) with total, partial or no condenser, optional reboiler,
-stage pressure drop and Murphree efficiency, any number of feeds on their own stages;
+stage pressure drop and Murphree efficiency, any number of feeds on their own stages, up
+to four liquid or vapor side draws (flow or fraction of the stage outflow), pumparounds
+(flow or fraction, cooled or heated by a duty or to a return temperature), side heaters and
+coolers on single stages, and kinetic reactive stages (liquid hold-up per stage, rates from
+the flowsheet's reactions, heat of reaction from formation enthalpies);
 absorber/stripper on the same stage model; liquid-liquid extraction column.
 Stage profiles (temperature, flows, compositions) show up in the inspector.
 

@@ -11,10 +11,18 @@ import math
 
 import numpy as np
 
-from ..columns import ColumnSetup, StageFeed, shortcut_design, solve_column
+from ..columns import (
+    ColumnSetup,
+    Pumparound,
+    SideDraw,
+    StageFeed,
+    shortcut_design,
+    solve_column,
+)
 from ..columns.saturation import dew_point
 from ..columns.stages import SPECS
 from ..errors import SimulationError
+from ..reactions import ReactionSet
 from ..stream import Stream
 from .base import IN, Param, Port, ResultField, UnitOperation, empty_stream, single_inlet
 from .separators import _with_phase
@@ -30,6 +38,48 @@ EFFICIENCY = Param("efficiency", "Murphree efficiency", "fraction", min=0.01, ma
                    help="Vapor-phase Murphree efficiency of the stages between condenser and "
                    "reboiler. Defaults to 1 (equilibrium stages).")
 
+
+# Side draws, pumparounds, stage duties and reactive stages of the distillation column.
+MAX_SIDE_DRAWS = 4
+_STAGE = Param("stage", "Stage", "integer", min=1, help="Counted from the top (condenser = 1).")
+SIDE_DRAWS = Param(
+    "side_draws", "Side draws", "records",
+    help=f"Liquid or vapor products from intermediate stages, at most {MAX_SIDE_DRAWS}; they "
+    "leave through the outlets Side draw 1, 2, ... in this order. Give a flow, or a fraction "
+    "of the stage's liquid (vapor) outflow.",
+    fields=(_STAGE,
+            Param("phase", "Phase", "choice", default="liquid", options=("liquid", "vapor")),
+            Param("rate", "Flow", "molar_flow", min=0.0),
+            Param("fraction", "Fraction of outflow", "fraction", min=0.0, max=0.99)),
+)
+PUMPAROUNDS = Param(
+    "pumparounds", "Pumparounds", "records",
+    help="Liquid drawn from one stage, cooled or heated, and returned to another (usually "
+    "higher) stage. Give a flow or a fraction of the stage's liquid outflow, and a duty or a "
+    "return temperature (neither: no heat exchanged).",
+    fields=(Param("from_stage", "From stage", "integer", min=1),
+            Param("to_stage", "To stage", "integer", min=1),
+            Param("rate", "Flow", "molar_flow", min=0.0),
+            Param("fraction", "Fraction of outflow", "fraction", min=0.0, max=0.99),
+            Param("duty", "Duty", "power", help="Heat added; negative for a cooler."),
+            Param("T", "Return temperature", "temperature", min=1.0)),
+)
+STAGE_DUTIES = Param(
+    "stage_duties", "Side heaters and coolers", "records",
+    help="Heat added to single stages (negative: removed), e.g. an intercooler.",
+    fields=(_STAGE, Param("duty", "Duty", "power")),
+)
+COLUMN_REACTIONS = Param(
+    "reactions", "Reactions", "string_list",
+    help="Ids of flowsheet reactions with kinetics that run in the liquid on the reactive "
+    "stages.")
+REACTIVE_STAGES = Param(
+    "reactive_stages", "Reactive stages", "records",
+    help="Stages where the reactions run, each with its liquid hold-up (e.g. the catalyst "
+    "volume wetted by liquid). Rates are those of the reactions at the stage's temperature "
+    "and liquid composition.",
+    fields=(_STAGE, Param("holdup", "Liquid hold-up", "volume", min=0.0)),
+)
 
 # Product rates given relative to the feed; converted to rates when the feed is known.
 _FEED_RATIOS = {"distillate_to_feed": "distillate to feed ratio",
@@ -189,10 +239,14 @@ class DistillationColumn(_StageColumn):
     category = "Columns"
     description = "Rigorous distillation on equilibrium stages: material, equilibrium and "\
         "energy balances of every stage solved together. Stage 1 is the condenser, the last "\
-        "stage the reboiler. Give one specification per condenser and reboiler. Takes any "        "number of feeds, each on its own stage."
+        "stage the reboiler. Give one specification per condenser and reboiler. Takes any "\
+        "number of feeds, each on its own stage, side draws, pumparounds, side heaters and "\
+        "kinetic reactive stages."
     inlets = (Port("in", "Feeds", multiple=True, separate=True),)
     outlets = (Port("distillate", "Distillate"), Port("bottoms", "Bottoms"),
-               Port("vapor_distillate", "Vapor distillate"))
+               Port("vapor_distillate", "Vapor distillate"),
+               *(Port(f"side{k}", f"Side draw {k}") for k in range(1, MAX_SIDE_DRAWS + 1)))
+    reactions = ReactionSet()  # replaced by the solver with the flowsheet's reactions
     params = (
         Param("stages", "Number of stages", "integer", default=10, min=2,
               help="Equilibrium stages, counting the condenser and the reboiler."),
@@ -221,12 +275,18 @@ class DistillationColumn(_StageColumn):
         Param("bottoms_to_feed", "Bottoms to feed ratio", "fraction", min=0.0, max=1.0,
               help="B/F, molar."),
         EFFICIENCY,
+        SIDE_DRAWS,
+        PUMPAROUNDS,
+        STAGE_DUTIES,
+        COLUMN_REACTIONS,
+        REACTIVE_STAGES,
     )
     exclusive_groups = (("reflux_ratio", "boilup_ratio"),
                         ("distillate_rate", "bottoms_rate", "distillate_to_feed",
                          "bottoms_to_feed"))
     result_fields = (CONDENSER_DUTY, REBOILER_DUTY, ResultField("reflux_ratio", "Reflux ratio"),
                      ResultField("boilup_ratio", "Boilup ratio"),
+                     ResultField("pumparound_duty", "Pumparound duty (total)", "power"),
                      ResultField("iterations", "Newton iterations"))
 
     def __post_init__(self) -> None:
@@ -275,6 +335,84 @@ class DistillationColumn(_StageColumn):
                     "the column", where=self.id,
                     hint=f"use a stage from {1 + has_cond} to {n}"
                     + (" (stage 1 is the condenser)" if has_cond else ""))
+        self._check_side_streams(n, has_cond, has_reb)
+
+    def _check_side_streams(self, n: int, has_cond: bool, has_reb: bool) -> None:
+        def fail(message: str, hint: str) -> None:
+            raise SimulationError(message, where=self.id, hint=hint)
+
+        def check_stage(stage: int, what: str) -> None:
+            if not 1 <= stage <= n:
+                fail(f"{what}: stage {stage} is outside the column",
+                     f"use a stage from 1 to {n}")
+
+        def one_of(entry: dict, names: tuple[str, str], what: str, required: bool) -> None:
+            given = [k for k in names if entry[k] is not None]
+            if len(given) > 1 or (required and not given):
+                fail(f"{what}: give {'either' if required else 'at most one of'} "
+                     f"{' or '.join(names)}", f"set exactly {'one' if required else 'one or none'}"
+                     f" of {' and '.join(names)}")
+
+        draws = self.p["side_draws"] or []
+        if len(draws) > MAX_SIDE_DRAWS:
+            fail(f"{len(draws)} side draws; the column has outlets for {MAX_SIDE_DRAWS}",
+                 "combine draws on the same stage, or use a Splitter after one draw")
+        fractions: dict[tuple[int, str], float] = {}
+        for k, d in enumerate(draws, 1):
+            what = f"side draw {k}"
+            if d["stage"] is None:
+                fail(f"{what} has no stage", "give the stage it is drawn from")
+            check_stage(d["stage"], what)
+            if (has_cond and d["stage"] == 1) or (has_reb and d["stage"] == n):
+                fail(f"{what} is on the {'condenser' if d['stage'] == 1 else 'reboiler'}",
+                     "the distillate and bottoms are the products of condenser and reboiler; "
+                     "draw from a stage in between")
+            one_of(d, ("rate", "fraction"), what, True)
+            key = (d["stage"], d["phase"])
+            fractions[key] = fractions.get(key, 0.0) + (d["fraction"] or 0.0)
+        for k, pa in enumerate(self.p["pumparounds"] or [], 1):
+            what = f"pumparound {k}"
+            for name in ("from_stage", "to_stage"):
+                if pa[name] is None:
+                    fail(f"{what} has no {name.replace('_', ' ')}",
+                         "give the stage it is drawn from and the one it returns to")
+                check_stage(pa[name], what)
+            if pa["from_stage"] == pa["to_stage"]:
+                fail(f"{what} returns to the stage it is drawn from",
+                     "use a side heater or cooler on that stage instead")
+            one_of(pa, ("rate", "fraction"), what, True)
+            one_of(pa, ("duty", "T"), what, False)
+            if pa["from_stage"] == 1 and self.p["condenser"] == "total" and pa["fraction"]:
+                fail(f"{what} takes a fraction of the condenser's outflow, which the "
+                     "distillate specification also sets", "give the pumparound a flow")
+            if pa["rate"] == 0.0 and (pa["duty"] or pa["T"] is not None):
+                fail(f"{what} has no flow to heat or cool",
+                     "give it a flow, or use a side heater or cooler")
+            key = (pa["from_stage"], "liquid")
+            fractions[key] = fractions.get(key, 0.0) + (pa["fraction"] or 0.0)
+        for (stage, phase), total in fractions.items():
+            if total >= 0.99:
+                fail(f"the {phase} withdrawn from stage {stage} adds up to a fraction of "
+                     f"{total:g}", "leave some flow on the stage; fractions must sum below 1")
+        for k, sd in enumerate(self.p["stage_duties"] or [], 1):
+            if sd["stage"] is None or sd["duty"] is None:
+                fail(f"side heater/cooler {k} needs a stage and a duty", "fill in both")
+            check_stage(sd["stage"], f"side heater/cooler {k}")
+            if (has_cond and sd["stage"] == 1) or (has_reb and sd["stage"] == n):
+                fail(f"side heater/cooler {k} is on the "
+                     f"{'condenser' if sd['stage'] == 1 else 'reboiler'}, whose duty the "
+                     "specifications already set", "put it on a stage in between")
+        reactive = self.p["reactive_stages"] or []
+        for k, rs in enumerate(reactive, 1):
+            if rs["stage"] is None or rs["holdup"] is None:
+                fail(f"reactive stage {k} needs a stage and a liquid hold-up", "fill in both")
+            check_stage(rs["stage"], f"reactive stage {k}")
+        if reactive and not self.p["reactions"]:
+            fail("reactive stages but no reactions",
+                 "list the ids of the reactions that run on them")
+        if self.p["reactions"] and not reactive:
+            fail("reactions but no reactive stages",
+                 "add the stages where they run, each with its liquid hold-up")
 
     def _feed_stage(self, stream_id: str | None) -> int:
         """Stage index (from 0) where a feed stream enters."""
@@ -282,7 +420,51 @@ class DistillationColumn(_StageColumn):
 
     def idle_outlets(self) -> tuple[str, ...]:
         """Outlets this configuration leaves empty; the solver does not warn about them."""
-        return ("vapor_distillate",) if self.p["condenser"] == "total" else ("distillate",)
+        top = ("vapor_distillate",) if self.p["condenser"] == "total" else ("distillate",)
+        used = len(self.p["side_draws"] or [])
+        return top + tuple(f"side{k}" for k in range(used + 1, MAX_SIDE_DRAWS + 1))
+
+    def _side_setup(self, pkg) -> dict:
+        """The side draws, pumparounds, stage duties and reactions as ColumnSetup fields."""
+        draws = [SideDraw(d["stage"] - 1, d["phase"], d["rate"], d["fraction"])
+                 for d in self.p["side_draws"] or []]
+        pas = [Pumparound(pa["from_stage"] - 1, pa["to_stage"] - 1, pa["rate"], pa["fraction"],
+                          pa["duty"], pa["T"]) for pa in self.p["pumparounds"] or []]
+        duties: dict[int, float] = {}
+        for sd in self.p["stage_duties"] or []:
+            duties[sd["stage"] - 1] = duties.get(sd["stage"] - 1, 0.0) + sd["duty"]
+        out = {"draws": draws, "pumparounds": pas, "stage_duties": duties}
+        if not self.p["reactions"]:
+            return out
+        rxns = self.reactions.select(self.p["reactions"], self.id)
+        for r in rxns:
+            kin = r.kinetics
+            if kin is None:
+                raise SimulationError(
+                    f"reaction {r.id} has no kinetics, which reactive stages need",
+                    where=self.id, hint=f"add a rate law to {r.id} in the flowsheet's reactions")
+            if kin.basis == "partial_pressure":
+                raise SimulationError(
+                    f"reaction {r.id} has a partial-pressure rate law, but reactive stages "
+                    "react in the liquid", where=self.id, hint="use the concentration basis")
+            if kin.equilibrium_limited and r.keq is None:
+                raise SimulationError(
+                    f"reaction {r.id} is equilibrium-limited in the liquid but has no user "
+                    "equilibrium constant", where=self.id,
+                    hint="add keq (ln K = A + B/T + C ln T + D T, K on mole fractions) to the "
+                    "reaction; the built-in K refers to ideal gases")
+        involved = sorted({i for r in rxns for i in r.involved})
+        missing = [pkg.names[i] for i in involved if pkg.consts.Hfgs[i] is None]
+        if missing:
+            raise SimulationError(
+                f"no formation enthalpy in the database for {', '.join(missing)}; the heat of "
+                "reaction on the reactive stages needs it", where=self.id,
+                hint="choose compounds that have formation data")
+        holdup: dict[int, float] = {}
+        for rs in self.p["reactive_stages"]:
+            holdup[rs["stage"] - 1] = holdup.get(rs["stage"] - 1, 0.0) + rs["holdup"]
+        hf = np.array([pkg.consts.Hfgs[i] if i in involved else 0.0 for i in range(pkg.n)])
+        return {**out, "reactions": rxns, "holdup": holdup, "formation_enthalpies": hf}
 
     def calculate(self, pkg, inlets):
         streams = inlets["in"]
@@ -312,7 +494,7 @@ class DistillationColumn(_StageColumn):
         setup = ColumnSetup(
             stages=self.p["stages"], P=P, feeds=feeds,
             condenser=self.p["condenser"], reboiler=self.p["reboiler"] != "none",
-            specs=specs, efficiency=self.p["efficiency"] or 1.0,
+            specs=specs, efficiency=self.p["efficiency"] or 1.0, **self._side_setup(pkg),
         )
         try:
             sol = self._solve(pkg, setup)
@@ -345,12 +527,46 @@ class DistillationColumn(_StageColumn):
             reflux_ratio=float(sol.L[0] / D) if self.p["condenser"] != "none" else None,
             boilup_ratio=float(sol.V[-1] / B) if setup.reboiler else None,
         )
-        return {
+        out = {
             "distillate": _product(pkg, sol.distillate, P[0], sol.h[0], 0.0, sol.T[0]),
             "vapor_distillate": _product(pkg, sol.vapor_distillate, P[0], sol.Hv[0], 1.0,
                                          sol.T[0]),
             "bottoms": _product(pkg, sol.bottoms, P[-1], sol.h[-1], 0.0, sol.T[-1]),
         }
+        for k, (d, flows) in enumerate(zip(setup.draws, sol.side_draws), 1):
+            liquid = d.phase == "liquid"
+            j = d.stage
+            out[f"side{k}"] = _product(pkg, flows, P[j], sol.h[j] if liquid else sol.Hv[j],
+                                       0.0 if liquid else 1.0, sol.T[j])
+        for k in range(len(setup.draws) + 1, MAX_SIDE_DRAWS + 1):
+            out[f"side{k}"] = empty_stream(pkg, sol.T[0], P[0])
+        self._side_results(pkg, setup, sol)
+        return out
+
+    def _side_results(self, pkg, setup: ColumnSetup, sol) -> None:
+        if setup.pumparounds:
+            pas = []
+            for pa, flows, duty, H in zip(setup.pumparounds, sol.pumparound_flows,
+                                          sol.pumparound_duties, sol.pumparound_return_H):
+                total = float(flows.sum())
+                T_ret = pa.T
+                if T_ret is None:
+                    T_ret = float(sol.T[pa.source])
+                    if total > 1e-9 * float(sol.L.max()):
+                        try:
+                            T_ret = pkg.flash(list(flows / total), P=float(setup.P[pa.target]),
+                                              H=H / total).T
+                        except SimulationError:
+                            T_ret = None  # the column has converged; only the report lacks it
+                pas.append({"from_stage": pa.source + 1, "to_stage": pa.target + 1,
+                            "flow": total, "duty": duty, "T_return": float(T_ret)})
+            self.results["pumparounds"] = pas
+            self.results["pumparound_duty"] = float(sum(sol.pumparound_duties))
+        if sol.generation is not None:
+            stages = list(range(1, setup.stages + 1))
+            self.add_profile("reaction", "Formed by reactions", "Stage", stages,
+                             {name: ("molar_flow", sol.generation[:, i].tolist())
+                              for i, name in enumerate(pkg.names)})
 
 
 class Absorber(_StageColumn):

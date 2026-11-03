@@ -212,6 +212,14 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent-soft
 .segmented button.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); position: relative; }
 .component-table { display: flex; flex-direction: column; gap: 6px; }
 .component-row { display: grid; grid-template-columns: 1fr 1.6fr; align-items: center; gap: 6px; font-size: 12px; }
+.record-table { display: flex; flex-direction: column; gap: 6px; }
+.record-row { position: relative; display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px; padding: 6px 26px 6px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 12px; }
+.record-cell { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.record-cell > span { color: var(--muted); font-size: 11px; }
+.record-cell input, .record-cell select { min-width: 0; width: 100%; }
+.record-cell .quantity select { width: 82px; }
+.record-remove { position: absolute; top: 4px; right: 4px; padding: 0 6px; line-height: 18px; }
+.record-add { align-self: flex-start; font-size: 12px; padding: 3px 9px; }
 .kv { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid var(--border); }
 .kv b { font-variant-numeric: tabular-nums; }
 .unit-results { margin-top: 8px; }

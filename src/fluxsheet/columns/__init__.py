@@ -12,12 +12,14 @@ from .shortcut import (
     shortcut_design,
     underwood_theta,
 )
-from .stages import ColumnSetup, ColumnSolution, StageFeed, solve_column
+from .stages import ColumnSetup, ColumnSolution, Pumparound, SideDraw, StageFeed, solve_column
 
 __all__ = [
     "ColumnSetup",
     "ColumnSolution",
+    "Pumparound",
     "ShortcutResult",
+    "SideDraw",
     "StageFeed",
     "fenske_min_stages",
     "gilliland_molokanov",
