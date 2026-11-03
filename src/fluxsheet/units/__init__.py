@@ -25,7 +25,7 @@ def _concrete(cls: type[UnitOperation]):
 
 # Palette order in the editor; categories not listed here come last, alphabetically.
 CATEGORY_ORDER = ["Streams", "Mixers & Splitters", "Heat Exchangers", "Separators", "Columns",
-                  "Reactors", "Pressure Changers"]
+                  "Reactors", "Pressure Changers", "Manipulators"]
 
 
 def _sort_key(cls: type[UnitOperation]):

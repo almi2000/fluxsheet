@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, ClassVar
 
+from ..curves import parse_curve
 from ..errors import SimulationError
 from ..quantities import UnitError, to_si
 from ..stream import Stream
@@ -24,8 +25,10 @@ from ..thermo_package import PropertyPackage
 #   "component_fractions" {component: fraction}
 #   "stream_stages"       {inlet stream id: stage number}, e.g. column feed stages
 #   "utility"             id of a flowsheet utility (heating or cooling medium)
+#   "stream"              id of one of the unit's inlet streams
+#   "curve"               performance curve table, see fluxsheet.curves
 SPECIAL_KINDS = ("integer", "choice", "component", "string_list", "composition",
-                 "component_fractions", "stream_stages", "utility")
+                 "component_fractions", "stream_stages", "utility", "stream", "curve")
 
 
 @dataclass(frozen=True)
@@ -37,7 +40,7 @@ class Param:
     help: str = ""
     min: float | None = None
     max: float | None = None
-    options: tuple[str, ...] | None = None  # for quantity="choice"
+    options: tuple[str, ...] | None = None  # for quantity="choice"; a curve's usual head unit
     requires: str | None = None  # only used (and shown) when this other parameter is set
     tab: str | None = None  # short label when it is one of the alternatives of a group
 
@@ -86,6 +89,10 @@ class UnitOperation:
     # Heat transfer with a utility (see fluxsheet.utilities): the contents are at the outlet
     # temperature ("mixed", vessels) or go from inlet to outlet temperature ("plug").
     process_side: ClassVar[str] = "mixed"
+    # Logic blocks (units/logic.py) create or destroy material by design; the mass balance
+    # treats them as boundaries. A unit may also drop the outlets that are not connected.
+    conserves_mass: ClassVar[bool] = True
+    drop_unconnected: ClassVar[bool] = False
 
     def __post_init__(self) -> None:
         self.p: dict[str, Any] = {}
@@ -94,6 +101,8 @@ class UnitOperation:
         self.profiles: dict[str, dict] = {}
         # Ids of the streams on each inlet port, in the order calculate() receives them.
         self.inlet_ids: dict[str, list[str]] = {}
+        # Warnings from the last calculate(); the solver reports them once it has converged.
+        self.notes: list[str] = []
         known = {param.name for param in self.params}
         for name in self.raw:
             if name not in known:
@@ -125,7 +134,9 @@ class UnitOperation:
                 raise UnitError(f"{value!r} is not an option; use one of: "
                                 f"{', '.join(param.options or ())}")
             return value
-        if q in ("component", "utility"):
+        if q == "curve":
+            return parse_curve(value)
+        if q in ("component", "utility", "stream"):
             if not isinstance(value, str) or not value:
                 raise UnitError(f"expected a {q} name, got {value!r}")
             return value
