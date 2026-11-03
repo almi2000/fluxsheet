@@ -25,7 +25,7 @@ from scipy.optimize import brentq
 from .errors import SimulationError
 from .flowsheet import FlowsheetModel
 from .quantities import UnitError, to_si
-from .solver import Solver, SolveResult
+from .solver import SolveResult, solve_flowsheet
 from .study_models import DesignSpecModel, VariableRef, VariedParam
 from .units import UNIT_TYPES
 
@@ -201,19 +201,24 @@ class Handle:
         a heater's duty replaces its outlet temperature specification.
         """
         out = model.model_copy(deep=True)
-        unit = next(u for u in out.units if u.id == self.vary.unit)
-        unit_cls = UNIT_TYPES[unit.type]
-        for group in unit_cls.exclusive_groups:
-            if self.vary.param in group:
-                for other in group:
-                    if other != self.vary.param:
-                        unit.params.pop(other, None)
-        if self.vary.component is not None:
-            unit.params[self.vary.param] = {**(unit.params.get(self.vary.param) or {}),
-                                            self.vary.component: value}
-        else:
-            unit.params[self.vary.param] = value
+        set_param(out, self.vary.unit, self.vary.param, self.vary.component, value)
         return out
+
+
+def set_param(model: FlowsheetModel, unit_id: str, param: str, component: str | None,
+              value: float) -> None:
+    """Set a unit parameter in ``model`` (in place), replacing the other members of its
+    specification group."""
+    unit = next(u for u in model.units if u.id == unit_id)
+    for group in UNIT_TYPES[unit.type].exclusive_groups:
+        if param in group:
+            for other in group:
+                if other != param:
+                    unit.params.pop(other, None)
+    if component is not None:
+        unit.params[param] = {**(unit.params.get(param) or {}), component: value}
+    else:
+        unit.params[param] = value
 
 
 # ---- solving -----------------------------------------------------------------------------
@@ -259,7 +264,7 @@ class _Spec:
                 if len(seen) >= spec.max_iterations:
                     raise self._not_converged(seen)
                 trial = h.apply(model, x)
-                result = Solver(trial).solve()
+                result = solve_flowsheet(trial)
                 if not result.ok:
                     raise _TrialFailed(x, result.error or {})
                 try:

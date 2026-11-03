@@ -13,6 +13,8 @@ from pydantic import BaseModel
 from . import __version__, limits
 from .compounds import UnknownCompoundError, lookup, search
 from .diagrams import binary_diagram, phase_envelope
+from .dynamics.simulator import simulate
+from .dynamics.units import DYNAMIC_MODELS
 from .errors import SimulationError
 from .flowsheet import FlowsheetModel
 from .quantities import UnitError, to_si
@@ -138,7 +140,13 @@ def diagram_envelope(body: EnvelopeRequest) -> dict:
 
 @app.get("/api/unit-types")
 def unit_types() -> list[dict]:
-    return [cls.schema() for cls in UNIT_TYPES.values()]
+    out = []
+    for cls in UNIT_TYPES.values():
+        schema = cls.schema()
+        if cls.type in DYNAMIC_MODELS:  # settings and results of its dynamic model
+            schema["dynamic"] = DYNAMIC_MODELS[cls.type].schema()
+        out.append(schema)
+    return out
 
 
 def _bundled(package_path: str, repo_path: str) -> Path:
@@ -191,6 +199,19 @@ def sensitivity(body: SensitivityRequest) -> dict:
     try:
         limits.check_model_size(body.model)
         return _limited(lambda: run_sensitivity(body.model, body.study))
+    except SimulationError as exc:
+        return {"ok": False, "error": exc.to_dict()}
+    except UnknownCompoundError as exc:
+        return {"ok": False, "error": {"message": str(exc), "where": None,
+                                       "hint": "search for the compound and pick it from the list"}}
+
+
+@app.post("/api/dynamic")
+def dynamic(model: FlowsheetModel) -> dict:
+    """Run the flowsheet's dynamic simulation; see dynamics/simulator.py."""
+    try:
+        limits.check_model_size(model)
+        return _limited(lambda: simulate(model))
     except SimulationError as exc:
         return {"ok": False, "error": exc.to_dict()}
     except UnknownCompoundError as exc:

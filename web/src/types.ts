@@ -53,6 +53,7 @@ export interface UnitType {
   exclusive_groups: string[][];
   required_groups: string[][];
   result_fields: ResultField[];
+  dynamic?: DynamicSchema; // has a dynamic model (hold-up)
 }
 
 export interface Method {
@@ -137,6 +138,8 @@ export interface FlowsheetModel {
   utilities?: Utility[];
   design_specs?: DesignSpec[];
   sensitivity?: SensitivityStudy[];
+  calculators?: unknown[]; // calculator blocks (calculator.py); kept as they are
+  dynamics?: Dynamics;
 }
 
 export interface StreamResult {
@@ -252,5 +255,71 @@ export interface SensitivityResult {
   inputs?: SensitivityColumn[];
   outputs?: SensitivityColumn[];
   rows?: SensitivityRow[];
+  error?: SimError;
+}
+
+// ---- dynamic simulation (see src/fluxsheet/dynamics/models.py) --------------------------
+
+/** Settings and results of a unit's dynamic model, from /api/unit-types. */
+export interface DynamicSchema {
+  params: ParamSchema[];
+  result_fields: ResultField[];
+}
+
+/** A unit parameter or dynamic setting that a controller or event changes. */
+export interface ManipulatedParam {
+  unit: string;
+  param: string;
+  component?: string;
+}
+
+export interface Controller {
+  id: string;
+  measure: VariableRef;
+  manipulate: ManipulatedParam;
+  setpoint?: Value; // default: the steady-state measurement
+  action?: "reverse" | "direct";
+  gain?: number;
+  integral_time?: Value;
+  derivative_time?: Value;
+  measurement_lag?: Value;
+  op_range: [Value, Value];
+  pv_range?: [Value, Value];
+  active?: boolean;
+}
+
+export interface DynamicEvent {
+  time: Value;
+  unit?: string;
+  param?: string;
+  component?: string;
+  controller?: string; // changes this controller's setpoint
+  value: Value;
+  ramp?: Value;
+}
+
+export interface Dynamics {
+  t_end: Value;
+  points?: number;
+  units: Record<string, Params>;
+  controllers?: Controller[];
+  events?: DynamicEvent[];
+  rtol?: number;
+}
+
+export interface DynamicSeries {
+  key: string;
+  group: "Streams" | "Units" | "Controllers";
+  owner: string;
+  label: string;
+  quantity: string | null;
+  values: number[];
+}
+
+export interface DynamicResult {
+  ok: boolean;
+  time: number[];
+  series: DynamicSeries[];
+  warnings: string[];
   error?: SimError;
 }

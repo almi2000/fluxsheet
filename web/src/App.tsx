@@ -26,8 +26,9 @@ import { UnitMethodField } from "./PropertyMethods";
 import { ResultsPanel } from "./ResultsPanel";
 import { ShortcutHelp } from "./Shortcuts";
 import { StreamEdge } from "./StreamEdge";
+import { DynamicsSettings } from "./DynamicsEditor";
 import { StudiesSettings } from "./StudiesEditor";
-import type { DesignSpec, Example, FlowsheetModel, Method, Params, Reaction, SensitivityStudy, SolveResult, UnitResult, UnitType, Utility } from "./types";
+import type { DesignSpec, Dynamics, Example, FlowsheetModel, Method, Params, Reaction, SensitivityStudy, SolveResult, UnitResult, UnitType, Utility } from "./types";
 import { UtilitiesEditor } from "./UtilitiesEditor";
 import { UnitNode, type UnitFlowNode } from "./UnitNode";
 import { fmt } from "./quantities";
@@ -66,6 +67,8 @@ type Meta = Pick<FlowsheetModel, "name" | "description" | "components" | "proper
   utilities: Utility[];
   design_specs: DesignSpec[];
   sensitivity: SensitivityStudy[];
+  calculators?: unknown[];
+  dynamics?: Dynamics;
 };
 type Selection = { kind: "unit" | "stream"; id: string } | null;
 
@@ -214,6 +217,8 @@ function Editor() {
       utilities: meta.utilities.length ? meta.utilities : undefined,
       design_specs: meta.design_specs.length ? meta.design_specs : undefined,
       sensitivity: meta.sensitivity.length ? meta.sensitivity : undefined,
+      calculators: meta.calculators?.length ? meta.calculators : undefined,
+      dynamics: meta.dynamics,
       units: nodes.map((n) => ({
         id: n.id,
         type: n.data.type,
@@ -251,6 +256,8 @@ function Editor() {
         utilities: model.utilities ?? [],
         design_specs: model.design_specs ?? [],
         sensitivity: model.sensitivity ?? [],
+        calculators: model.calculators,
+        dynamics: model.dynamics,
       });
       setResult(null);
       setStale(false);
@@ -888,6 +895,17 @@ function Editor() {
                 onChange={(patch) => {
                   setMeta((m) => ({ ...m, ...patch }));
                   if (patch.design_specs) touch();
+                }}
+              />
+              <h3>Dynamics</h3>
+              <DynamicsSettings
+                dynamics={meta.dynamics}
+                units={nodes.map((n) => ({ id: n.id, schema: n.data.schema }))}
+                streams={edges.map((e) => e.id)}
+                components={meta.components}
+                onChange={(dynamics) => {
+                  history.commit("meta:dynamics");
+                  setMeta((m) => ({ ...m, dynamics }));
                 }}
               />
             </FlowsheetInspector>

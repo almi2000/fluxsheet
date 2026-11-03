@@ -65,6 +65,10 @@ _UNITS: dict[str, dict[str, tuple[float, float]]] = {
         "m2": (1.0, 0.0),
         "cm2": (1e-4, 0.0),
     },
+    "amount": {
+        "mol": (1.0, 0.0),
+        "kmol": (1e3, 0.0),
+    },
     "time": {
         "s": (1.0, 0.0),
         "min": (60.0, 0.0),

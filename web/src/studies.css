@@ -37,3 +37,16 @@
 .profile-chart .series .line { stroke: var(--series); }
 .profile-chart .series .dot { fill: var(--series); }
 .design-spec-summary b { color: var(--text); }
+
+/* Dynamic simulation: charts next to a list of series to plot; editor sections. */
+.dyn-charts { flex: 0 1 470px; min-width: 260px; display: flex; flex-direction: column; gap: 10px; }
+.dyn-picker { flex: 1 1 260px; max-height: 360px; overflow: auto; display: flex; flex-direction: column; gap: 6px; }
+.dyn-picker fieldset { border: 1px solid var(--border); border-radius: var(--radius); padding: 2px 8px 6px; margin: 0; }
+.dyn-picker legend { font-size: 11px; color: var(--muted); padding: 0 4px; }
+.dyn-picker .check { margin-top: 3px; }
+.dyn-unit { display: flex; flex-direction: column; gap: 4px; }
+.dyn-unit .check { margin-top: 4px; }
+.dyn-settings { padding-left: 22px; display: flex; flex-direction: column; gap: 6px; }
+.dyn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.dyn-row label { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.dyn-row input { min-width: 0; width: 100%; }

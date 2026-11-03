@@ -25,6 +25,7 @@ MAX_BODY_BYTES = 256 * 1024
 MAX_UNITS = 60
 MAX_COMPONENTS = 20
 MAX_STUDY_POINTS = 60
+MAX_DYNAMIC_POINTS = 401
 QUEUE_WAIT_SECONDS = 20.0
 
 _LOCAL_HINT = "install Fluxsheet locally (pip install \"fluxsheet[server]\"), where there is no limit"
@@ -76,6 +77,9 @@ def check_model_size(model, enabled: bool | None = None) -> None:
         for v in study.vary:
             points *= v.points
         checks.append((points, MAX_STUDY_POINTS, f"points in sensitivity study {study.id}"))
+    dynamics = getattr(model, "dynamics", None)
+    if dynamics is not None:
+        checks.append((dynamics.points, MAX_DYNAMIC_POINTS, "output points in the dynamic run"))
     for count, limit, what in checks:
         if count > limit:
             raise SimulationError(

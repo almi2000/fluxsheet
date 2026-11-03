@@ -29,14 +29,14 @@ export const STREAM_PROPERTIES: { key: string; label: string; quantity: string |
   { key: "component_flow", label: "Molar flow of…", quantity: "molar_flow", perComponent: true },
 ];
 
-const DISCRETE = ["integer", "choice", "component", "string_list"];
+export const DISCRETE = ["integer", "choice", "component", "string_list"];
 
 /** Parameters a study can vary: numbers, or one entry of a per-component table. */
-function continuousParams(schema: UnitType) {
+export function continuousParams(schema: UnitType) {
   return schema.params.filter((p) => !DISCRETE.includes(p.quantity ?? ""));
 }
 
-function perComponent(schema: UnitType | undefined, param: string): boolean {
+export function perComponent(schema: UnitType | undefined, param: string): boolean {
   const q = schema?.params.find((p) => p.name === param)?.quantity;
   return q === "composition" || q === "component_fractions";
 }
@@ -52,7 +52,7 @@ function paramQuantity(vary: VariedParam, units: UnitInfo[]): string | null {
   return q === "composition" ? "molar_flow" : q === "component_fractions" ? "fraction" : q;
 }
 
-function variableLabel(ref: VariableRef, units: UnitInfo[]): string {
+export function variableLabel(ref: VariableRef, units: UnitInfo[]): string {
   if (ref.stream !== undefined) {
     const p = STREAM_PROPERTIES.find((s) => s.key === ref.property);
     const name = p?.perComponent ? `${ref.component ?? "?"} ${p.label.replace(" of…", "").toLowerCase()}` : p?.label.toLowerCase();
@@ -67,7 +67,7 @@ function paramLabel(vary: VariedParam, units: UnitInfo[]): string {
   return `${vary.unit} ${p?.label ?? vary.param}${vary.component ? ` of ${vary.component}` : ""}`;
 }
 
-function nextId(prefix: string, taken: string[]) {
+export function nextId(prefix: string, taken: string[]) {
   let i = 1;
   while (taken.includes(`${prefix}${i}`)) i++;
   return `${prefix}${i}`;
@@ -76,7 +76,7 @@ function nextId(prefix: string, taken: string[]) {
 // ---- inputs ------------------------------------------------------------------------------
 
 /** A value with a unit selector, or a plain number for fractions and dimensionless values. */
-function Qty({
+export function Qty({
   quantity,
   value,
   placeholder,
@@ -130,7 +130,7 @@ function Qty({
   );
 }
 
-function VariablePicker({
+export function VariablePicker({
   value,
   units,
   streams,
@@ -286,7 +286,7 @@ function Bounds<T extends VariedParam>({ value, units, onChange }: { value: T; u
   );
 }
 
-function Card({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
+export function Card({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   return (
     <li className="study-card">
@@ -299,7 +299,7 @@ function Card({ title, subtitle, children }: { title: string; subtitle: string; 
   );
 }
 
-function IdField({ value, taken, onChange }: { value: string; taken: string[]; onChange: (id: string) => void }) {
+export function IdField({ value, taken, onChange }: { value: string; taken: string[]; onChange: (id: string) => void }) {
   const [draft, setDraft] = useState(value);
   useEffect(() => setDraft(value), [value]);
   const clash = draft !== value && taken.includes(draft.trim());

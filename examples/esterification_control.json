@@ -1,0 +1,57 @@
+{
+  "format": "fluxsheet/1",
+  "name": "Esterification with control (dynamic)",
+  "description": "Dynamic simulation: acetic acid and ethanol react in a stirred tank at 70 °C, then collect in a buffer tank. Two temperature controllers move the preheater and reactor duties, a level controller the buffer outflow. More ethanol arrives after 10 min; at 1 h the reactor setpoint goes up to 75 °C.",
+  "components": ["acetic acid", "ethanol", "ethyl acetate", "water"],
+  "property_method": "auto",
+  "reactions": [
+    {"id": "EST",
+     "stoichiometry": {"acetic acid": -1, "ethanol": -1, "ethyl acetate": 1, "water": 1},
+     "kinetics": {"k0": 2e-7, "Ea": "50 kJ/mol", "T_ref": "70 degC",
+                  "orders": {"acetic acid": 1, "ethanol": 1}, "equilibrium_limited": true},
+     "keq": {"A": 1.386}}
+  ],
+  "units": [
+    {"id": "FEED", "type": "Feed", "ui": {"x": 0, "y": 80},
+     "params": {"T": "25 degC", "P": "3 bar",
+                "flows": {"acetic acid": "10 kmol/h", "ethanol": "10 kmol/h"}}},
+    {"id": "PREHEAT", "type": "Heater", "ui": {"x": 180, "y": 80}, "params": {"T": "65 degC"}},
+    {"id": "REACTOR", "type": "CSTR", "ui": {"x": 360, "y": 80},
+     "params": {"reactions": ["EST"], "V": "1 m3", "phase": "liquid", "T": "70 degC",
+                "key": "acetic acid", "dP": "0.5 bar"}},
+    {"id": "BUFFER", "type": "MixingTank", "ui": {"x": 540, "y": 80}, "params": {"dP": "0.5 bar"}},
+    {"id": "PRODUCT", "type": "Product", "ui": {"x": 720, "y": 80}}
+  ],
+  "streams": [
+    {"id": "S1", "from": "FEED.out", "to": "PREHEAT.in"},
+    {"id": "S2", "from": "PREHEAT.out", "to": "REACTOR.in"},
+    {"id": "S3", "from": "REACTOR.out", "to": "BUFFER.in"},
+    {"id": "S4", "from": "BUFFER.liquid", "to": "PRODUCT.in"}
+  ],
+  "dynamics": {
+    "t_end": "2 h",
+    "points": 121,
+    "units": {
+      "PREHEAT": {"time_constant": "2 min"},
+      "REACTOR": {},
+      "BUFFER": {"diameter": "1.2 m", "height": "2.5 m", "initial_level": 0.5}
+    },
+    "controllers": [
+      {"id": "TC1", "measure": {"stream": "S2", "property": "T"},
+       "manipulate": {"unit": "PREHEAT", "param": "duty"},
+       "gain": 2, "integral_time": "3 min", "op_range": ["0 kW", "150 kW"]},
+      {"id": "TC2", "measure": {"unit": "REACTOR", "property": "T"},
+       "manipulate": {"unit": "REACTOR", "param": "duty"},
+       "gain": 4, "integral_time": "5 min", "op_range": ["-50 kW", "100 kW"]},
+      {"id": "LC1", "measure": {"unit": "BUFFER", "property": "level"},
+       "manipulate": {"unit": "BUFFER", "param": "liquid_flow"}, "action": "direct",
+       "gain": 1.5, "integral_time": "10 min", "pv_range": ["0 m", "2.5 m"],
+       "op_range": ["0 kmol/h", "50 kmol/h"]}
+    ],
+    "events": [
+      {"time": "10 min", "unit": "FEED", "param": "flows", "component": "ethanol",
+       "value": "12 kmol/h"},
+      {"time": "60 min", "controller": "TC2", "value": "75 degC", "ramp": "5 min"}
+    ]
+  }
+}

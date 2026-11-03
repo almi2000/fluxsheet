@@ -77,3 +77,45 @@ class SensitivityModel(BaseModel):
     id: str
     vary: list[SensitivityVary] = Field(min_length=1, max_length=2)
     outputs: list[VariableRef] = Field(min_length=1)
+
+
+class ParamRef(BaseModel):
+    """The current input value of a unit parameter, e.g. a feed flow."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    unit: str
+    param: str
+    component: str | None = None
+
+
+class Assignment(BaseModel):
+    """Set a unit parameter to the value of an expression (SI units)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    unit: str
+    param: str
+    component: str | None = None
+    expression: str
+
+
+class CalculatorModel(BaseModel):
+    """A calculator block: named variables read from the flowsheet, and parameters set from
+    expressions over them, e.g. a make-up flow that follows the purge::
+
+        {"id": "MAKEUP",
+         "variables": {"purge": {"stream": "PURGE", "property": "component_flow",
+                                 "component": "methanol"}},
+         "assign": [{"unit": "FEED2", "param": "flows", "component": "methanol",
+                     "expression": "purge"}]}
+
+    See calculator.py for the expression language and how it is solved.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    variables: dict[str, VariableRef | ParamRef] = Field(default_factory=dict)
+    assign: list[Assignment] = Field(min_length=1)
+    active: bool = True

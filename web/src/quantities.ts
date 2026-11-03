@@ -43,6 +43,10 @@ export const UNITS: Record<string, { value: string; label: string }[]> = {
     { value: "m2", label: "m²" },
     { value: "cm2", label: "cm²" },
   ],
+  amount: [
+    { value: "kmol", label: "kmol" },
+    { value: "mol", label: "mol" },
+  ],
   time: [
     { value: "s", label: "s" },
     { value: "min", label: "min" },
@@ -87,6 +91,7 @@ const SI_UNIT: Record<string, string> = {
   length: "m",
   area: "m2",
   time: "s",
+  amount: "mol",
   molar_energy: "J/mol",
   temperature_difference: "K",
   thermal_conductance: "W/K",
@@ -134,6 +139,7 @@ const DISPLAY: Record<string, [number, number, string]> = {
   length: [1, 0, "m"],
   area: [1, 0, "m²"],
   time: [1, 0, "s"],
+  amount: [1e-3, 0, "kmol"],
   molar_energy: [1e-3, 0, "kJ/mol"],
   temperature_difference: [1, 0, "K"],
   thermal_conductance: [1e-3, 0, "kW/K"],

@@ -27,11 +27,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from .study_models import DesignSpecModel, SensitivityModel
+from .dynamics.models import DynamicsModel
+from .study_models import CalculatorModel, DesignSpecModel, SensitivityModel
 
 FORMAT = "fluxsheet/1"
 
@@ -74,7 +75,7 @@ class SolverOptions(BaseModel):
 
     max_iterations: int = 100
     tolerance: float = 1e-6
-    acceleration: str = "wegstein"  # or "none"
+    acceleration: Literal["wegstein", "broyden", "none"] = "wegstein"
 
 
 class RateLawModel(BaseModel):
@@ -142,6 +143,8 @@ class FlowsheetModel(BaseModel):
     solver: SolverOptions = Field(default_factory=SolverOptions)
     design_specs: list[DesignSpecModel] | None = None  # solved around the flowsheet; specs.py
     sensitivity: list[SensitivityModel] | None = None  # run on request; sensitivity.py
+    calculators: list[CalculatorModel] | None = None  # set parameters from formulas; calculator.py
+    dynamics: DynamicsModel | None = None  # run on request; dynamics/
 
     @classmethod
     def load(cls, path: str | Path) -> FlowsheetModel:

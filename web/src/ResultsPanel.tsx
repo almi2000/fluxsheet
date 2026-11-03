@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Diagrams } from "./Diagrams";
+import { DynamicsView } from "./DynamicsView";
 import { MethodsSummary, ParameterSources, shortMethod } from "./PropertyMethods";
 import { fmt, formatQuantity } from "./quantities";
 import { SensitivityView } from "./SensitivityView";
@@ -21,9 +22,10 @@ export function ResultsPanel({
   studies?: SensitivityStudy[];
   getModel?: () => FlowsheetModel;
 }) {
-  const [view, setView] = useState<"streams" | "diagram" | "sensitivity">("streams");
+  const [view, setView] = useState<"streams" | "diagram" | "sensitivity" | "dynamics">("streams");
   const [diagramOpened, setDiagramOpened] = useState(false);
   const [sensitivityOpened, setSensitivityOpened] = useState(false);
+  const [dynamicsOpened, setDynamicsOpened] = useState(false);
   if (!result) {
     return (
       <div className="results empty muted">
@@ -85,6 +87,17 @@ export function ResultsPanel({
               Sensitivity
             </button>
           )}
+          {getModel && (
+            <button
+              className={view === "dynamics" ? "on" : ""}
+              onClick={() => {
+                setView("dynamics");
+                setDynamicsOpened(true);
+              }}
+            >
+              Dynamics
+            </button>
+          )}
         </div>
         <MethodsSummary result={result} />
         <ParameterSources result={result} />
@@ -104,6 +117,11 @@ export function ResultsPanel({
       {sensitivityOpened && getModel && (
         <div hidden={view !== "sensitivity"}>
           <SensitivityView studies={studies} getModel={getModel} />
+        </div>
+      )}
+      {dynamicsOpened && getModel && (
+        <div hidden={view !== "dynamics"}>
+          <DynamicsView getModel={getModel} />
         </div>
       )}
       {diagramOpened && (

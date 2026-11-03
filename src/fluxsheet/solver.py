@@ -2,13 +2,15 @@
 
 Units are calculated one after another in flow order. Recycle loops are found
 automatically: the solver picks tear streams, guesses them, and iterates until
-the guess matches what comes back around the loop (Wegstein acceleration).
+the guess matches what comes back around the loop (Wegstein or Broyden acceleration).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
+
+import numpy as np
 
 from . import utilities
 from .errors import SimulationError
@@ -48,6 +50,7 @@ class SolveResult:
     warnings: list[str] = field(default_factory=list)
     error: dict | None = None
     design_specs: list[dict] = field(default_factory=list)  # filled by specs.py
+    calculators: list[dict] = field(default_factory=list)  # filled by calculator.py
 
     def to_dict(self) -> dict[str, Any]:
         return self.__dict__.copy()
@@ -207,6 +210,7 @@ class Solver:
             order, tears = self._order()
             result.tear_streams = sorted(tears)
             streams = self._iterate(pkg, order, tears, result)
+            self.pkg, self.streams = pkg, streams  # the solution, for dynamics/
         except SimulationError as exc:
             result.error = exc.to_dict()
             result.warnings = self.warnings
@@ -288,6 +292,8 @@ class Solver:
         loop_order = [u for u in order if u in loop]
 
         opts = self.model.solver
+        torn = sorted(tears)
+        broyden = _Broyden(pkg.n + 1) if opts.acceleration == "broyden" else None
         prev_x: dict[str, list[float]] = {}
         prev_g: dict[str, list[float]] = {}
         for iteration in range(1, opts.max_iterations + 1):
@@ -300,12 +306,18 @@ class Solver:
                 self._sweep(pkg, [u for u in order if u not in loop], streams)
                 return streams
 
+            new: dict[str, list[float]] = {}
             if opts.acceleration == "wegstein" and iteration >= 3 and prev_x:
-                for sid in tears:
-                    new = self._wegstein(prev_x[sid], prev_g[sid], x[sid], g[sid])
-                    calc = streams[sid]
-                    streams[sid] = Stream.from_flash(src_pkg[sid], new[:-1], T=new[-1],
-                                                     P=calc.P)
+                new = {sid: self._wegstein(prev_x[sid], prev_g[sid], x[sid], g[sid])
+                       for sid in tears}
+            elif broyden is not None:
+                flat = broyden.step([v for s in torn for v in x[s]],
+                                    [v for s in torn for v in g[s]])
+                size = pkg.n + 1
+                new = {s: flat[k * size:(k + 1) * size] for k, s in enumerate(torn)}
+            for sid, vec in new.items():
+                streams[sid] = Stream.from_flash(src_pkg[sid], [max(f, 0.0) for f in vec[:-1]],
+                                                 T=max(vec[-1], 1.0), P=streams[sid].P)
             prev_x, prev_g = x, g
 
         result.iterations = opts.max_iterations
@@ -373,6 +385,51 @@ class Solver:
             )
 
 
+class _Broyden:
+    """Broyden's method on the tear residual f(x) = g(x) - x, with the inverse Jacobian
+    updated by Sherman-Morrison ("good" Broyden). It starts as direct substitution and resets
+    to it whenever a step makes the residual grow a lot, so it never does worse for long.
+
+    Each tear stream contributes its component flows and its temperature; the vector is
+    scaled (flows by the total flow, temperature by itself) so both weigh alike.
+    """
+
+    def __init__(self, block: int) -> None:
+        self.block = block  # numbers per tear stream: its component flows, then T
+        self.H: np.ndarray | None = None  # approximate inverse Jacobian of f, scaled
+        self.prev: tuple[np.ndarray, np.ndarray] | None = None
+        self.scale: np.ndarray | None = None
+
+    def step(self, x: list[float], g: list[float]) -> list[float]:
+        xa, ga = np.asarray(x, float), np.asarray(g, float)
+        if self.scale is None:
+            parts = []
+            for k in range(0, len(ga), self.block):
+                flows = ga[k:k + self.block - 1]
+                parts += [max(flows.sum(), 1e-10)] * len(flows) + [ga[k + self.block - 1]]
+            self.scale = np.asarray(parts)
+        xs, fs = xa / self.scale, (ga - xa) / self.scale
+        n = len(xs)
+        if self.H is None:
+            self.H = -np.eye(n)
+        elif self.prev is not None:
+            dx, df = xs - self.prev[0], fs - self.prev[1]
+            if np.linalg.norm(fs) > 2.0 * np.linalg.norm(self.prev[1]):
+                self.H = -np.eye(n)  # the model went wrong; start again from substitution
+            else:
+                Hdf = self.H @ df
+                denom = dx @ Hdf
+                if abs(denom) > 1e-14:
+                    self.H += np.outer(dx - Hdf, dx @ self.H) / denom
+        self.prev = (xs, fs)
+        dx = -self.H @ fs
+        # Limit a step to a doubling or halving of any scaled variable.
+        limit = np.max(np.abs(dx) / np.maximum(np.abs(xs), 1.0))
+        if limit > 1.0:
+            dx /= limit
+        return list((xs + dx) * self.scale)
+
+
 def _idle_outlets(unit: UnitOperation) -> tuple[str, ...]:
     """Outlets a unit leaves empty in its configuration (e.g. a total condenser's vapor).
     Units may define ``idle_outlets()``; unconnected idle outlets are neither listed nor
@@ -388,4 +445,13 @@ def solve(model: FlowsheetModel | dict) -> SolveResult:
         from .specs import solve_with_specs  # an outer loop around this solver
 
         return solve_with_specs(model)
+    return solve_flowsheet(model)
+
+
+def solve_flowsheet(model: FlowsheetModel) -> SolveResult:
+    """One flowsheet solve with its calculator blocks, but without the design specs."""
+    if any(calc.active for calc in model.calculators or ()):
+        from .calculator import solve_with_calculators
+
+        return solve_with_calculators(model)
     return Solver(model).solve()

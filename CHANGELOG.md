@@ -9,6 +9,17 @@ format or API).
 
 ### Added
 
+- **Dynamic simulation:** from the steady state, flash drums and mixing tanks (level, hold-up),
+  CSTRs (kinetics and heat of reaction) and heaters (thermal lag) are integrated over time
+  with a stiff BDF method and a sparse Jacobian. PID controllers in percent of range with
+  sensor lag and anti-windup; steps and ramps on any unit parameter or setpoint. Editor:
+  Dynamics section in the flowsheet settings, Dynamics tab with charts and CSV export; CLI
+  `fluxsheet dynamic`; API `POST /api/dynamic`. Example `esterification_control.json`.
+- **Calculator blocks:** set unit parameters from arithmetic expressions over stream
+  properties, unit results and other parameters; parsed safely, iterated with the solve
+  when they read results.
+- **Broyden recycle convergence** (`"solver": {"acceleration": "broyden"}`) next to Wegstein.
+
 - **Equipment symbols:** units are drawn as shaded equipment (drums with liquid levels, a
   column with condenser, reflux drum and reboiler, pump, stirred tank, shell and tube
   exchanger, ...) with streams attached at their nozzles.

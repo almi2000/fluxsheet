@@ -1,5 +1,5 @@
 """Command line: ``fluxsheet run file.json``, ``fluxsheet sensitivity file.json``,
-``fluxsheet fit-binary`` and ``fluxsheet serve``."""
+``fluxsheet dynamic file.json``, ``fluxsheet fit-binary`` and ``fluxsheet serve``."""
 
 from __future__ import annotations
 
@@ -169,6 +169,32 @@ def _sensitivity(args) -> int:
     return 0
 
 
+def _dynamic(args) -> int:
+    from .dynamics.simulator import simulate, to_csv
+
+    out = simulate(FlowsheetModel.load(args.file))
+    for note in out["warnings"]:
+        print(f"warning: {note}", file=sys.stderr)
+    if out["time"]:
+        keys = None if args.all else [s["key"] for s in out["series"]
+                                      if s["group"] != "Streams" or ".x." not in s["key"]]
+        text = to_csv(out, keys)
+        if args.csv:
+            with open(args.csv, "w", encoding="utf-8", newline="") as f:
+                f.write(text)
+            print(f"{len(out['time'])} time points written to {args.csv}")
+        else:
+            print(text, end="")
+    if not out["ok"]:
+        err = out["error"]
+        print(f"error{' in ' + err['where'] if err['where'] else ''}: {err['message']}",
+              file=sys.stderr)
+        if err["hint"]:
+            print(f"  hint: {err['hint']}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def _serve(args) -> int:
     import uvicorn
 
@@ -188,6 +214,12 @@ def main(argv: list[str] | None = None) -> int:
     sens.add_argument("--study", help="id of the study (default: the first)")
     sens.add_argument("--csv", help="write the table to this file instead of printing it")
     sens.set_defaults(func=_sensitivity)
+    dyn = sub.add_parser("dynamic", help="run the dynamic simulation and print it as CSV")
+    dyn.add_argument("file")
+    dyn.add_argument("--csv", help="write the time series to this file instead of printing it")
+    dyn.add_argument("--all", action="store_true",
+                     help="include every stream's mole fractions (many columns)")
+    dyn.set_defaults(func=_dynamic)
     serve = sub.add_parser("serve", help="start the API server for the web editor")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8000)

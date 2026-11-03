@@ -6,8 +6,8 @@ error messages that tell you what to do next.
 
 ![Fluxsheet editor: a methanol synthesis loop with reactor, gas recycle and distillation column](docs/screenshot.jpg)
 
-> **Status: early prototype.** Steady-state and sequential-modular, with reactors, columns and
-> vapor–liquid–liquid equilibrium. Good for learning and conceptual design; not yet a
+> **Status: early prototype.** Sequential-modular steady state, with reactors, columns and
+> vapor–liquid–liquid equilibrium, plus dynamic simulation with hold-ups and PID controllers. Good for learning and conceptual design; not yet a
 > replacement for commercial simulators.
 
 The example in the screenshot, [`examples/methanol_plant.json`](examples/methanol_plant.json),
@@ -239,6 +239,61 @@ Run it from the **Sensitivity** tab of the editor (chart, table, CSV export) or 
 `fluxsheet sensitivity examples/benzene_toluene_purity.json --csv reflux.csv`. Both are edited
 in the flowsheet settings; see `examples/benzene_toluene_purity.json`.
 
+### Calculator blocks
+
+A **calculator** sets unit parameters from formulas over flowsheet values, e.g. a make-up
+flow that follows what the purge loses. Variables are stream properties and unit results (as
+in design specs) or the current value of a parameter; expressions are plain arithmetic with
+`min`, `max`, `sqrt`, `exp`, `log`, ... and `a if cond else b`, in SI units. They are parsed,
+never run as code. Assignments that read results are repeated with the flowsheet solve until
+they settle.
+
+```json
+"calculators": [
+  {"id": "MAKEUP",
+   "variables": {"lost": {"stream": "PURGE", "property": "component_flow", "component": "methanol"}},
+   "assign": [{"unit": "FEED2", "param": "flows", "component": "methanol", "expression": "lost"}]}
+]
+```
+
+Recycle loops converge by Wegstein's method by default; `"solver": {"acceleration": "broyden"}`
+switches to Broyden's quasi-Newton method, which handles strongly coupled loops better.
+
+## Dynamic simulation
+
+From the steady state, Fluxsheet integrates how the plant moves over time, like a flow-driven
+dynamic simulator: vessels and reactors hold up material, PID controllers act, and feeds or
+setpoints change as steps or ramps.
+
+| Unit | Dynamic model |
+|---|---|
+| Flash drum, Mixing tank | Component and energy hold-up of the contents at the vessel pressure; liquid level from the vessel diameter; liquid leaves at a set flow (moved by a level controller) or by gravity, vapor as it forms |
+| CSTR | Full of the reacting phase; kinetics and heat of reaction in the balances, the outflow keeps the volume; duty from the steady state, a controller, or a jacket with a utility |
+| Heater / Cooler | Outlet enthalpy follows with a first-order time constant (the exchanger's thermal mass) |
+
+Every other unit is recalculated from its inlets at each instant. Controllers work in
+percent of range (gain, integral and derivative time, a sensor lag, back-calculation
+anti-windup) and start bumpless at the steady state. The stiff BDF integrator restarts at
+every event; its Jacobian is sparse, since each hold-up only feels the units upstream of it.
+
+```json
+"dynamics": {
+  "t_end": "2 h", "points": 121,
+  "units": {"REACTOR": {}, "BUFFER": {"diameter": "1.2 m", "height": "2.5 m"}},
+  "controllers": [
+    {"id": "LC1", "measure": {"unit": "BUFFER", "property": "level"},
+     "manipulate": {"unit": "BUFFER", "param": "liquid_flow"}, "action": "direct",
+     "gain": 1.5, "integral_time": "10 min", "op_range": ["0 kmol/h", "50 kmol/h"]}
+  ],
+  "events": [{"time": "10 min", "unit": "FEED", "param": "flows", "component": "ethanol",
+              "value": "12 kmol/h"}]
+}
+```
+
+Set it up in the flowsheet settings and run it from the **Dynamics** tab of the results
+(charts per quantity, CSV export), or with
+`fluxsheet dynamic examples/esterification_control.json --csv run.csv`.
+
 ## What's included
 
 **Unit operations:** Feed, Product, Mixer, Splitter, Mixing tank, Heater/Cooler, Heat
@@ -300,6 +355,12 @@ extend it.
 - [x] Phase envelopes, T-xy / P-xy diagrams in the editor
 - [x] Undo/redo, copy/paste, auto-layout in the editor
 - [x] Utilities with jacket/coil heat transfer (U·A) on heaters, drums and reactors
+- [x] Calculator blocks; Broyden recycle convergence
+- [x] Dynamic simulation: vessel, CSTR and heater hold-ups, PID controllers, steps and ramps
+- [ ] Dynamic columns (tray hold-ups), batch reactor, pressure-driven dynamics
+- [ ] Optimization around the flowsheet (objective and constraints as formulas), equipment costing
+- [ ] Columns with side draws, pumparounds and reactive stages; pump and compressor curves
+- [ ] Reports (Excel, PDF), unit plug-ins
 - [ ] Cooled plug flow reactor with co-/countercurrent coolant profile; process streams as jacket media
 - [ ] U from film coefficients (geometry, Reynolds/Nusselt, fouling)
 - [ ] CAPE-OPEN interoperability
