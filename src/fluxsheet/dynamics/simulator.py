@@ -160,9 +160,11 @@ class Simulator(Solver):
     def _inlets(self, uid: str) -> dict[str, list[Stream]]:
         unit = self.units[uid]
         inlets: dict[str, list[Stream]] = {p.name: [] for p in unit.inlets}
+        unit.inlet_ids = {p.name: [] for p in unit.inlets}
         for c in self.connections:
             if c.dst_unit == uid:
                 inlets[c.dst_port].append(self.sections.inlet(c, self.snapshot[c.id]))
+                unit.inlet_ids[c.dst_port].append(c.id)
         return inlets
 
     def _outlets_of(self, uid: str) -> dict[str, Stream]:
@@ -358,6 +360,7 @@ class Simulator(Solver):
         unit_pkg = self.sections.package(uid)
         from .. import utilities
 
+        unit.notes = []  # not reported during the integration
         try:
             for port in unit.inlets:
                 if len(inlets[port.name]) > 1 and not port.separate:

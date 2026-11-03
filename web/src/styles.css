@@ -212,6 +212,11 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent-soft
 .segmented button.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); position: relative; }
 .component-table { display: flex; flex-direction: column; gap: 6px; }
 .component-row { display: grid; grid-template-columns: 1fr 1.6fr; align-items: center; gap: 6px; font-size: 12px; }
+.curve-table { display: flex; flex-direction: column; gap: 4px; }
+.curve-row { display: grid; grid-template-columns: 1fr 1fr 1fr 22px; align-items: center; gap: 4px; font-size: 12px; }
+.curve-row input, .curve-row select { min-width: 0; width: 100%; }
+.curve-head { color: var(--muted); font-size: 11px; }
+.curve-table > button { align-self: flex-start; }
 .kv { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid var(--border); }
 .kv b { font-variant-numeric: tabular-nums; }
 .unit-results { margin-top: 8px; }
@@ -336,3 +341,4 @@ kbd {
 }
 .multi-actions { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
 .multi-actions button.danger { margin-top: 0; }
+.curve-row .icon-button { padding: 0; width: 22px; height: 22px; line-height: 1; }

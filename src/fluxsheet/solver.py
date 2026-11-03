@@ -210,9 +210,14 @@ class Solver:
             order, tears = self._order()
             result.tear_streams = sorted(tears)
             streams = self._iterate(pkg, order, tears, result)
+            for uid, unit in self.units.items():  # from the converged calculation only
+                self.warnings.extend(f"{uid}: {note}" for note in unit.notes)
             self.pkg, self.streams = pkg, streams  # the solution, for dynamics/
         except SimulationError as exc:
             result.error = exc.to_dict()
+            for uid, unit in self.units.items():  # often the reason, e.g. a surging compressor
+                self.warnings.extend(f"{uid}: {note} (in the last, failed calculation)"
+                                     for note in unit.notes)
             result.warnings = self.warnings
             return result
 
@@ -238,6 +243,7 @@ class Solver:
             if c.dst_unit == unit.id:  # re-flashed if it comes from another property method
                 inlets[c.dst_port].append(self.sections.inlet(c, streams[c.id]))
                 unit.inlet_ids[c.dst_port].append(c.id)
+        unit.notes = []
         try:
             for port in unit.inlets:  # several feeds on one inlet enter as one mixed stream
                 if len(inlets[port.name]) > 1 and not port.separate:
@@ -262,6 +268,8 @@ class Solver:
             unit = self.units[uid]
             for port, stream in self._run_unit(pkg, unit, streams).items():
                 sid = by_source.get((uid, port))
+                if sid is None and getattr(unit, "drop_unconnected", False):
+                    continue  # e.g. an unused copy of a duplicator
                 if sid is None:
                     if port in _idle_outlets(unit):
                         if stream.total_flow <= 0.0:
@@ -370,13 +378,25 @@ class Solver:
         def mass(s: Stream) -> float:
             return sum(f * mw for f, mw in zip(s.flows, pkg.mws))
 
+        # Units that do not conserve mass by design (logic blocks such as a multiplier or a
+        # duplicator) are boundaries: what enters them leaves the balance, what they put out
+        # enters it, as at a Product and a Feed.
+        def source(uid: str) -> bool:
+            unit = self.units.get(uid)
+            return unit is not None and (unit.type == "Feed"
+                                         or not getattr(unit, "conserves_mass", True))
+
+        def sink(uid: str) -> bool:
+            unit = self.units[uid]
+            return unit.type == "Product" or not getattr(unit, "conserves_mass", True)
+
         by_id = {c.id: c for c in self.connections}
-        feeds_in = sum(mass(streams[c.id]) for c in self.connections
-                       if self.units[c.src_unit].type == "Feed")
-        leaving = 0.0
+        feeds_in = leaving = 0.0
         for sid, s in streams.items():
             conn = by_id.get(sid)
-            if conn is None or conn.dst_unit is None or self.units[conn.dst_unit].type == "Product":
+            if source(conn.src_unit if conn else sid.rsplit(".", 1)[0]):
+                feeds_in += mass(s)
+            if conn is None or conn.dst_unit is None or sink(conn.dst_unit):
                 leaving += mass(s)
         if feeds_in > 0 and abs(feeds_in - leaving) > 1e-5 * feeds_in:
             self.warnings.append(

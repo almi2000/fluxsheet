@@ -134,7 +134,107 @@ function StreamStageTable({
   );
 }
 
+export type CurveValue = {
+  flow_unit?: string;
+  head_unit?: string;
+  efficiency_unit?: string;
+  points: (number | null)[][];
+};
+
+const HEAD_UNITS = [...UNITS.length, ...UNITS.specific_energy];
+
+/** Performance curve: rows of flow, head and (optionally) efficiency, with their units. */
+export function CurveInput({ value, onChange }: { value: CurveValue; onChange: (v: CurveValue) => void }) {
+  const points = value.points ?? [];
+  const width = points.length ? points[0].length : value.efficiency_unit === undefined ? 2 : 3;
+  const effUnit = width === 3 ? (value.efficiency_unit ?? "") : null;
+  const update = (patch: Partial<CurveValue>) => onChange({ ...value, ...patch });
+  const setCell = (row: number, col: number, text: string) =>
+    update({ points: points.map((r, i) => (i === row ? r.map((v, j) => (j === col ? numOrNull(text) : v)) : r)) });
+  const setEfficiency = (unit: string) => {
+    if (unit === "none") {
+      const { efficiency_unit: _, ...rest } = value;
+      onChange({ ...rest, points: points.map((r) => r.slice(0, 2)) });
+    } else update({ efficiency_unit: unit, points: points.map((r) => (r.length === 3 ? r : [...r, null])) });
+  };
+  const select = (current: string, options: { value: string; label: string }[], set: (v: string) => void) => (
+    <select value={current} onChange={(e) => set(e.target.value)}>
+      {options.map((u) => (
+        <option key={u.value} value={u.value}>
+          {u.label}
+        </option>
+      ))}
+      {!options.some((u) => u.value === current) && <option value={current}>{current}</option>}
+    </select>
+  );
+  return (
+    <div className="curve-table">
+      <div className="curve-row curve-head">
+        <span>Flow</span>
+        <span>Head</span>
+        <span>Efficiency</span>
+        <span />
+      </div>
+      <div className="curve-row">
+        {select(value.flow_unit ?? "m3/h", UNITS.volumetric_flow, (u) => update({ flow_unit: u }))}
+        {select(value.head_unit ?? "m", HEAD_UNITS, (u) => update({ head_unit: u }))}
+        {select(
+          effUnit === null ? "none" : effUnit,
+          [
+            { value: "none", label: "none" },
+            { value: "", label: "fraction" },
+            { value: "%", label: "%" },
+          ],
+          setEfficiency,
+        )}
+        <span />
+      </div>
+      {points.map((row, i) => (
+        <div key={i} className="curve-row">
+          {[0, 1, 2].map((j) =>
+            j < row.length ? (
+              <input
+                key={j}
+                type="number"
+                step="any"
+                aria-label={["flow", "head", "efficiency"][j] + ` of point ${i + 1}`}
+                value={row[j] === null || row[j] === undefined ? "" : String(row[j])}
+                onChange={(e) => setCell(i, j, e.target.value)}
+              />
+            ) : (
+              <span key={j} />
+            ),
+          )}
+          <button
+            type="button"
+            className="icon-button"
+            title="Remove point"
+            onClick={() => update({ points: points.filter((_, k) => k !== i) })}
+          >
+            ×
+          </button>
+        </div>
+      ))}
+      <button
+        type="button"
+        className="small"
+        onClick={() => {
+          const last = points[points.length - 1];
+          update({ points: [...points, last ? last.map(() => null) : width === 3 ? [null, null, null] : [null, null]] });
+        }}
+      >
+        + Add point
+      </button>
+    </div>
+  );
+}
+
 // ---- unit parameters ---------------------------------------------------------------------
+
+/** An empty curve table in the unit's usual head unit, to be filled point by point. */
+function newCurve(p: ParamSchema): CurveValue {
+  return { flow_unit: "m3/h", head_unit: p.options?.[0] ?? "m", points: [] };
+}
 
 function noneLabel(group: string[]): string {
   if (group.includes("dP") && group.includes("P")) return "No ΔP";
@@ -245,6 +345,34 @@ export function UnitInspector({
           </select>
         </Field>
       );
+    if (p.quantity === "stream") {
+      const streams = Object.values(inletStreams).flat();
+      return (
+        <Field key={p.name} param={p}>
+          <select value={String(current ?? "")} onChange={(e) => set(p.name, e.target.value || null)}>
+            <option value="">{streams.length ? "Choose a stream…" : "Connect inlet streams first"}</option>
+            {streams.map((sid) => (
+              <option key={sid} value={sid}>
+                {sid}
+              </option>
+            ))}
+            {typeof current === "string" && current && !streams.includes(current) && (
+              <option value={current}>{current} (not connected)</option>
+            )}
+          </select>
+        </Field>
+      );
+    }
+    if (p.quantity === "curve")
+      return (
+        <div key={p.name} className="field" role="group" aria-label={p.label}>
+          <span className="field-label" title={p.help}>
+            {p.label}
+          </span>
+          <CurveInput value={(params[p.name] as CurveValue) ?? newCurve(p)} onChange={(v) => set(p.name, v)} />
+          {p.help && <span className="field-help">{p.help}</span>}
+        </div>
+      );
     if (p.quantity === "string_list")
       return (
         <Field key={p.name} param={p}>
@@ -340,7 +468,10 @@ export function UnitInspector({
                       const next = { ...params };
                       group.forEach((g) => delete next[g]);
                       const p = byName[n];
-                      next[n] = p.default ?? (p.quantity && UNITS[p.quantity] ? `0 ${UNITS[p.quantity][0].value}` : 0);
+                      next[n] =
+                        p.quantity === "curve"
+                          ? newCurve(p)
+                          : (p.default ?? (p.quantity && UNITS[p.quantity] ? `0 ${UNITS[p.quantity][0].value}` : 0));
                       onChange(next);
                     }}
                   >

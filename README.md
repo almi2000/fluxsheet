@@ -298,10 +298,14 @@ Set it up in the flowsheet settings and run it from the **Dynamics** tab of the 
 
 **Unit operations:** Feed, Product, Mixer, Splitter, Mixing tank, Heater/Cooler, Heat
 Exchanger, Flash drum, Decanter (liquid-liquid), Thin-film evaporator, Component splitter,
-Valve, Pump, Compressor, Multistage compressor, Turbine/expander, Pipe.
+Valve, Pump, Compressor, Multistage compressor, Turbine/expander, Pipe; logic blocks
+Multiplier, Duplicator and Selector.
 
 | Unit | Model |
 |---|---|
+| Pump | To a pressure, or on its head curve (affinity laws at another speed); NPSH available from the inlet's bubble point, warning below NPSH required |
+| Compressor | To a pressure, or on a polytropic or isentropic head curve (fan laws at another speed); surge and stonewall warnings |
+| Multiplier, Duplicator, Selector | Scale a stream's flows, copy it to up to four outlets, or pass one of several inlets through; the mass balance treats them as boundaries |
 | Mixing tank | Blends any number of feeds, vents vapor; jacket heating or cooling; residence time from the liquid volume |
 | Thin-film evaporator | Wiped or falling film in plug flow along the heated wall: sensible heating, then evaporation with the vapor drawn off as it forms (differential evaporation), so it separates better than one flash; usual under vacuum |
 | Multistage compressor | Stages of equal pressure ratio, intercoolers with condensate drain, optional aftercooler |
@@ -310,6 +314,17 @@ Valve, Pump, Compressor, Multistage compressor, Turbine/expander, Pipe.
 | Extraction column | Countercurrent liquid-liquid stages at constant temperature (VLLE flash per stage), feed at stage 1, solvent at the last stage |
 
 Most units take several feeds on one inlet; they are mixed adiabatically before they enter.
+
+Pump and compressor curves are tables of points at the rated speed, against the actual inlet
+volumetric flow; the efficiency column is optional. They are interpolated with a monotone
+cubic (PCHIP) and continue as straight lines beyond the last points, with a warning:
+
+```json
+{"id": "P1", "type": "Pump", "params": {
+  "curve": {"flow_unit": "m3/h", "head_unit": "m",
+            "points": [[0, 60, 0], [20, 57, 0.55], [40, 48, 0.72], [60, 33, 0.68]]},
+  "speed": 1300, "rated_speed": 1450, "NPSH_required": "3 m"}}
+```
 
 **Columns:** shortcut distillation design (Fenske, Underwood, Gilliland/Molokanov,
 Kirkbride); rigorous distillation on equilibrium stages (MESH equations solved together by

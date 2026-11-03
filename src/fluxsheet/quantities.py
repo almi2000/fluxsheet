@@ -60,6 +60,7 @@ _UNITS: dict[str, dict[str, tuple[float, float]]] = {
         "m": (1.0, 0.0),
         "cm": (1e-2, 0.0),
         "mm": (1e-3, 0.0),
+        "ft": (0.3048, 0.0),
     },
     "area": {
         "m2": (1.0, 0.0),
@@ -116,6 +117,21 @@ _UNITS: dict[str, dict[str, tuple[float, float]]] = {
     "specific_heat": {
         "j/kgk": (1.0, 0.0),
         "kj/kgk": (1e3, 0.0),
+    },
+    # Actual volumetric flow, e.g. of pump and compressor curves.
+    "volumetric_flow": {
+        "m3/s": (1.0, 0.0),
+        "m3/h": (1.0 / 3600.0, 0.0),
+        "m3/min": (1.0 / 60.0, 0.0),
+        "l/s": (1e-3, 0.0),
+        "l/min": (1e-3 / 60.0, 0.0),
+        "gpm": (3.785411784e-3 / 60.0, 0.0),  # US gallons
+        "cfm": (0.028316846592 / 60.0, 0.0),
+    },
+    # Energy per mass, e.g. the head of a compressor.
+    "specific_energy": {
+        "j/kg": (1.0, 0.0),
+        "kj/kg": (1e3, 0.0),
     },
 }
 
