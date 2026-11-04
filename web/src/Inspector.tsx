@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "./api";
+import { CustomCompoundForm } from "./CustomCompoundForm";
 import { UnitIcon } from "./icons";
 import { ProfileView } from "./ProfileView";
 import { ReactionsEditor } from "./ReactionsEditor";
 import { UNITS, fmt, formatQuantity, joinValue, splitValue } from "./quantities";
-import type { Compound, Method, ParamSchema, Params, Reaction, StreamResult, UnitResult, UnitType } from "./types";
+import type { Compound, CustomCompound, Method, ParamSchema, Params, Reaction, StreamResult, UnitResult, UnitType } from "./types";
 
 // ---- generic inputs ----------------------------------------------------------------------
 
@@ -487,6 +488,7 @@ export function FlowsheetInspector({
   name,
   description,
   components,
+  customCompounds = [],
   method,
   methods,
   reactions,
@@ -496,6 +498,7 @@ export function FlowsheetInspector({
   name: string;
   description: string;
   components: string[];
+  customCompounds?: CustomCompound[];
   method: string;
   methods: Method[];
   reactions: Reaction[];
@@ -503,23 +506,28 @@ export function FlowsheetInspector({
     name?: string;
     description?: string;
     components?: string[];
+    custom_compounds?: CustomCompound[];
     property_method?: string;
     reactions?: Reaction[];
   }) => void;
   children?: React.ReactNode; // further settings sections, e.g. design specs
 }) {
   const [suggestion, setSuggestion] = useState<{ method: string; reason: string } | null>(null);
+  // The custom compound form: closed, a new compound ("new") or the one being edited.
+  const [customForm, setCustomForm] = useState<CustomCompound | "new" | null>(null);
+  const customOf = (c: string) => customCompounds.find((d) => d.name === c);
   useEffect(() => {
     if (components.length === 0) return setSuggestion(null);
     let live = true;
+    const used = customCompounds.filter((d) => components.includes(d.name));
     api
-      .suggestMethod(components)
+      .suggestMethod(components, used.length ? used : undefined)
       .then((s) => live && setSuggestion(s))
       .catch(() => live && setSuggestion(null));
     return () => {
       live = false;
     };
-  }, [components]);
+  }, [components, customCompounds]);
 
   const label = (key: string) => methods.find((m) => m.key === key)?.label ?? key;
 
@@ -543,15 +551,53 @@ export function FlowsheetInspector({
         onPick={(c) => !components.includes(c.name) && onChange({ components: [...components, c.name] })}
       />
       <ul className="chips">
-        {components.map((c) => (
-          <li key={c}>
-            {c}
-            <button aria-label={`Remove ${c}`} onClick={() => onChange({ components: components.filter((x) => x !== c) })}>
-              ×
-            </button>
-          </li>
-        ))}
+        {components.map((c) => {
+          const custom = customOf(c);
+          return (
+            <li key={c} className={custom ? "custom" : undefined}>
+              {custom ? (
+                <button className="chip-edit" title={`User-defined (${custom.formula}); click to edit`} onClick={() => setCustomForm(custom)}>
+                  {c} <span className="chip-tag">custom</span>
+                </button>
+              ) : (
+                c
+              )}
+              <button
+                aria-label={`Remove ${c}`}
+                onClick={() =>
+                  onChange({
+                    components: components.filter((x) => x !== c),
+                    ...(custom ? { custom_compounds: customCompounds.filter((d) => d !== custom) } : {}),
+                  })
+                }
+              >
+                ×
+              </button>
+            </li>
+          );
+        })}
       </ul>
+      {customForm ? (
+        <CustomCompoundForm
+          key={customForm === "new" ? "new" : customForm.name}
+          components={components}
+          editing={customForm === "new" ? null : customForm}
+          onClose={() => setCustomForm(null)}
+          onSave={(def, previous) => {
+            onChange({
+              custom_compounds: [...customCompounds.filter((d) => d.name !== previous), def],
+              components: previous
+                ? components.map((c) => (c === previous ? def.name : c))
+                : [...components, def.name],
+            });
+            setCustomForm(null);
+          }}
+        />
+      ) : (
+        <button className="cc-add" onClick={() => setCustomForm("new")}>
+          + Custom compound…
+        </button>
+      )}
 
       <h3>Property method</h3>
       <select value={method} onChange={(e) => onChange({ property_method: e.target.value })}>

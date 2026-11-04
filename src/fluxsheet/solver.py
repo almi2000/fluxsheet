@@ -19,7 +19,7 @@ from .limits import check_deadline
 from .property_sections import PropertySections
 from .reactions import parse_reactions
 from .stream import Stream
-from .thermo_package import METHODS, PropertyPackage, get_package, suggest_method
+from .thermo_package import METHODS, PropertyPackage, get_package, package_options, suggest_method
 from .units import UNIT_TYPES, UnitOperation
 from .units.base import mix_streams
 
@@ -131,13 +131,14 @@ class Solver:
 
     def _package(self) -> tuple[PropertyPackage, str | None]:
         method, reason = self.model.property_method, None
+        options = package_options(self.model)
         if method == "auto":
-            suggestion = suggest_method(self.model.components)
+            suggestion = suggest_method(self.model.components, options["custom"])
             method, reason = suggestion.method, suggestion.reason
         elif method not in METHODS:
             raise SimulationError(f"unknown property method {method!r}",
                                   hint=f"use 'auto' or one of: {', '.join(METHODS)}")
-        return get_package(tuple(self.model.components), method), reason
+        return get_package(tuple(self.model.components), method, **options), reason
 
     # ---- ordering ------------------------------------------------------------------------
 
@@ -225,6 +226,7 @@ class Solver:
             for uid, u in self.units.items()
         }
         self._check_balances(pkg, streams)
+        self.warnings.extend(pkg.henry_validity({k: s.state for k, s in streams.items()}))
         result.warnings = self.warnings
         self.sections.annotate(result, streams, self.connections)
         return result

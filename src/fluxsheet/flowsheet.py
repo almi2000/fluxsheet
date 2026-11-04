@@ -128,6 +128,20 @@ class UtilityModel(BaseModel):
     P: float | str | None = None  # steam, saturated
 
 
+class CustomCompoundModel(BaseModel):
+    """A user-defined compound; missing constants are estimated (custom_compounds.py)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    formula: str
+    smiles: str | None = None
+    joback_groups: dict[str, int] | None = None  # group name or number -> count
+    unifac_groups: dict[str, int] | None = None  # UNIFAC (Dortmund) subgroups
+    constants: dict[str, float | str] | None = None  # Tc, Pc, omega, Tb, MW, Hf, Gf, ...
+    vapor_pressure: str | None = None  # "lee-kesler" (default) or "ambrose-walton"
+
+
 class FlowsheetModel(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
@@ -136,6 +150,9 @@ class FlowsheetModel(BaseModel):
     description: str = ""
     components: list[str]
     property_method: str = "auto"
+    # Dissolved gases of activity methods; None = automatic, see henry.py.
+    henry_components: list[str] | None = None
+    custom_compounds: list[CustomCompoundModel] | None = None  # see custom_compounds.py
     units: list[UnitModel]
     streams: list[StreamModel] = Field(default_factory=list)
     reactions: list[ReactionModel] | None = None  # referenced by id from reactor units

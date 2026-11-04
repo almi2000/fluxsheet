@@ -33,9 +33,19 @@ from thermo.bulk import BulkSettings
 from thermo.interaction_parameters import IPDB
 from thermo.unifac import DOUFIP2016, DOUFSG
 
-from .compounds import lookup
+from . import custom_compounds
+from .compounds import Compound, lookup
+from .custom_compounds import CustomCompound
 from .errors import SimulationError
 from .fitting import store as fitted_store
+from .henry import (
+    HENRY_TC,
+    HenryDilutedModel,
+    HenryLiquid,
+    henry_constant,
+    ideal_solvent_model,
+    raoult_estimate,
+)
 
 
 @dataclass(frozen=True)
@@ -157,9 +167,10 @@ class Suggestion:
     reason: str
 
 
-def suggest_method(components: list[str]) -> Suggestion:
+def suggest_method(components: list[str],
+                   custom: tuple[CustomCompound, ...] = ()) -> Suggestion:
     """Pick a sensible default method and say why, the way an experienced engineer would."""
-    consts = _constants(tuple(lookup(c).cas for c in components))[0]
+    consts = _constants(tuple(c.cas for c in resolve(components, custom)))[0]
     if len(components) == 1:
         return Suggestion(
             "ideal",
@@ -179,7 +190,7 @@ def suggest_method(components: list[str]) -> Suggestion:
         lle = (f"UNIFAC predicts that {pairs} {verb} two liquid phases at 25 °C, so expect a "
                "liquid-liquid split (a Decanter can separate it). ")
         unmeasured = [f"{a}/{b}" for a, b, ca, cb in splits
-                      if not IPDB.has_ip_specific(_GE_TABLES["nrtl"], [ca, cb], "bij")
+                      if not has_ip(_GE_TABLES["nrtl"], ca, cb, "bij")
                       and fitted_store.lookup("nrtl", ca, cb) is None]
         if not unmeasured:
             return Suggestion(
@@ -209,9 +220,60 @@ def suggest_method(components: list[str]) -> Suggestion:
     )
 
 
+def resolve(components: list[str], custom: tuple[CustomCompound, ...] = ()) -> list[Compound]:
+    """The compounds behind component names; a custom definition wins over the database."""
+    defined = {c.name.lower(): c for c in custom}
+    out = []
+    for name in components:
+        c = defined.get(name.strip().lower())
+        if c is None:
+            out.append(lookup(name))
+            continue
+        est = custom_compounds.estimate(c)
+        out.append(Compound(cas=custom_compounds.register(c), name=c.name, formula=c.formula,
+                            mw=est.values["MW"], smiles=c.smiles, simulation_ready=True))
+    return out
+
+
+def has_ip(table: str, cas_a: str, cas_b: str, key: str) -> bool:
+    """Whether a binary parameter table has the pair; never for a user-defined compound."""
+    if custom_compounds.is_custom(cas_a) or custom_compounds.is_custom(cas_b):
+        return False
+    return IPDB.has_ip_specific(table, [cas_a, cas_b], key)
+
+
+def ip_matrix(table: str, cas_numbers, key: str) -> list[list[float]]:
+    """A binary parameter matrix; pairs with a user-defined compound get the table's
+    default (no data)."""
+    idx = [i for i, cas in enumerate(cas_numbers) if not custom_compounds.is_custom(cas)]
+    if len(idx) == len(cas_numbers):
+        return IPDB.get_ip_asymmetric_matrix(table, list(cas_numbers), key)
+    missing = IPDB.metadata[table]["missing"][key]
+    n = len(cas_numbers)
+    out = [[0.0 if i == j else missing for j in range(n)] for i in range(n)]
+    known = IPDB.get_ip_asymmetric_matrix(table, [cas_numbers[i] for i in idx], key) if idx else []
+    for a, i in enumerate(idx):
+        for b, j in enumerate(idx):
+            out[i][j] = known[a][b]
+    return out
+
+
 @lru_cache(maxsize=32)
 def _constants(cas_numbers: tuple[str, ...]):
-    return ChemicalConstantsPackage.from_IDs(list(cas_numbers))
+    """Constants and correlations; ids of custom compounds (see custom_compounds) may stand
+    in for CAS numbers."""
+    if not any(custom_compounds.is_custom(c) for c in cas_numbers):
+        return ChemicalConstantsPackage.from_IDs(list(cas_numbers))
+    parts = []
+    for cas in cas_numbers:  # one package per compound, joined in the given order
+        if custom_compounds.is_custom(cas):
+            parts.append(custom_compounds.packages((custom_compounds.definition(cas),)))
+        else:
+            parts.append(ChemicalConstantsPackage.from_IDs([cas]))
+    consts, props = parts[0]
+    for c, p in parts[1:]:
+        consts, props = consts + c, props + p
+    return consts, props
 
 
 # ---- activity-coefficient models ---------------------------------------------------------
@@ -222,26 +284,40 @@ _GE_TABLES = {"nrtl": "ChemSep NRTL", "uniquac": "ChemSep UNIQUAC", "wilson": "C
 _FITTED_METHODS = ("nrtl", "uniquac")
 # Methods whose liquid model can describe two coexisting liquid phases.
 LLE_METHODS = ("nrtl", "uniquac", "unifac")
+# Activity-coefficient methods, where light gases are Henry components (see henry.py).
+HENRY_METHODS = ("nrtl", "uniquac", "unifac", "wilson")
+# Beyond these the Henry treatment (ideal dilute solution, no Poynting term) is flagged.
+HENRY_X_MAX = 0.03
+HENRY_P_MAX = 20e5
 
 
-def _unifac(consts, T: float = 298.15):
-    """UNIFAC (Dortmund) model for these compounds, or None if a compound lacks groups."""
-    if any(not groups for groups in consts.UNIFAC_Dortmund_groups):
+def _unifac(consts, T: float = 298.15, idx: list[int] | None = None):
+    """UNIFAC (Dortmund) model for these compounds (or those at ``idx``), or None if a
+    compound lacks groups."""
+    groups = [consts.UNIFAC_Dortmund_groups[i] for i in (idx or range(consts.N))]
+    if any(not g for g in groups):
         return None
     return UNIFAC.from_subgroups(
-        T=T, xs=[1.0 / consts.N] * consts.N, chemgroups=consts.UNIFAC_Dortmund_groups,
+        T=T, xs=[1.0 / len(groups)] * len(groups), chemgroups=groups,
         version=1, interaction_data=DOUFIP2016, subgroups=DOUFSG,
     )
 
 
-def _ge_model(method: str, consts, a, b, alpha):
-    """A regressed activity model; ``a``, ``b`` (and ``alpha`` for NRTL) are n x n matrices."""
-    xs = [1.0 / consts.N] * consts.N
+def _ge_model(method: str, consts, a, b, alpha, idx: list[int] | None = None):
+    """A regressed activity model; ``a``, ``b`` (and ``alpha`` for NRTL) are n x n matrices.
+    With ``idx``, the model of only those compounds (rows and columns of the matrices)."""
+    idx = list(idx if idx is not None else range(consts.N))
+
+    def sub(m):
+        return None if m is None else [[m[i][j] for j in idx] for i in idx]
+
+    a, b, alpha = sub(a), sub(b), sub(alpha)
+    xs = [1.0 / len(idx)] * len(idx)
     if method == "nrtl":  # tau_ij = a_ij + b_ij / T
         return NRTL(T=298.15, xs=xs, tau_as=a, tau_bs=b, alpha_cs=alpha)
     if method == "uniquac":  # tau_ij = exp(a_ij + b_ij / T)
-        return UNIQUAC(T=298.15, xs=xs, rs=consts.UNIFAC_Rs, qs=consts.UNIFAC_Qs,
-                       tau_as=a, tau_bs=b)
+        return UNIQUAC(T=298.15, xs=xs, rs=[consts.UNIFAC_Rs[i] for i in idx],
+                       qs=[consts.UNIFAC_Qs[i] for i in idx], tau_as=a, tau_bs=b)
     return Wilson(T=298.15, xs=xs, lambda_as=a, lambda_bs=b)  # lambda_ij = exp(a + b / T)
 
 
@@ -317,9 +393,14 @@ def _estimate_binary(method: str, cas_a: str, cas_b: str):
 
 
 class PropertyPackage:
-    def __init__(self, components: list[str], method: str, prefer_fitted: bool = True):
+    def __init__(self, components: list[str], method: str, prefer_fitted: bool = True,
+                 henry_components: tuple[str, ...] | None = None,
+                 custom: tuple[CustomCompound, ...] = ()):
         """``prefer_fitted``: for NRTL and UNIQUAC, use Fluxsheet's ThermoML fits over ChemSep
-        parameters when both exist (ThermoML fits always fill pairs ChemSep lacks)."""
+        parameters when both exist (ThermoML fits always fill pairs ChemSep lacks).
+        ``henry_components``: names of the Henry components of activity methods; None picks
+        them automatically (critical temperature below ``HENRY_TC``), () means none.
+        ``custom``: definitions of user-defined compounds among ``components``."""
         if method not in METHODS:
             raise SimulationError(
                 f"unknown property method {method!r}",
@@ -331,7 +412,8 @@ class PropertyPackage:
             )
         self.method = method
         self.prefer_fitted = prefer_fitted
-        self.compounds = [lookup(c) for c in components]
+        self.custom = tuple(custom)
+        self.compounds = resolve(list(components), self.custom)
         self.names = list(components)
         cas = tuple(c.cas for c in self.compounds)
         if len(set(cas)) != len(cas):
@@ -345,8 +427,59 @@ class PropertyPackage:
         self.parameter_sources: list[dict] = []
         self.warnings: list[str] = []
         self._ge = None  # activity-coefficient model, if the method has one
+        self._report_estimates()
         self._check_data()
+        # Henry components (dissolved gases) of activity methods: flags and names.
+        self._henry_request = henry_components
+        self.henry = [False] * self.n
         self._flasher = self._build()
+
+    @property
+    def henry_components(self) -> list[str]:
+        return self.henry_names()
+
+    def henry_validity(self, states) -> list[str]:
+        """Warnings for solved streams where Henry's law as used here is stretched: a
+        concentrated solute (ideal dilute solution) or high pressure (no Poynting
+        correction). ``states``: stream id -> PhaseState."""
+        if not any(self.henry):
+            return []
+        concentrated: dict[str, list[str]] = {}
+        high_p: list[str] = []
+        for sid, st in states.items():
+            if st.x is None or st.VF >= 1.0:
+                continue
+            for i in (i for i in range(self.n) if self.henry[i]):
+                if st.x[i] > HENRY_X_MAX:
+                    concentrated.setdefault(self.names[i], []).append(sid)
+            if st.P > HENRY_P_MAX:
+                high_p.append(sid)
+        out = [f"{name} is a Henry component but makes up more than {HENRY_X_MAX:.0%} of the "
+               f"liquid in {', '.join(sids)}; Henry's law assumes a dilute solution there. "
+               "Use Peng-Robinson, or leave it out of henry_components if it condenses."
+               for name, sids in concentrated.items()]
+        if high_p:
+            out.append(f"liquid with dissolved gases above {HENRY_P_MAX / 1e5:.0f} bar in "
+                       f"{', '.join(high_p)}: the Henry constants have no pressure correction "
+                       "(Krichevsky-Kasarnovsky), so solubilities may be some 10 % off; "
+                       "consider Peng-Robinson.")
+        return out
+
+    def _report_estimates(self) -> None:
+        """Say which constants of user-defined compounds are estimates."""
+        for comp in self.compounds:
+            if not custom_compounds.is_custom(comp.cas):
+                continue
+            est = custom_compounds.estimate(custom_compounds.definition(comp.cas))
+            for prop, how in est.estimated.items():
+                value = est.values.get(prop)
+                self.parameter_sources.append({
+                    "pair": comp.name, "source": f"{prop}: {how}",
+                    **({"value": value} if isinstance(value, float) else {})})
+            self.warnings.append(
+                f"{comp.name} is a user-defined compound; estimated: {est.summary()}. Treat "
+                "results that depend on it as estimates."
+                + "".join(f" Note: {note}." for note in est.notes))
 
     @property
     def n(self) -> int:
@@ -378,7 +511,7 @@ class PropertyPackage:
         if self.method in ("peng-robinson", "srk"):
             eos = PRMIX if self.method == "peng-robinson" else SRKMIX
             kijs = (
-                IPDB.get_ip_asymmetric_matrix("ChemSep PR", c.CASs, "kij")
+                ip_matrix("ChemSep PR", c.CASs, "kij")
                 if self.method == "peng-robinson"
                 else [[0.0] * self.n for _ in range(self.n)]
             )
@@ -387,25 +520,35 @@ class PropertyPackage:
             liquid = CEOSLiquid(eos, kwargs, HeatCapacityGases=cp_gas)
         else:
             gas = IdealGas(HeatCapacityGases=cp_gas)
+            henry_kwargs: dict = {}
+            if self.method in HENRY_METHODS and self.n > 1:
+                self.henry, henry_kwargs = self._henry_setup()
+            solvents = [i for i in range(self.n) if not self.henry[i]]
             ge_model = None
             if self.method == "unifac":
-                for name, groups in zip(self.names, c.UNIFAC_Dortmund_groups):
-                    if not groups:
+                for i in solvents:
+                    if not c.UNIFAC_Dortmund_groups[i]:
                         raise SimulationError(
-                            f"{name!r} has no UNIFAC group assignment",
-                            hint="use Peng-Robinson for this mixture instead",
+                            f"{self.names[i]!r} has no UNIFAC group assignment",
+                            hint="use Peng-Robinson for this mixture instead"
+                            + (" (a user-defined compound needs unifac_groups)"
+                               if custom_compounds.is_custom(c.CASs[i]) else ""),
                         )
-                ge_model = _unifac(c)
-            elif self.method in _GE_TABLES and self.n > 1:
-                ge_model = self._regressed_model()
+                ge_model = _unifac(c, idx=solvents)
+            elif self.method in _GE_TABLES and len(solvents) > 1:
+                ge_model = self._regressed_model(solvents)
+            if henry_kwargs:
+                ge_model = HenryDilutedModel(ge_model or ideal_solvent_model(len(solvents)),
+                                             solvents, self.n)
             self._ge = ge_model
-            liquid = GibbsExcessLiquid(
+            liquid = (HenryLiquid if henry_kwargs else GibbsExcessLiquid)(
                 VaporPressures=p.VaporPressures,
                 HeatCapacityGases=cp_gas,
                 VolumeLiquids=p.VolumeLiquids,
                 GibbsExcessModel=ge_model,
                 equilibrium_basis="Psat",
                 caloric_basis="Psat",
+                **henry_kwargs,
             )
         if self.n == 1:
             return FlashPureVLS(c, p, gas=gas, liquids=[liquid], solids=[], settings=_SETTINGS)
@@ -413,31 +556,108 @@ class PropertyPackage:
             return _FlashVLLE(c, p, liquids=[liquid, liquid], gas=gas, settings=_SETTINGS)
         return FlashVL(c, p, liquid=liquid, gas=gas, settings=_SETTINGS)
 
-    def _regressed_model(self):
+    def _henry_setup(self) -> tuple[list[bool], dict]:
+        """Which components follow Henry's law, and their constants for the liquid.
+
+        A candidate (critical temperature below ``HENRY_TC``, or listed explicitly) becomes
+        a Henry component when a constant exists for it in at least one solvent present.
+        Solvents without a constant get a rough estimate, so that every solvent weighs in the
+        mixing rule with its real mole fraction.
+        """
+        c, n, request = self.consts, self.n, self._henry_request
+        label = METHODS[self.method].label
+        if request is None:
+            candidate = [not custom_compounds.is_custom(cas) and tc is not None and tc < HENRY_TC
+                         for cas, tc in zip(c.CASs, c.Tcs)]
+        else:
+            wanted = {name.strip().lower() for name in request}
+            unknown = wanted - {name.lower() for name in self.names}
+            if unknown:
+                raise SimulationError(
+                    f"henry_components lists {', '.join(sorted(unknown))}, which "
+                    f"{'is' if len(unknown) == 1 else 'are'} not among the components",
+                    hint="use the component names exactly as in the component list")
+            candidate = [name.lower() in wanted for name in self.names]
+            if all(candidate):
+                raise SimulationError(
+                    "every component is listed as a Henry component",
+                    hint="Henry's law describes gases dissolved in a solvent; leave at least "
+                    "one component (the solvent) out of henry_components")
+        if all(candidate):  # gases only: no solvent to dissolve in
+            return [False] * n, {}
+        solvents = [j for j in range(n) if not candidate[j]]
+        coeffs = [[(0.0,) * 6 for _ in range(n)] for _ in range(n)]
+        flags = [False] * n
+        for i in (i for i in range(n) if candidate[i]):
+            found = {j: k for j in solvents
+                     if (k := henry_constant(c.CASs[i], c.CASs[j])) is not None}
+            missing = [j for j in solvents if j not in found]
+            if not found:
+                self.warnings.append(
+                    f"{label}: no Henry constant for {self.names[i]} in "
+                    f"{', '.join(self.names[j] for j in missing)}; its liquid fugacity uses its "
+                    "vapor pressure correlation, extrapolated above the critical point. Its "
+                    "solubility is not reliable; use Peng-Robinson for this gas.")
+                continue
+            flags[i] = True
+            for j, k in found.items():
+                coeffs[i][j] = k.coeffs
+                self.parameter_sources.append({"pair": f"{self.names[i]} in {self.names[j]}",
+                                               "source": f"Henry constant: {k.source}"})
+            if missing:
+                guess = raoult_estimate(self.props.VaporPressures[i])
+                for j in missing:
+                    coeffs[i][j] = guess.coeffs
+                    self.parameter_sources.append({"pair": f"{self.names[i]} in {self.names[j]}",
+                                                   "source": f"Henry constant: {guess.source}"})
+                self.warnings.append(
+                    f"{label}: no Henry constant for {self.names[i]} in "
+                    f"{', '.join(self.names[j] for j in missing)}; it is estimated from "
+                    f"{self.names[i]}'s extrapolated vapor pressure (ideal solution), which "
+                    "can be off by a factor of several. Its solubility in liquids rich in "
+                    f"{'that solvent' if len(missing) == 1 else 'those solvents'} is rough.")
+        if not any(flags):
+            return flags, {}
+        names = ", ".join(self.henry_names(flags))
+        self.warnings.append(
+            f"{label}: {names} {'is a Henry component' if sum(flags) == 1 else 'are Henry components'}"
+            " (dissolved gas: Henry's law, ideal dilute solution, no pressure correction). "
+            "Valid for dilute solutions at moderate pressure; set henry_components to change.")
+        kwargs = {"henry_components": flags}
+        for k, key in enumerate(("henry_as", "henry_bs", "henry_cs", "henry_ds", "henry_es",
+                                 "henry_fs")):
+            kwargs[key] = [[coeffs[i][j][k] for j in range(n)] for i in range(n)]
+        return flags, kwargs
+
+    def henry_names(self, flags=None) -> list[str]:
+        return [name for name, h in zip(self.names, flags or self.henry) if h]
+
+    def _regressed_model(self, idx: list[int]):
         """NRTL, UNIQUAC or Wilson with measured parameters; UNIFAC estimates fill the gaps.
 
         Per pair: Fluxsheet's ThermoML fit (NRTL, UNIQUAC; first if ``prefer_fitted``), the
-        ChemSep set, a ThermoML fit, then a UNIFAC estimate.
+        ChemSep set, a ThermoML fit, then a UNIFAC estimate. Only the compounds at ``idx``
+        (the solvents: Henry components are left out).
         """
         c, n, table = self.consts, self.n, _GE_TABLES[self.method]
         if self.method == "uniquac":
-            for name, r, q in zip(self.names, c.UNIFAC_Rs, c.UNIFAC_Qs):
-                if r is None or q is None:
+            for i in idx:
+                if c.UNIFAC_Rs[i] is None or c.UNIFAC_Qs[i] is None:
                     raise SimulationError(
-                        f"{name!r} has no UNIQUAC size and surface parameters (r, q)",
+                        f"{self.names[i]!r} has no UNIQUAC size and surface parameters (r, q)",
                         hint="they come from UNIFAC groups, which this compound lacks; "
                         "use NRTL or Peng-Robinson instead",
                     )
-        b = IPDB.get_ip_asymmetric_matrix(table, c.CASs, "bij")
-        a = (IPDB.get_ip_asymmetric_matrix(table, c.CASs, "aij") if self.method == "wilson"
+        b = ip_matrix(table, c.CASs, "bij")
+        a = (ip_matrix(table, c.CASs, "aij") if self.method == "wilson"
              else [[0.0] * n for _ in range(n)])
-        alpha = (IPDB.get_ip_asymmetric_matrix(table, c.CASs, "alphaij")
+        alpha = (ip_matrix(table, c.CASs, "alphaij")
                  if self.method == "nrtl" else None)
         label = METHODS[self.method].label
-        for i in range(n):
-            for j in range(i + 1, n):
+        for i in idx:
+            for j in (j for j in idx if j > i):
                 pair = f"{self.names[i]}/{self.names[j]}"
-                chemsep = IPDB.has_ip_specific(table, [c.CASs[i], c.CASs[j]], "bij")
+                chemsep = has_ip(table, c.CASs[i], c.CASs[j], "bij")
                 fitted = (fitted_store.lookup(self.method, c.CASs[i], c.CASs[j])
                           if self.method in _FITTED_METHODS else None)
                 if fitted is not None and (self.prefer_fitted or not chemsep):
@@ -470,7 +690,17 @@ class PropertyPackage:
                     "estimated by fitting to UNIFAC (Dortmund) predictions. Treat results for "
                     "this pair as predictive, not data-based."
                 )
-        return _ge_model(self.method, c, a, b, alpha)
+        return _ge_model(self.method, c, a, b, alpha, idx)
+
+    def psats(self, T: float, zs: list[float]) -> list[float]:
+        """Vapor pressures, with the Henry constant in this liquid for Henry components."""
+        if not any(self.henry):
+            return [vp(T) for vp in self.props.VaporPressures]
+        return list(self._liquid_template().to(T=T, P=101325.0, zs=list(zs)).Psats())
+
+    def _liquid_template(self):
+        f = self._flasher
+        return f.liquid if hasattr(f, "liquid") else f.liquids[0]
 
     @property
     def formation_enthalpies(self) -> list[float] | None:
@@ -518,11 +748,10 @@ class PropertyPackage:
         return self._single_phase(kind, T, P, zs, state)
 
     def _single_phase(self, kind: str, T: float, P: float, zs: list[float], evaluate):
-        f = self._flasher
         if kind == "vapor":
-            template = f.gas
+            template = self._flasher.gas
         elif kind == "liquid":
-            template = f.liquid if hasattr(f, "liquid") else f.liquids[0]
+            template = self._liquid_template()
         else:
             raise ValueError(f"kind must be 'vapor' or 'liquid', got {kind!r}")
         try:
@@ -697,8 +926,7 @@ class PropertyPackage:
             except (UnconvergedError, OscillationError, ValueError, ArithmeticError,
                     UnboundLocalError):  # thermo can fail outright on immiscible pairs
                 u0 = (sum(z * tb for z, tb in zip(zs, self.consts.Tbs)) if by_T else
-                      -math.log(sum(z * vp(spec["T"])
-                                    for z, vp in zip(zs, self.props.VaporPressures))))
+                      -math.log(sum(z * p for z, p in zip(zs, self.psats(spec["T"], zs)))))
 
         def tp(u):
             T, P = (u, spec["P"]) if by_T else (spec["T"], math.exp(-u))
@@ -756,14 +984,14 @@ class PropertyPackage:
 
         def partial_pressures(T):
             gammas = ge.to_T_xs(T, list(zs)).gammas()
-            return [z * g * vp(T) for z, g, vp in zip(zs, gammas, vps)]
+            return [z * g * p for z, g, p in zip(zs, gammas, self.psats(T, zs))]
 
         try:
             if "T" in spec:
                 T = spec["T"]
             else:
                 P = spec["P"]
-                tsat = [vp.solve_property(P) for vp in vps]
+                tsat = [vp.solve_property(P) for vp, h in zip(vps, self.henry) if not h]
                 T = brentq(lambda T: math.log(sum(partial_pressures(T)) / P),
                            min(tsat) - 80, max(tsat) + 80)
             pp = partial_pressures(T)
@@ -863,6 +1091,18 @@ class _FlashVLLE(FlashVLN):
 
 
 @lru_cache(maxsize=16)
-def get_package(components: tuple[str, ...], method: str,
-                prefer_fitted: bool = True) -> PropertyPackage:
-    return PropertyPackage(list(components), method, prefer_fitted)
+def get_package(components: tuple[str, ...], method: str, prefer_fitted: bool = True,
+                henry_components: tuple[str, ...] | None = None,
+                custom: tuple[CustomCompound, ...] = ()) -> PropertyPackage:
+    """A cached package; ``custom`` holds the full definitions, so editing a user-defined
+    compound under the same name builds a new one."""
+    return PropertyPackage(list(components), method, prefer_fitted, henry_components, custom)
+
+
+def package_options(model) -> dict:
+    """The flowsheet's thermodynamic options as keyword arguments for :func:`get_package`."""
+    henry = getattr(model, "henry_components", None)
+    custom = getattr(model, "custom_compounds", None) or []
+    return {"henry_components": tuple(henry) if henry is not None else None,
+            "custom": tuple(CustomCompound.from_dict(c.model_dump(exclude_none=True))
+                            for c in custom)}

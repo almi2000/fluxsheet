@@ -181,7 +181,7 @@
         "condenser": "partial",
         "reboiler": "kettle",
         "reflux_ratio": 1.5,
-        "distillate_rate": "100.675 kmol/h"
+        "distillate_rate": "100.45 kmol/h"
       }
     },
     {

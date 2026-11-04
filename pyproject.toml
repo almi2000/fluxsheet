@@ -27,6 +27,8 @@ dependencies = [
 [project.optional-dependencies]
 server = ["fastapi>=0.110", "uvicorn[standard]>=0.29"]
 dev = ["pytest>=8", "httpx>=0.27", "ruff>=0.5"]
+# Joback groups of user-defined compounds from a SMILES string (custom_compounds.py)
+estimation = ["rdkit>=2023.9"]
 
 [project.scripts]
 fluxsheet = "fluxsheet.cli:main"

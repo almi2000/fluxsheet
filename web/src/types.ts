@@ -126,12 +126,26 @@ export interface Utility {
   P?: Value;
 }
 
+/** A user-defined compound; missing constants are estimated (custom_compounds.py). */
+export interface CustomCompound {
+  name: string;
+  formula: string;
+  smiles?: string;
+  joback_groups?: Record<string, number>;
+  unifac_groups?: Record<string, number>;
+  constants?: Record<string, number | string>;
+  vapor_pressure?: string;
+  antoine?: Record<string, number | string>;
+}
+
 export interface FlowsheetModel {
   format: string;
   name: string;
   description?: string;
   components: string[];
   property_method: string;
+  henry_components?: string[]; // dissolved gases of activity methods; absent = automatic
+  custom_compounds?: CustomCompound[];
   units: UnitModel[];
   streams: StreamModel[];
   reactions?: Reaction[];

@@ -1,4 +1,4 @@
-import type { Compound, DynamicResult, Example, FlowsheetModel, Method, SensitivityResult, SolveResult, UnitType } from "./types";
+import type { Compound, CustomCompound, DynamicResult, Example, FlowsheetModel, Method, SensitivityResult, SolveResult, UnitType } from "./types";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
@@ -27,10 +27,10 @@ export const api = {
   example: (id: string) => request<FlowsheetModel>(`/examples/${id}`),
   searchCompounds: (q: string) =>
     request<Compound[]>(`/compounds?q=${encodeURIComponent(q)}&limit=12`),
-  suggestMethod: (components: string[]) =>
+  suggestMethod: (components: string[], custom_compounds?: CustomCompound[]) =>
     request<{ method: string; reason: string }>("/methods/suggest", {
       method: "POST",
-      body: JSON.stringify({ components }),
+      body: JSON.stringify({ components, custom_compounds }),
     }),
   solve: (model: FlowsheetModel) =>
     request<SolveResult>("/solve", { method: "POST", body: JSON.stringify(model) }),

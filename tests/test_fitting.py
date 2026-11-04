@@ -332,6 +332,7 @@ def test_cli_groups_parameter_sources_measured_first(tmp_path, capsys):
 
     model = {
         "components": ["water", "ethanol", "methane"], "property_method": "nrtl",
+        "henry_components": [],  # methane as an ordinary component: an estimated pair
         "units": [
             {"id": "F", "type": "Feed", "params": {
                 "T": "25 degC", "P": "1 atm",

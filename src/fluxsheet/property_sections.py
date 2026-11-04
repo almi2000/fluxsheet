@@ -25,12 +25,18 @@ import difflib
 import re
 from dataclasses import dataclass
 
-from thermo.interaction_parameters import IPDB
-
 from .errors import SimulationError
 from .flowsheet import FlowsheetModel
 from .stream import Stream
-from .thermo_package import METHODS, PropertyPackage, Suggestion, get_package, suggest_method
+from .thermo_package import (
+    METHODS,
+    PropertyPackage,
+    Suggestion,
+    get_package,
+    has_ip,
+    package_options,
+    suggest_method,
+)
 from .units import UnitOperation
 
 # A crossing that changes the vapor fraction by more than this gets a warning.
@@ -94,7 +100,7 @@ class PropertySections:
                 self.sources[c.dst_unit] = "inlet"
         self.packages: dict[str, PropertyPackage] = {default.method: default}
         for method in sorted(set(self.methods.values()) - {default.method}):
-            self.packages[method] = get_package(components, method)
+            self.packages[method] = get_package(components, method, **package_options(model))
         self._crossings: dict[str, _Crossing] = {}
 
     @property
@@ -246,7 +252,7 @@ def suggest_for_unit(pkg: PropertyPackage, inlets: list[Stream],
     present = [pkg.names[i] for i in range(pkg.n) if zs[i] >= TRACE]
     P = P_unit or max(s.P for s in inlets)
     T = max(s.T for s in inlets)
-    base = suggest_method(present)
+    base = suggest_method(present, pkg.custom)
 
     supercritical = [pkg.names[i] for i in range(pkg.n)
                      if zs[i] >= 0.01 and (pkg.consts.Tcs[i] or 0.0) < T]
@@ -264,7 +270,7 @@ def suggest_for_unit(pkg: PropertyPackage, inlets: list[Stream],
         idx = [i for i in range(pkg.n) if zs[i] >= 0.01 and pkg.names[i] not in supercritical]
         cas = [pkg.compounds[i].cas for i in idx]
         pairs = [(a, b) for k, a in enumerate(cas) for b in cas[k + 1:]]
-        if pairs and all(IPDB.has_ip_specific("ChemSep NRTL", [a, b], "bij") for a, b in pairs):
+        if pairs and all(has_ip("ChemSep NRTL", a, b, "bij") for a, b in pairs):
             names = [pkg.names[i] for i in idx]
             main = ", ".join(names[:-1]) + f" and {names[-1]}"
             gases = (f" The dissolved gases ({', '.join(supercritical)}) matter little for the "
