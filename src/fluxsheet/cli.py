@@ -57,7 +57,13 @@ def _run(args) -> int:
 
     for source, pairs in sorted(by_source.items(), key=lambda kv: rank(kv[0])):
         shown = ", ".join(pairs) if len(pairs) <= 3 else f"{', '.join(pairs[:3])} and {len(pairs) - 3} more"
-        print(f"  binary parameters, {source}: {shown}")
+        if source.startswith("Henry constant: "):  # dissolved gases, see henry.py
+            print(f"  Henry constants, {source.removeprefix('Henry constant: ')}: {shown}")
+        elif "/" in pairs[0]:
+            print(f"  binary parameters, {source}: {shown}")
+        else:  # estimated constants of user-defined compounds: "Tc: Joback group contribution"
+            prop, _, how = source.partition(": ")
+            print(f"  {', '.join(pairs)}: {prop} estimated by {how}")
     if result.tear_streams:
         print(f"Recycle: tear {', '.join(result.tear_streams)}, "
               f"converged in {result.iterations} iterations")

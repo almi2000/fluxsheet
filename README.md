@@ -166,6 +166,52 @@ Products without an override follow the unit that feeds them.
 - In the editor, the unit inspector has a **Property method** select with that suggestion,
   and nodes carry a colored method tag whenever the flowsheet mixes methods.
 
+### Dissolved gases (Henry's law)
+
+In the activity-coefficient methods (NRTL, UNIQUAC, UNIFAC, Wilson) light gases such as H2,
+N2, O2, CO, CO2, CH4 and ethane have no meaningful vapor pressure at process temperatures.
+They are therefore **Henry components**: their liquid fugacity is `x_i H_i` with a Henry
+constant measured in the solvent, and their activity coefficient is 1 (ideal dilute
+solution). The heat of solution follows from the temperature dependence of `H_i`, so energy
+balances stay consistent. Automatic choice: every component with a critical temperature
+below 310 K, as long as a solvent is present and a Henry constant exists. Override it:
+
+```json
+"henry_components": ["carbon dioxide", "hydrogen sulfide"]
+```
+
+(`[]` turns Henry's law off). Constants for gases in water come from IAPWS G7-04 (valid to
+250 °C), otherwise from the Sander (2015) and ChemSep compilations, and for organic solvents
+from Peng-Robinson predictions shipped with `thermo`; solvents without any constant get a
+Raoult's-law estimate. Each result lists the source per gas and solvent, and warns where the
+model is stretched (more than 3 % gas in a liquid, or above 20 bar).
+
+### User-defined compounds
+
+Compounds the database lacks (or your own version of one it has) are defined in the
+flowsheet and then used by name in `components`:
+
+```json
+"custom_compounds": [
+  {"name": "my-ester", "formula": "C5H10O2", "smiles": "CCCC(=O)OC",
+   "joback_groups": {"-CH3": 2, "-CH2-": 2, "-COO- (ester)": 1},
+   "unifac_groups": {"CH3": 2, "CH2": 1, "CH2COO": 1},
+   "constants": {"Tb": "102.7 degC"},
+   "antoine": {"A": 9.321, "B": 1389.0, "C": -54.0}}
+]
+```
+
+Give what you know (`constants`: MW, Tb, Tm, Tc, Pc, Vc, omega, Hf, Gf, dipole, r, q, with
+units as anywhere else; `antoine`: `log10(P/Pa) = A - B/(T/K + C)`). The rest is estimated:
+Tb, Tc, Pc, Vc, Hf, Gf and the ideal-gas heat capacity by Joback group contribution, omega
+and the vapor pressure by Lee-Kesler (or `"vapor_pressure": "ambrose-walton"`), the liquid
+volume by COSTALD. Joback groups can come from the SMILES when RDKit is installed
+(`pip install "fluxsheet[estimation]"`). Every estimate appears in the result's
+`parameter_sources` and warnings. Equations of state and the ideal method need nothing more;
+UNIFAC needs `unifac_groups` (Dortmund subgroups), UNIQUAC those or `r` and `q`; NRTL and
+Wilson fit missing pairs to UNIFAC when groups are given. In the editor, **+ Custom
+compound** in the components section opens a form for this.
+
 ## Reactions and reactors
 
 Reactions are defined once per flowsheet and picked by id in a reactor. Each is checked for

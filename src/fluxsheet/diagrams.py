@@ -16,7 +16,7 @@ EOS_METHODS = ("peng-robinson", "srk")
 
 
 def binary_diagram(components: list[str], method: str, *, P: float | None = None,
-                   T: float | None = None, points: int = 41) -> dict:
+                   T: float | None = None, points: int = 41, options: dict | None = None) -> dict:
     """T-xy at fixed ``P`` or P-xy at fixed ``T`` for a binary; x and y of the first component.
 
     Returns the bubble curve (liquid x vs T or P), the dew curve (vapor y vs T or P), an
@@ -25,7 +25,7 @@ def binary_diagram(components: list[str], method: str, *, P: float | None = None
     """
     if (P is None) == (T is None):
         raise SimulationError("give either a pressure (T-xy) or a temperature (P-xy)")
-    pkg = _package(components, method, n=2)
+    pkg = _package(components, method, n=2, options=options)
     kind, fixed = ("txy", {"P": P}) if P is not None else ("pxy", {"T": T})
     key = "T" if kind == "txy" else "P"
     xs = [i / (points - 1) for i in range(points)]
@@ -58,7 +58,9 @@ def binary_diagram(components: list[str], method: str, *, P: float | None = None
     }
 
 
-def _package(components: list[str], method: str, n: int | None = None):
+def _package(components: list[str], method: str, n: int | None = None,
+             options: dict | None = None):
+    """``options``: henry_components and custom compounds, see package_options."""
     if n is not None and len(components) != n:
         raise SimulationError(
             f"a binary diagram needs exactly two components, got {len(components)}",
@@ -69,7 +71,7 @@ def _package(components: list[str], method: str, n: int | None = None):
     if method not in METHODS:
         raise SimulationError(f"unknown property method {method!r}",
                               hint=f"choose one of: {', '.join(METHODS)}")
-    return get_package(tuple(components), method)
+    return get_package(tuple(components), method, **(options or {}))
 
 
 def _splits(pkg, x: float, sat, kind: str) -> bool:
@@ -125,7 +127,7 @@ def _liquid_gap(pkg, gap: list[tuple[float, float]], kind: str, fixed: dict) -> 
 
 
 def phase_envelope(components: list[str], fractions: list[float], method: str,
-                   points: int = 24) -> dict:
+                   points: int = 24, options: dict | None = None) -> dict:
     """Bubble and dew curves (T vs P) of a mixture with an equation of state.
 
     The curves are traced by pressure from 0.5 bar towards the critical region, where the
@@ -139,7 +141,7 @@ def phase_envelope(components: list[str], fractions: list[float], method: str,
     if len(fractions) != len(components) or any(f < 0 for f in fractions) or sum(fractions) <= 0:
         raise SimulationError("give one non-negative mole fraction per component",
                               hint="for example 0.6, 0.3, 0.1")
-    pkg = _package(components, method)
+    pkg = _package(components, method, options=options)
     total = sum(fractions)
     zs = [f / total for f in fractions]
     curves = {kind: _trace(pkg, zs, kind, points) for kind in ("bubble", "dew")}

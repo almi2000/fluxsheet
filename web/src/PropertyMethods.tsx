@@ -142,26 +142,47 @@ export function MethodsSummary({ result }: { result: SolveResult }) {
   );
 }
 
-/** Binary parameter provenance at a glance: counts per source, pairs on hover. */
+/** Parameter provenance at a glance: counts per source, pairs on hover. Binary parameters,
+ * Henry constants of dissolved gases ("Henry constant: ...", pairs "gas in solvent") and
+ * estimated constants of user-defined compounds ("Tc: Joback ...", pair = the compound). */
 export function ParameterSources({ result }: { result: SolveResult }) {
   const sources = result.parameter_sources ?? [];
   if (sources.length === 0) return null;
-  const bySource: Record<string, string[]> = {};
+  const binary: Record<string, string[]> = {};
+  const henry: Record<string, string[]> = {};
+  const estimated: Record<string, string[]> = {};
   for (const s of sources) {
     const pair = s.method ? `${s.pair} (${shortMethod(s.method)})` : s.pair;
-    (bySource[s.source] ??= []).push(pair);
+    if (s.source.startsWith("Henry constant: ")) (henry[s.source.slice(16)] ??= []).push(pair);
+    else if (s.pair.includes("/")) (binary[s.source] ??= []).push(pair);
+    else (estimated[s.pair] ??= []).push(s.source);
   }
   // Measured data first, then estimates, then pairs without any parameters.
   const rank = (src: string) =>
     src === "ThermoML fit" ? 0 : src === "ChemSep" ? 1 : src.startsWith("UNIFAC") ? 2 : 3;
-  const entries = Object.entries(bySource).sort((a, b) => rank(a[0]) - rank(b[0]));
+  const henryRank = (src: string) => (/predicted|estimated|25 °C value only/.test(src) ? 3 : 0);
+  const group = (label: string, groups: Record<string, string[]>, warn: (src: string) => boolean, order = rank) => {
+    const entries = Object.entries(groups).sort((a, b) => order(a[0]) - order(b[0]));
+    if (!entries.length) return null;
+    return (
+      <span key={label}>
+        {label}{" "}
+        {entries.map(([src, pairs], i) => (
+          <span key={src} title={pairs.join("\n")} className={warn(src) ? "warn-text" : undefined}>
+            {i > 0 && " · "}
+            <b>{pairs.length}</b> {src}
+          </span>
+        ))}{" "}
+      </span>
+    );
+  };
   return (
     <span>
-      Binary parameters{" "}
-      {entries.map(([src, pairs], i) => (
-        <span key={src} title={pairs.join("\n")} className={rank(src) >= 2 ? "warn-text" : undefined}>
-          {i > 0 && " · "}
-          <b>{pairs.length}</b> {src}
+      {group("Binary parameters", binary, (src) => rank(src) >= 2)}
+      {group("Henry constants", henry, (src) => henryRank(src) > 0, henryRank)}
+      {Object.entries(estimated).map(([compound, props]) => (
+        <span key={compound} className="warn-text" title={props.join("\n")}>
+          {compound}: <b>{props.length}</b> estimated properties{" "}
         </span>
       ))}
     </span>

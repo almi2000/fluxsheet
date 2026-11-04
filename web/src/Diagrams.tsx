@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { toDisplay } from "./quantities";
+import type { CustomCompound } from "./types";
 import "./diagrams.css";
 
 // Response shapes of /api/diagrams/*; kept here so the shared types stay untouched.
@@ -60,10 +61,12 @@ export function Diagrams({
   components,
   method,
   fractions,
+  customCompounds,
 }: {
   components: string[];
   method: string | null;
   fractions: Record<string, number> | null;
+  customCompounds?: CustomCompound[]; // definitions of user-defined components
 }) {
   const [kind, setKind] = useState<Kind>(EOS.includes(method ?? "") && components.length > 2 ? "envelope" : "txy");
   const [pair, setPair] = useState<[string, string]>([components[0] ?? "", components[1] ?? ""]);
@@ -103,6 +106,7 @@ export function Diagrams({
           components,
           fractions: components.map((c) => shares[c] ?? 0),
           method: envelopeMethod,
+          custom_compounds: customCompounds,
         });
         if (r.ok) setEnvelope(r);
         else setError(r.error);
@@ -110,6 +114,7 @@ export function Diagrams({
         const r = await post<BinaryDiagram>("binary", {
           components: pair,
           method: chosen,
+          custom_compounds: customCompounds,
           ...(kind === "txy" ? { P: pressure } : { T: temperature }),
         });
         if (r.ok) setBinary(r);

@@ -163,6 +163,7 @@ export function ResultsPanel({
         <div hidden={view !== "diagram"}>
           <Diagrams
             components={components}
+            customCompounds={getModel?.().custom_compounds}
             method={result.property_method}
             fractions={feed ? result.streams[feed].mole_fractions : null}
           />

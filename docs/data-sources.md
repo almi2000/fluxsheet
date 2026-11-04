@@ -24,6 +24,40 @@ A compound is marked `simulation_ready` in the editor when at least critical tem
 pressure are available. Each library documents its sources in detail; consult them before
 relying on a specific value.
 
+## Henry constants (dissolved gases)
+
+Activity-coefficient methods treat light gases as Henry components (see the README). Per gas
+and solvent the first available source is used:
+
+| Source | Coverage | Notes |
+|---|---|---|
+| IAPWS G7-04 (2004), Fernández-Prini, Alvarez and Harvey, J. Phys. Chem. Ref. Data 32 (2003) 903 | He, Ne, Ar, Kr, Xe, H2, N2, O2, CO, CO2, H2S, CH4, C2H6, SF6 in water, 0 to about 350 °C | The guideline's coefficients are public; Fluxsheet refits its equation to thermo's `ln H = A + B/T + C ln T + D T` form between 0 and 250 °C (within 1 %) |
+| Sander (2015), Atmos. Chem. Phys. 15, 4399 (CC BY 3.0), as shipped with `thermo` | About 950 solutes in water, temperature-dependent | Single van't Hoff term; poor above about 60 °C |
+| ChemSep Henry table (Artistic License 2.0, via `thermo`) | 41 gases in water | Taken over Sander only where both agree within 10 % at 25 °C (ChemSep's N2 and H2 values are off by a factor of 5 to 10) |
+| Sander (2015) constants | About 4400 solutes in water, 25 °C only | No heat of solution |
+| `thermo`'s Peng-Robinson predictions ("PRTranslated Henry Best") | Gases in about 160 organic solvents | Predicted, not measured; never used for water |
+| Raoult's-law estimate from the extrapolated vapor pressure | Any solvent without a constant | Rough; always warned |
+
+Literature checks in `tests/test_henry_custom.py`: solubilities of O2, N2, CO2, H2, CH4 and Ar
+in water at 25 °C within 5 % of Wilhelm, Battino and Wilcock (1977) and Carroll et al. (1991).
+
+## Estimated properties of user-defined compounds
+
+| Property | Method |
+|---|---|
+| Tb, Tc, Pc, Vc, Tm, ideal-gas Hf and Gf, ideal-gas Cp(T) | Joback and Reid (1987) group contributions (`thermo.group_contribution.joback`); Cp polynomial used from 280 to 1000 K, extended linearly |
+| Joback groups from SMILES | RDKit fragmentation in `thermo` (optional dependency) |
+| Acentric factor | Lee-Kesler vapor-pressure equation through Tb, Tc and Pc |
+| Vapor pressure | Lee-Kesler or Ambrose-Walton from Tc, Pc and omega, unless Antoine constants are given |
+| Liquid volume | COSTALD (Hankinson-Thomson) |
+| Cp without groups | Lastovka-Shaw from the formula |
+| UNIQUAC r, q | Original UNIFAC group volumes and areas |
+| Viscosity, conductivity, surface tension | `thermo`'s corresponding-states methods from the constants |
+
+Joback's typical errors are a few percent in Tb and Tc and up to about 10 % in Pc; an
+estimated Tb can put vapor pressures off by a factor of two, so results say when it was
+estimated. Given constants always win over estimates.
+
 ## Binary parameters from NIST ThermoML
 
 `src/fluxsheet/data/binary_parameters/nrtl.json` and `uniquac.json` hold NRTL and UNIQUAC
@@ -140,10 +174,11 @@ rejected data sets, and the sources.
 2. **Binary parameters from experimental data.** *Started:* NRTL/UNIQUAC parameters regressed
    to [NIST ThermoML](https://www.nist.gov/mml/acmd/trc/thermoml) data, see above. Next: more
    pairs, liquid-liquid data, and per-pair validity ranges checked during a solve.
-3. **Estimation as a fallback.** Group-contribution methods (Joback, Constantinou–Gani, UNIFAC)
-   for compounds without measured data, clearly flagged as estimated.
-4. **Bring your own data.** Let users add compounds and parameters in a plain file, and plug in
-   commercial databases they hold licenses for (e.g. DIPPR, DDB) without redistributing them.
+3. **Estimation as a fallback.** *Started:* Joback and Lee-Kesler estimates for user-defined
+   compounds (above). Next: Constantinou–Gani, and UNIFAC groups from SMILES.
+4. **Bring your own data.** *Started:* compounds with their own constants and Antoine
+   equation in the flowsheet file. Next: binary parameters in a plain file, and plugging in
+   commercial databases users hold licenses for (e.g. DIPPR, DDB) without redistributing them.
 
 ## What we do not do
 

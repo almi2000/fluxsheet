@@ -1,0 +1,16 @@
+/* Custom compound form in the flowsheet inspector (CustomCompoundForm.tsx). */
+.custom-compound-form {
+  margin-top: 10px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius);
+  display: flex; flex-direction: column; gap: 8px;
+}
+.cc-field { display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
+.cc-field > span { color: var(--muted); }
+.cc-field input, .cc-field textarea { width: 100%; }
+.cc-field textarea { resize: vertical; }
+.cc-actions { display: flex; gap: 8px; }
+.cc-add { margin-top: 8px; font-size: 12px; }
+.chips li.custom { background: var(--warn-soft); color: var(--warn); }
+.chips li.custom .chip-edit {
+  border: 0; background: none; padding: 0; font: inherit; font-weight: 600; color: inherit; cursor: pointer;
+}
+.chips li.custom .chip-tag { font-weight: 400; opacity: 0.8; }

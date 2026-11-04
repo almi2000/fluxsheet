@@ -31,7 +31,7 @@ import { StreamEdge } from "./StreamEdge";
 import { DynamicsSettings } from "./DynamicsEditor";
 import { StudiesSettings } from "./StudiesEditor";
 import { OptimizationSettings } from "./OptimizationEditor";
-import type { Costing, DesignSpec, Dynamics, Example, FlowsheetModel, Method, Optimization, OptimizationResult, Params, Reaction, SensitivityStudy, SolveResult, UnitResult, UnitType, Utility } from "./types";
+import type { Costing, CustomCompound, DesignSpec, Dynamics, Example, FlowsheetModel, Method, Optimization, OptimizationResult, Params, Reaction, SensitivityStudy, SolveResult, UnitResult, UnitType, Utility } from "./types";
 import { UtilitiesEditor } from "./UtilitiesEditor";
 import { UnitNode, type UnitFlowNode } from "./UnitNode";
 import { fmt } from "./quantities";
@@ -65,7 +65,8 @@ const DEFAULT_PARAMS: Record<string, Params> = {
   ExtractionColumn: { stages: 5 },
 };
 
-type Meta = Pick<FlowsheetModel, "name" | "description" | "components" | "property_method"> & {
+type Meta = Pick<FlowsheetModel, "name" | "description" | "components" | "property_method" | "henry_components"> & {
+  custom_compounds: CustomCompound[];
   reactions: Reaction[];
   utilities: Utility[];
   design_specs: DesignSpec[];
@@ -78,7 +79,7 @@ type Meta = Pick<FlowsheetModel, "name" | "description" | "components" | "proper
 type Selection = { kind: "unit" | "stream"; id: string } | null;
 
 const EMPTY_META: Meta = {
-  name: "Untitled flowsheet", description: "", components: [], property_method: "auto", reactions: [],
+  name: "Untitled flowsheet", description: "", components: [], property_method: "auto", custom_compounds: [], reactions: [],
   utilities: [], design_specs: [], sensitivity: [],
 };
 
@@ -222,6 +223,7 @@ function Editor() {
     (): FlowsheetModel => ({
       format: "fluxsheet/1",
       ...meta,
+      custom_compounds: meta.custom_compounds.length ? meta.custom_compounds : undefined,
       reactions: meta.reactions.length ? meta.reactions : undefined,
       utilities: meta.utilities.length ? meta.utilities : undefined,
       design_specs: meta.design_specs.length ? meta.design_specs : undefined,
@@ -263,6 +265,8 @@ function Editor() {
         description: model.description ?? "",
         components: model.components,
         property_method: model.property_method,
+        henry_components: model.henry_components,
+        custom_compounds: model.custom_compounds ?? [],
         reactions: model.reactions ?? [],
         utilities: model.utilities ?? [],
         design_specs: model.design_specs ?? [],
@@ -994,6 +998,7 @@ function Editor() {
               name={meta.name}
               description={meta.description ?? ""}
               components={meta.components}
+              customCompounds={meta.custom_compounds}
               method={meta.property_method}
               methods={methods}
               reactions={meta.reactions}
@@ -1001,7 +1006,7 @@ function Editor() {
                 // Typing a name or editing reactions coalesces into one step per field.
                 history.commit(patch.components || patch.property_method ? null : `meta:${Object.keys(patch).join()}`);
                 setMeta((m) => ({ ...m, ...patch }));
-                if (patch.components || patch.property_method || patch.reactions) touch();
+                if (patch.components || patch.custom_compounds || patch.property_method || patch.reactions) touch();
               }}
             >
               <h3>Utilities</h3>

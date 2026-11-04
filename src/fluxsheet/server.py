@@ -18,12 +18,12 @@ from .diagrams import binary_diagram, phase_envelope
 from .dynamics.simulator import simulate
 from .dynamics.units import DYNAMIC_MODELS
 from .errors import SimulationError
-from .flowsheet import FlowsheetModel
+from .flowsheet import CustomCompoundModel, FlowsheetModel
 from .optimization import run_optimization
 from .quantities import UnitError, to_si
 from .sensitivity import run_sensitivity
 from .solver import solve
-from .thermo_package import METHODS, suggest_method
+from .thermo_package import METHODS, package_options, suggest_method
 from .units import UNIT_TYPES
 
 app = FastAPI(title="Fluxsheet", version=__version__)
@@ -57,6 +57,8 @@ def _limited(compute) -> dict:
 
 class ComponentList(BaseModel):
     components: list[str]
+    custom_compounds: list[CustomCompoundModel] | None = None  # user-defined compounds
+    henry_components: list[str] | None = None
 
 
 @app.get("/api/health")
@@ -87,21 +89,19 @@ def suggest(body: ComponentList) -> dict:
     if not body.components:
         raise HTTPException(400, "add at least one component")
     try:
-        return suggest_method(body.components).__dict__
+        return suggest_method(body.components, package_options(body)["custom"]).__dict__
     except (UnknownCompoundError, SimulationError) as exc:
         raise HTTPException(400, str(exc)) from exc
 
 
-class BinaryDiagramRequest(BaseModel):
-    components: list[str]
+class BinaryDiagramRequest(ComponentList):
     method: str = "auto"
     P: float | str | None = None  # T-xy at this pressure, e.g. "1 atm"
     T: float | str | None = None  # P-xy at this temperature, e.g. "80 degC"
     points: int = 41
 
 
-class EnvelopeRequest(BaseModel):
-    components: list[str]
+class EnvelopeRequest(ComponentList):
     fractions: list[float]
     method: str = "peng-robinson"
 
@@ -120,8 +120,8 @@ def _diagram(compute) -> dict:
         return {"ok": False, "error": exc.to_dict()}
 
 
-def _method_for(components: list[str], method: str) -> str:
-    return suggest_method(components).method if method == "auto" else method
+def _method_for(components: list[str], method: str, options: dict) -> str:
+    return suggest_method(components, options["custom"]).method if method == "auto" else method
 
 
 @app.post("/api/diagrams/binary")
@@ -130,15 +130,17 @@ def diagram_binary(body: BinaryDiagramRequest) -> dict:
     def compute():
         P = to_si(body.P, "pressure") if body.P is not None else None
         T = to_si(body.T, "temperature") if body.T is not None else None
-        return binary_diagram(body.components, _method_for(body.components, body.method),
-                              P=P, T=T, points=min(max(body.points, 5), 101))
+        options = package_options(body)
+        return binary_diagram(body.components, _method_for(body.components, body.method, options),
+                              P=P, T=T, points=min(max(body.points, 5), 101), options=options)
     return _diagram(compute)
 
 
 @app.post("/api/diagrams/envelope")
 def diagram_envelope(body: EnvelopeRequest) -> dict:
     """Bubble and dew curves of a mixture with an equation of state."""
-    return _diagram(lambda: phase_envelope(body.components, body.fractions, body.method))
+    return _diagram(lambda: phase_envelope(body.components, body.fractions, body.method,
+                                           options=package_options(body)))
 
 
 @app.get("/api/unit-types")
