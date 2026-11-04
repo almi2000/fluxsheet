@@ -24,6 +24,11 @@ format or API).
   available (warning below NPSH required); compressor curves (polytropic or isentropic)
   with fan laws and surge/stonewall warnings.
 - **Logic blocks:** Mult, Dupl and Selector.
+- **Reports:** Excel workbook (summary, stream table, unit results, profiles, design specs)
+  and a printable HTML report, from the results panel, `fluxsheet report` or
+  `POST /api/report`. Excel needs the `report` extra (`openpyxl`), included in `server`.
+- **Editor autosave:** the open flowsheet is kept in the browser and restored after a
+  reload; the Open menu lists recently opened and saved flowsheets.
 
 - **Dynamic simulation:** from the steady state, flash drums and mixing tanks (level, hold-up),
   CSTRs (kinetics and heat of reaction) and heaters (thermal lag) are integrated over time
