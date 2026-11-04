@@ -24,6 +24,12 @@ format or API).
   available (warning below NPSH required); compressor curves (polytropic or isentropic)
   with fan laws and surge/stonewall warnings.
 - **Logic blocks:** Mult, Dupl and Selector.
+- **Henry components:** light and supercritical gases in NRTL, UNIQUAC, UNIFAC and Wilson
+  dissolve by Henry's law instead of an extrapolated vapor pressure; the components and the
+  source of each constant are reported.
+- **User-defined compounds:** a flowsheet can define its own compounds (formula, SMILES or
+  Joback groups, known constants); missing properties are estimated by Joback and marked as
+  estimates. Editor form in the components section.
 - **Reports:** Excel workbook (summary, stream table, unit results, profiles, design specs)
   and a printable HTML report, from the results panel, `fluxsheet report` or
   `POST /api/report`. Excel needs the `report` extra (`openpyxl`), included in `server`.
