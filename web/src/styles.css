@@ -350,3 +350,20 @@ kbd {
 .multi-actions { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
 .multi-actions button.danger { margin-top: 0; }
 .curve-row .icon-button { padding: 0; width: 22px; height: 22px; line-height: 1; }
+
+/* Open menu with recent flowsheets (OpenMenu.tsx) */
+.open-menu { position: relative; }
+.open-menu .menu {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 20; min-width: 240px; max-width: 340px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.18); padding: 6px; display: flex; flex-direction: column;
+}
+.open-menu .menu button { text-align: left; border: 0; background: none; padding: 6px 8px; border-radius: 4px; }
+.open-menu .menu button:hover { background: var(--accent-soft); }
+.open-menu .menu .recent { display: flex; flex-direction: column; white-space: normal; }
+.open-menu .menu .recent span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.open-menu .menu-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); padding: 8px 8px 2px; border-top: 1px solid var(--border); margin-top: 4px; }
+.open-menu .menu-empty { font-size: 12px; padding: 4px 8px 6px; }
+.open-menu .menu .menu-clear { color: var(--muted); font-size: 12px; border-top: 1px solid var(--border); border-radius: 0; margin-top: 4px; }
+/* Report export in the results bar (ReportExport.tsx) */
+.report-export { margin-left: auto; display: inline-flex; gap: 10px; align-items: baseline; }

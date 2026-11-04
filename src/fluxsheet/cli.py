@@ -1,6 +1,6 @@
-"""Command line: ``fluxsheet run file.json``, ``fluxsheet sensitivity file.json``,
-``fluxsheet dynamic file.json``, ``fluxsheet optimize file.json``, ``fluxsheet fit-binary``
-and ``fluxsheet serve``."""
+"""Command line: ``fluxsheet run file.json``, ``fluxsheet report file.json``,
+``fluxsheet sensitivity file.json``, ``fluxsheet dynamic file.json``,
+``fluxsheet optimize file.json``, ``fluxsheet fit-binary`` and ``fluxsheet serve``."""
 
 from __future__ import annotations
 
@@ -152,6 +152,36 @@ def _fit_binary(args) -> int:
     return 0
 
 
+def _report(args) -> int:
+    from . import report
+
+    if not (args.xlsx or args.html):
+        print("error: give --xlsx and/or --html with the output file", file=sys.stderr)
+        return 2
+    model = FlowsheetModel.load(args.file)
+    result = report.solve_for_report(model)
+    built = report.build_report(model, result)
+    if args.xlsx:
+        try:
+            data = report.to_xlsx(built)
+        except RuntimeError as exc:  # openpyxl missing
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        with open(args.xlsx, "wb") as f:
+            f.write(data)
+        print(f"Excel report written to {args.xlsx}")
+    if args.html:
+        with open(args.html, "w", encoding="utf-8") as f:
+            f.write(report.to_html(built))
+        print(f"HTML report written to {args.html}")
+    if not result.ok:
+        err = result.error
+        print(f"error{' in ' + err['where'] if err['where'] else ''}: {err['message']} "
+              "(the report shows the error)", file=sys.stderr)
+        return 1
+    return 0
+
+
 def _sensitivity(args) -> int:
     table = run_sensitivity(FlowsheetModel.load(args.file), args.study)
     if not table["ok"]:
@@ -254,6 +284,11 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("file")
     run.add_argument("--json", action="store_true", help="print full results as JSON")
     run.set_defaults(func=_run)
+    rep = sub.add_parser("report", help="solve a flowsheet and write an Excel and/or HTML report")
+    rep.add_argument("file")
+    rep.add_argument("--xlsx", help="write an Excel workbook to this file")
+    rep.add_argument("--html", help="write a printable HTML report to this file")
+    rep.set_defaults(func=_report)
     sens = sub.add_parser("sensitivity", help="run a sensitivity study and print it as CSV")
     sens.add_argument("file")
     sens.add_argument("--study", help="id of the study (default: the first)")

@@ -21,6 +21,8 @@ import { useHistory } from "./history";
 import { FlowsheetInspector, StreamInspector, UnitInspector } from "./Inspector";
 import { getSymbol, portAt, SymbolDefs } from "./icons";
 import { layeredLayout } from "./layout";
+import { OpenMenu } from "./OpenMenu";
+import { addRecent, clearAutosave, clearRecent, isBlank, keepUnrestored, readAutosave, readRecent, safeStorage, writeAutosave, type RecentEntry } from "./persistence";
 import { Palette } from "./Palette";
 import { UnitMethodField } from "./PropertyMethods";
 import { ResultsPanel } from "./ResultsPanel";
@@ -139,6 +141,10 @@ function isTextField(t: EventTarget | null) {
 }
 
 const PASTE_OFFSET = 40;
+/** savedVersion of a document never saved to a file (history versions are >= 0). */
+const NEVER_SAVED = -1;
+const storage = safeStorage();
+const AUTOSAVE_DELAY_MS = 800;
 
 function Editor() {
   const [unitTypes, setUnitTypes] = useState<UnitType[]>([]);
@@ -274,19 +280,78 @@ function Editor() {
     [history, dirty, schemas, setNodes, setEdges, flow],
   );
 
-  // Load the first example once the schemas are known, so a new user sees something work.
+  // On start, restore the last session from the browser's storage; otherwise load the first
+  // example once the schemas are known, so a new user sees something work.
   const booted = useRef(false);
-  useEffect(() => {
-    if (booted.current || unitTypes.length === 0 || examples.length === 0) return;
-    booted.current = true;
+  const [restoredAt, setRestoredAt] = useState<number | null>(null);
+  const [unrestored, setUnrestored] = useState(false);
+  /** `undoable`: one undo step back to the document before (Discard), else none (start). */
+  const loadStartExample = useCallback((undoable = false) => {
+    if (examples.length === 0) return;
     api
       .example(examples[0].id)
       .then((m) => {
         loadModel(m, true);
-        history.reset(); // the starting example is not an undo step
+        if (!undoable) history.reset(); // the starting example is not an undo step
       })
       .catch(() => undefined);
-  }, [unitTypes, examples, loadModel, history]);
+  }, [examples, loadModel, history]);
+  useEffect(() => {
+    if (booted.current || unitTypes.length === 0) return;
+    const saved = readAutosave(storage);
+    if (saved && saved.model.units.every((u) => u && schemas[u.type])) {
+      booted.current = true;
+      // Cleared while restoring and written back by the autosave once the flowsheet is on
+      // screen: a session that breaks the editor is not restored again on the next load.
+      clearAutosave(storage);
+      try {
+        loadModel(saved.model, true);
+        history.reset(); // restoring is not an undo step
+        if (saved.dirty) setSavedVersion(NEVER_SAVED); // still not saved to a file
+        if (!isBlank(saved.model)) setRestoredAt(saved.savedAt);
+        return;
+      } catch {
+        /* fall back to the example */
+      }
+    } else if (saved) {
+      // Unit types this version does not know (an older or newer editor): keep it aside.
+      setUnrestored(keepUnrestored(storage));
+    }
+    if (examples.length === 0) return;
+    booted.current = true;
+    loadStartExample();
+  }, [unitTypes, examples, schemas, loadModel, history, loadStartExample]);
+
+  // ---- autosave and recent flowsheets ---------------------------------------------------
+
+  const [recent, setRecent] = useState<RecentEntry[]>(() => readRecent(storage));
+  const lastAutosave = useRef<string | null>(null);
+  const autosave = useRef(() => {});
+  autosave.current = () => {
+    if (!booted.current) return;
+    const model = toModel();
+    const key = `${dirty}${JSON.stringify(model)}`;
+    if (key === lastAutosave.current) return; // selection changes, re-renders, ...
+    if (writeAutosave(storage, model, dirty)) lastAutosave.current = key;
+  };
+  useEffect(() => {
+    const t = window.setTimeout(() => autosave.current(), AUTOSAVE_DELAY_MS);
+    return () => window.clearTimeout(t);
+  }, [meta, nodes, edges, dirty]);
+  useEffect(() => {
+    const flush = () => autosave.current(); // edits within the delay before closing the tab
+    window.addEventListener("pagehide", flush);
+    return () => window.removeEventListener("pagehide", flush);
+  }, []);
+
+  const discardRestored = () => {
+    setRestoredAt(null);
+    clearAutosave(storage);
+    lastAutosave.current = null;
+    // Undo brings the restored session back.
+    if (examples.length) loadStartExample(true);
+    else loadModel({ format: "fluxsheet/1", ...EMPTY_META, units: [], streams: [] }, true);
+  };
 
   // ---- editing -------------------------------------------------------------------------
 
@@ -653,11 +718,14 @@ function Editor() {
     URL.revokeObjectURL(a.href);
     setSavedVersion(history.version);
     history.seal();
+    setRecent(addRecent(storage, model));
   };
 
   const open = async (file: File) => {
     try {
-      loadModel(JSON.parse(await file.text()), true);
+      const model = JSON.parse(await file.text());
+      loadModel(model, true);
+      setRecent(addRecent(storage, model));
     } catch (err) {
       alert(`Could not open ${file.name}: ${(err as Error).message}`);
     }
@@ -741,7 +809,26 @@ function Editor() {
         </div>
         <div className="spacer" />
         <button onClick={() => loadModel({ format: "fluxsheet/1", ...EMPTY_META, units: [], streams: [] })}>New</button>
-        <button onClick={() => fileInput.current?.click()}>Open…</button>
+        <OpenMenu
+          recent={recent}
+          onOpenFile={() => fileInput.current?.click()}
+          onOpenRecent={(e) => {
+            if (!e.model.units.every((u) => u && schemas[u.type])) {
+              alert(`Could not open ${e.name}: it uses unit types this version does not know.`);
+              return;
+            }
+            try {
+              loadModel(e.model, true);
+              setRecent(addRecent(storage, e.model));
+            } catch (err) {
+              alert(`Could not open ${e.name}: ${(err as Error).message}`);
+            }
+          }}
+          onClearRecent={() => {
+            clearRecent(storage);
+            setRecent([]);
+          }}
+        />
         <button onClick={save}>Save</button>
         <select
           className="examples"
@@ -777,6 +864,20 @@ function Editor() {
 
       <div className="banners">
         {backendError && <div className="banner error">{backendError}</div>}
+        {restoredAt !== null && (
+          <div className="banner info" role="status">
+            Restored your last session ({new Date(restoredAt).toLocaleString()}).
+            <button onClick={discardRestored}>Discard and start over</button>
+            <button onClick={() => setRestoredAt(null)}>OK</button>
+          </div>
+        )}
+        {unrestored && (
+          <div className="banner warn">
+            Your last session uses unit types this version does not know, so it was not restored. It
+            is kept in this browser&apos;s storage under “fluxsheet:autosave:unrestored”.
+            <button className="link" onClick={() => setUnrestored(false)}> OK</button>
+          </div>
+        )}
         {result && !result.ok && result.error && (
           <div className="banner error">
             <b>{result.error.where ? `${result.error.where}: ` : ""}</b>

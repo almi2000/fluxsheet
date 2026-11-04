@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
+from urllib.parse import quote
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import __version__, limits
+from . import __version__, limits, report
 from .compounds import UnknownCompoundError, lookup, search
 from .diagrams import binary_diagram, phase_envelope
 from .dynamics.simulator import simulate
@@ -236,6 +238,34 @@ def dynamic(model: FlowsheetModel) -> dict:
     except UnknownCompoundError as exc:
         return {"ok": False, "error": {"message": str(exc), "where": None,
                                        "hint": "search for the compound and pick it from the list"}}
+
+
+_REPORT_TYPES = {
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "html": "text/html; charset=utf-8",
+}
+
+
+@app.post("/api/report")
+def report_file(model: FlowsheetModel, format: Literal["xlsx", "html"] = "xlsx") -> Response:
+    """Solve the flowsheet and return its report as an Excel workbook or printable HTML."""
+    try:
+        limits.check_model_size(model)
+    except SimulationError as exc:
+        raise HTTPException(413, exc.message) from exc
+
+    def compute():
+        built = report.build_report(model, report.solve_for_report(model))
+        return report.to_xlsx(built) if format == "xlsx" else report.to_html(built)
+
+    try:
+        content = _limited(compute)
+    except RuntimeError as exc:  # openpyxl is not installed
+        raise HTTPException(501, str(exc)) from exc
+    name = report.filename(model.name, format)
+    return Response(content, media_type=_REPORT_TYPES[format], headers={
+        "Content-Disposition": f"attachment; filename=\"{name}\"; "
+                               f"filename*=UTF-8''{quote(name)}"})
 
 
 class _EditorFiles(StaticFiles):

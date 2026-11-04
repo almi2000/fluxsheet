@@ -86,6 +86,23 @@ paste and duplicate the selected units (shift-click or shift-drag to select seve
 paste into another editor tab as Fluxsheet JSON), and **Arrange** lays the flowsheet out left to
 right. Press `?` for all shortcuts.
 
+The editor autosaves the open flowsheet in the browser: after a reload or a crash it comes back
+with a "Restored your last session" notice (Discard starts over). **Open** also lists the last
+flowsheets you opened or saved. These copies live only in this browser; **Save** writes the file.
+
+**Reports.** **Export: Excel / Printable report** in the results bar, or from the command line:
+
+```bash
+fluxsheet report examples/benzene_toluene_purity.json --xlsx report.xlsx --html report.html
+```
+
+The Excel workbook has sheets for the summary (components, property method and why, binary
+parameter sources, warnings, convergence), the stream table, unit results, column and reactor
+profiles and design specs, all in the editor's units (°C, bar, kmol/h, kg/h, kW) with the unit
+named on every row or column. The HTML report is a self-contained page with print styles: print
+it to PDF from the browser. Excel output needs `openpyxl` (included in `[server]`, or
+`pip install "fluxsheet[report]"`); the HTTP API is `POST /api/report?format=xlsx|html`.
+
 **Use it from Python**
 
 ```python
