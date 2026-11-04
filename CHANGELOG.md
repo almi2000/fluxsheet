@@ -9,6 +9,22 @@ format or API).
 
 ### Added
 
+- **Optimization around the flowsheet:** objective and constraints as calculator
+  expressions, bounded unit parameters as decision variables, SLSQP on scaled variables
+  with a COBYLA fallback when trials fail. CLI `fluxsheet optimize`, `POST /api/optimize`,
+  editor settings and results tab. Example `ethyl_acetate_optimization.json`.
+- **Equipment costing:** Turton purchased and bare-module costs (CEPCI-scaled) sized from
+  the solution for columns, drums, exchangers, pumps, compressors and stirred reactors;
+  utilities priced per GJ; total annualized cost (`tac`) readable by specs, sensitivity
+  studies and optimizations.
+- **Column side streams:** liquid or vapor side draws, pumparounds (duty or return
+  temperature), side heaters and coolers, and kinetic reactive stages on the rigorous
+  column. Example `btx_side_draw_pumparound.json`.
+- **Performance curves:** pump head and efficiency curves with affinity laws and NPSH
+  available (warning below NPSH required); compressor curves (polytropic or isentropic)
+  with fan laws and surge/stonewall warnings.
+- **Logic blocks:** Mult, Dupl and Selector.
+
 - **Dynamic simulation:** from the steady state, flash drums and mixing tanks (level, hold-up),
   CSTRs (kinetics and heat of reaction) and heaters (thermal lag) are integrated over time
   with a stiff BDF method and a sparse Jacobian. PID controllers in percent of range with
