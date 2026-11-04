@@ -48,7 +48,9 @@ def _run(args) -> int:
         print(f"  ({result.property_method_reason})")
     # Binary parameter provenance, grouped by source so wide component lists stay readable.
     by_source: dict[str, list[str]] = {}
+    kinds: dict[str, str] = {}  # "binary", "henry" or "estimate" (user-defined compounds)
     for src in result.parameter_sources:
+        kinds[src["source"]] = src.get("kind", "binary")
         pair = f"{src['pair']} ({src['method']})" if src.get("method") else src["pair"]
         by_source.setdefault(src["source"], []).append(pair)
     def rank(source: str) -> int:  # measured data first, then estimates, then nothing
@@ -56,9 +58,9 @@ def _run(args) -> int:
 
     for source, pairs in sorted(by_source.items(), key=lambda kv: rank(kv[0])):
         shown = ", ".join(pairs) if len(pairs) <= 3 else f"{', '.join(pairs[:3])} and {len(pairs) - 3} more"
-        if source.startswith("Henry constant: "):  # dissolved gases, see henry.py
+        if kinds[source] == "henry":  # dissolved gases, see henry.py
             print(f"  Henry constants, {source.removeprefix('Henry constant: ')}: {shown}")
-        elif "/" in pairs[0]:
+        elif kinds[source] == "binary":
             print(f"  binary parameters, {source}: {shown}")
         else:  # estimated constants of user-defined compounds: "Tc: Joback group contribution"
             prop, _, how = source.partition(": ")

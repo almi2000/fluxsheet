@@ -44,7 +44,6 @@ from .henry import (
     HenryLiquid,
     henry_constant,
     ideal_solvent_model,
-    raoult_estimate,
 )
 
 
@@ -433,6 +432,11 @@ class PropertyPackage:
         self._henry_request = henry_components
         self.henry = [False] * self.n
         self._flasher = self._build()
+        if henry_components and not (self.method in HENRY_METHODS and self.n > 1):
+            self.warnings.append(
+                f"henry_components is ignored by {METHODS[method].label}: "
+                + ("equations of state describe dissolved gases directly."
+                   if self.method not in HENRY_METHODS else "a single compound has no solvent."))
 
     @property
     def henry_components(self) -> list[str]:
@@ -474,7 +478,7 @@ class PropertyPackage:
             for prop, how in est.estimated.items():
                 value = est.values.get(prop)
                 self.parameter_sources.append({
-                    "pair": comp.name, "source": f"{prop}: {how}",
+                    "pair": comp.name, "kind": "estimate", "source": f"{prop}: {how}",
                     **({"value": value} if isinstance(value, float) else {})})
             self.warnings.append(
                 f"{comp.name} is a user-defined compound; estimated: {est.summary()}. Treat "
@@ -603,19 +607,22 @@ class PropertyPackage:
             for j, k in found.items():
                 coeffs[i][j] = k.coeffs
                 self.parameter_sources.append({"pair": f"{self.names[i]} in {self.names[j]}",
+                                               "kind": "henry",
                                                "source": f"Henry constant: {k.source}"})
             if missing:
-                guess = raoult_estimate(self.props.VaporPressures[i])
+                # thermo's mixing rule ("solvents_with_parameters") then averages over the
+                # solvents with data only; an extrapolated vapor pressure would be far worse.
                 for j in missing:
-                    coeffs[i][j] = guess.coeffs
-                    self.parameter_sources.append({"pair": f"{self.names[i]} in {self.names[j]}",
-                                                   "source": f"Henry constant: {guess.source}"})
+                    self.parameter_sources.append({
+                        "pair": f"{self.names[i]} in {self.names[j]}", "kind": "henry",
+                        "source": "Henry constant: none (other solvents' constants used)"})
                 self.warnings.append(
                     f"{label}: no Henry constant for {self.names[i]} in "
-                    f"{', '.join(self.names[j] for j in missing)}; it is estimated from "
-                    f"{self.names[i]}'s extrapolated vapor pressure (ideal solution), which "
-                    "can be off by a factor of several. Its solubility in liquids rich in "
-                    f"{'that solvent' if len(missing) == 1 else 'those solvents'} is rough.")
+                    f"{', '.join(self.names[j] for j in missing)}; in liquids rich in "
+                    f"{'that solvent' if len(missing) == 1 else 'those solvents'} its "
+                    "solubility is taken from the constants of the other solvents "
+                    f"({', '.join(self.names[j] for j in found)}) and may be off by a factor "
+                    "of several.")
         if not any(flags):
             return flags, {}
         names = ", ".join(self.henry_names(flags))
@@ -623,7 +630,7 @@ class PropertyPackage:
             f"{label}: {names} {'is a Henry component' if sum(flags) == 1 else 'are Henry components'}"
             " (dissolved gas: Henry's law, ideal dilute solution, no pressure correction). "
             "Valid for dilute solutions at moderate pressure; set henry_components to change.")
-        kwargs = {"henry_components": flags}
+        kwargs = {"henry_components": flags, "henry_mode": "solvents_with_parameters"}
         for k, key in enumerate(("henry_as", "henry_bs", "henry_cs", "henry_ds", "henry_es",
                                  "henry_fs")):
             kwargs[key] = [[coeffs[i][j][k] for j in range(n)] for i in range(n)]
@@ -643,10 +650,13 @@ class PropertyPackage:
         if self.method == "uniquac":
             for i in idx:
                 if c.UNIFAC_Rs[i] is None or c.UNIFAC_Qs[i] is None:
+                    custom = custom_compounds.is_custom(c.CASs[i])
                     raise SimulationError(
                         f"{self.names[i]!r} has no UNIQUAC size and surface parameters (r, q)",
-                        hint="they come from UNIFAC groups, which this compound lacks; "
-                        "use NRTL or Peng-Robinson instead",
+                        hint=("give both r and q in its constants, or unifac_groups made of "
+                              "original UNIFAC subgroups" if custom else
+                              "they come from UNIFAC groups, which this compound lacks; "
+                              "use NRTL or Peng-Robinson instead"),
                     )
         b = ip_matrix(table, c.CASs, "bij")
         a = (ip_matrix(table, c.CASs, "aij") if self.method == "wilson"

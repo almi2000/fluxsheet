@@ -877,7 +877,13 @@ function Editor() {
               onChange={(patch) => {
                 // Typing a name or editing reactions coalesces into one step per field.
                 history.commit(patch.components || patch.property_method ? null : `meta:${Object.keys(patch).join()}`);
-                setMeta((m) => ({ ...m, ...patch }));
+                setMeta((m) => {
+                  const next = { ...m, ...patch };
+                  // A removed component leaves an explicit Henry list too.
+                  if (patch.components && m.henry_components)
+                    next.henry_components = m.henry_components.filter((c) => patch.components!.includes(c));
+                  return next;
+                });
                 if (patch.components || patch.custom_compounds || patch.property_method || patch.reactions) touch();
               }}
             >

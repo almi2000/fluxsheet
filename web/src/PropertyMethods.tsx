@@ -153,14 +153,14 @@ export function ParameterSources({ result }: { result: SolveResult }) {
   const estimated: Record<string, string[]> = {};
   for (const s of sources) {
     const pair = s.method ? `${s.pair} (${shortMethod(s.method)})` : s.pair;
-    if (s.source.startsWith("Henry constant: ")) (henry[s.source.slice(16)] ??= []).push(pair);
-    else if (s.pair.includes("/")) (binary[s.source] ??= []).push(pair);
+    if (s.kind === "henry") (henry[s.source.replace(/^Henry constant: /, "")] ??= []).push(pair);
+    else if (s.kind !== "estimate") (binary[s.source] ??= []).push(pair);
     else (estimated[s.pair] ??= []).push(s.source);
   }
   // Measured data first, then estimates, then pairs without any parameters.
   const rank = (src: string) =>
     src === "ThermoML fit" ? 0 : src === "ChemSep" ? 1 : src.startsWith("UNIFAC") ? 2 : 3;
-  const henryRank = (src: string) => (/predicted|estimated|25 °C value only/.test(src) ? 3 : 0);
+  const henryRank = (src: string) => (/predicted|none|25 °C value only/.test(src) ? 3 : 0);
   const group = (label: string, groups: Record<string, string[]>, warn: (src: string) => boolean, order = rank) => {
     const entries = Object.entries(groups).sort((a, b) => order(a[0]) - order(b[0]));
     if (!entries.length) return null;
