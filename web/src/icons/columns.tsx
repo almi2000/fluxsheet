@@ -39,6 +39,8 @@ export const symbols: Record<string, UnitSymbol> = {
           {...pipe}
           d="M1 90H26M40 19V8H74V14M74 30V36M68 50V58H54M86 36V30H109M92 46H109M40 157V164H66M81 160V140H54M96 167H109"
         />
+        {/* side draw nozzles */}
+        <path {...thin} d="M54 72H62M54 89H62M54 106H62M54 123H62" />
         <path {...metal} d="M26 26A14 7 0 0 1 54 26V150A14 7 0 0 1 26 150Z" />
         <path {...thin} d={trays(26, 54, range(36, 144, 9))} />
         <circle {...metalR} cx="74" cy="22" r="8" />
@@ -55,6 +57,10 @@ export const symbols: Record<string, UnitSymbol> = {
       distillate: { x: 109, y: 46 },
       vapor_distillate: { x: 109, y: 30 },
       bottoms: { x: 109, y: 167 },
+      side1: { x: 62, y: 72 },
+      side2: { x: 62, y: 89 },
+      side3: { x: 62, y: 106 },
+      side4: { x: 62, y: 123 },
     },
   },
   Absorber: {

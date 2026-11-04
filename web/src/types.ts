@@ -11,6 +11,7 @@ export interface ParamSchema {
   options: string[] | null;
   requires?: string | null; // shown only when this other parameter is set
   tab?: string | null; // short label among the alternatives of a group
+  fields?: ParamSchema[] | null; // the columns of a "records" parameter
 }
 
 export interface ResultField {

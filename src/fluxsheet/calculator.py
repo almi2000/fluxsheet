@@ -151,7 +151,8 @@ def _param_quantity(model: FlowsheetModel, unit: str, param: str, component: str
     if q in ("composition", "component_fractions"):
         _check_component(component, model, where)
         return "molar_flow" if q == "composition" else "fraction"
-    if q in ("integer", "choice", "component", "string_list", "stream_stages", "utility"):
+    if q in ("integer", "choice", "component", "string_list", "stream_stages", "utility",
+             "records"):
         raise SimulationError(f"{param} of {unit} is not a number a calculator can set or read",
                               where=where)
     return q

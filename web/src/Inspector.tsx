@@ -48,15 +48,18 @@ function numOrNull(text: string): number | null {
   return text.trim() === "" ? null : Number(text);
 }
 
-function Field({ param, children }: { param: ParamSchema; children: React.ReactNode }) {
+function Field({ param, children, group }: { param: ParamSchema; children: React.ReactNode; group?: boolean }) {
+  // A group of several inputs (a table) is not one labelled control: a <label> would forward
+  // clicks on its caption to the first button or input inside.
+  const Tag = group ? "div" : "label";
   return (
-    <label className="field">
+    <Tag className="field">
       <span className="field-label" title={param.help}>
         {param.label}
       </span>
       {children}
       {param.help && <span className="field-help">{param.help}</span>}
-    </label>
+    </Tag>
   );
 }
 
@@ -130,6 +133,91 @@ function StreamStageTable({
           />
         </div>
       ))}
+    </div>
+  );
+}
+
+/** A "records" parameter: one row per entry, one column per field; rows can be added and removed. */
+function RecordTable({
+  fields,
+  value,
+  onChange,
+}: {
+  fields: ParamSchema[];
+  value: Record<string, unknown>[];
+  onChange: (v: Record<string, unknown>[] | null) => void;
+}) {
+  const update = (i: number, name: string, v: unknown) => {
+    const next = value.map((row) => ({ ...row }));
+    if (v === null || v === undefined || v === "") delete next[i][name];
+    else next[i][name] = v;
+    onChange(next);
+  };
+  const cell = (f: ParamSchema, row: Record<string, unknown>, i: number) => {
+    const current = row[f.name] ?? undefined;
+    if (f.quantity === "choice")
+      return (
+        <select value={String(current ?? f.default ?? "")} onChange={(e) => update(i, f.name, e.target.value || null)}>
+          {f.default === null && <option value="">–</option>}
+          {(f.options ?? []).map((o) => (
+            <option key={o} value={o}>
+              {o}
+            </option>
+          ))}
+        </select>
+      );
+    if (f.quantity === "integer")
+      return (
+        <input
+          type="number"
+          step={1}
+          min={f.min ?? undefined}
+          value={current === undefined ? "" : String(current)}
+          onChange={(e) => update(i, f.name, e.target.value === "" ? null : Math.round(Number(e.target.value)))}
+        />
+      );
+    return (
+      <QuantityInput
+        quantity={f.quantity === "fraction" ? null : f.quantity}
+        value={current}
+        placeholder={f.default === null ? "–" : String(f.default)}
+        onChange={(v) => update(i, f.name, v)}
+      />
+    );
+  };
+  return (
+    <div className="record-table">
+      {value.map((row, i) => (
+        <div key={i} className="record-row">
+          {fields.map((f) => (
+            <label key={f.name} className="record-cell" title={f.help}>
+              <span>{f.label}</span>
+              {cell(f, row, i)}
+            </label>
+          ))}
+          <button
+            className="record-remove"
+            title="Remove this entry"
+            onClick={(e) => {
+              e.preventDefault();
+              const next = value.filter((_, k) => k !== i);
+              onChange(next.length ? next : null);
+            }}
+          >
+            ×
+          </button>
+        </div>
+      ))}
+      <button
+        className="record-add"
+        onClick={(e) => {
+          e.preventDefault();
+          const blank = Object.fromEntries(fields.filter((f) => f.default !== null).map((f) => [f.name, f.default]));
+          onChange([...value, blank]);
+        }}
+      >
+        + Add
+      </button>
     </div>
   );
 }
@@ -372,6 +460,16 @@ export function UnitInspector({
           <CurveInput value={(params[p.name] as CurveValue) ?? newCurve(p)} onChange={(v) => set(p.name, v)} />
           {p.help && <span className="field-help">{p.help}</span>}
         </div>
+      );
+    if (p.quantity === "records")
+      return (
+        <Field key={p.name} param={p} group>
+          <RecordTable
+            fields={p.fields ?? []}
+            value={Array.isArray(params[p.name]) ? (params[p.name] as Record<string, unknown>[]) : []}
+            onChange={(v) => set(p.name, v)}
+          />
+        </Field>
       );
     if (p.quantity === "string_list")
       return (

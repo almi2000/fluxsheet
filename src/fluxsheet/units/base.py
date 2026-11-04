@@ -27,8 +27,10 @@ from ..thermo_package import PropertyPackage
 #   "utility"             id of a flowsheet utility (heating or cooling medium)
 #   "stream"              id of one of the unit's inlet streams
 #   "curve"               performance curve table, see fluxsheet.curves
+#   "records"             list of objects whose fields are the Params in `fields`, e.g. the
+#                         side draws of a column: [{"stage": 5, "phase": "liquid", ...}]
 SPECIAL_KINDS = ("integer", "choice", "component", "string_list", "composition",
-                 "component_fractions", "stream_stages", "utility", "stream", "curve")
+                 "component_fractions", "stream_stages", "utility", "stream", "curve", "records")
 
 
 @dataclass(frozen=True)
@@ -43,10 +45,12 @@ class Param:
     options: tuple[str, ...] | None = None  # for quantity="choice"; a curve's usual head unit
     requires: str | None = None  # only used (and shown) when this other parameter is set
     tab: str | None = None  # short label when it is one of the alternatives of a group
+    fields: tuple[Param, ...] | None = None  # for quantity="records"
 
     def to_dict(self) -> dict:
         d = asdict(self)
         d["options"] = list(self.options) if self.options else None
+        d["fields"] = [f.to_dict() for f in self.fields] if self.fields else None
         return d
 
 
@@ -153,6 +157,10 @@ class UnitOperation:
                     raise UnitError(f"stage of {sid} must be a whole number, got {stage!r}")
                 stages[str(sid)] = int(stage)
             return stages
+        if q == "records":
+            if not isinstance(value, list) or not all(isinstance(v, dict) for v in value):
+                raise UnitError(f"expected a list of entries, got {value!r}")
+            return [self._record(param, i, v) for i, v in enumerate(value)]
         if q in ("composition", "component_fractions"):
             if not isinstance(value, dict):
                 raise UnitError(f"expected a mapping of component to value, got {value!r}")
@@ -161,6 +169,29 @@ class UnitOperation:
         if param.quantity is None:
             return float(value)
         return to_si(value, param.quantity)
+
+    def _record(self, param: Param, index: int, raw: dict) -> dict:
+        """One entry of a "records" parameter: each field converted and bounds-checked like a
+        parameter of its own; missing fields take their default (None if they have none)."""
+        fields = {f.name: f for f in param.fields or ()}
+        unknown = [k for k in raw if k not in fields]
+        if unknown:
+            raise UnitError(f"entry {index + 1}: unknown field {unknown[0]!r}; use "
+                            f"{', '.join(fields)}")
+        out = {}
+        for f in fields.values():
+            value = raw.get(f.name, f.default)
+            try:
+                out[f.name] = None if value is None else self._convert(f, value)
+            except UnitError as exc:
+                raise UnitError(f"entry {index + 1}, {f.label}: {exc}") from exc
+            v = out[f.name]
+            if isinstance(v, (int, float)) and not isinstance(v, bool) and (
+                    (f.min is not None and v < f.min) or (f.max is not None and v > f.max)):
+                bounds = (f"between {f.min} and {f.max}" if f.max is not None
+                          else f"at least {f.min}")
+                raise UnitError(f"entry {index + 1}, {f.label} must be {bounds}, got {v:g}")
+        return out
 
     def _check_bounds(self, param: Param) -> None:
         value = self.p[param.name]
