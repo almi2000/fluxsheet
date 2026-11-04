@@ -45,6 +45,13 @@ _STREAM_KEYS = {"mole_fraction": "mole_fractions", "component_flow": "component_
 
 MAX_PASSES = 10  # rounds over all specs when there are several
 
+# Cost results of any costed unit (costing.py): name -> label.
+UNIT_COSTS = {
+    "purchased_cost": "Purchased cost ($)",
+    "bare_module_cost": "Bare module cost ($)",
+    "operating_cost": "Operating cost ($/yr)",
+}
+
 
 # ---- reading results ---------------------------------------------------------------------
 
@@ -58,6 +65,15 @@ class Variable:
 
     @classmethod
     def resolve(cls, ref: VariableRef, model: FlowsheetModel, where: str) -> Variable:
+        if ref.stream is None and ref.unit is None or ref.property in UNIT_COSTS:
+            from .costing import SUMMARY_FIELDS
+
+            if model.costing is None:
+                raise SimulationError(f"{ref.property} needs costing", where=where,
+                                      hint="add a 'costing' section to the flowsheet (in the "
+                                      "editor: flowsheet settings, Costing)")
+        if ref.stream is None and ref.unit is None:
+            return cls(ref, _lower(SUMMARY_FIELDS[ref.property]), None)
         if ref.stream is not None:
             streams = [s.id for s in model.streams]
             # Unconnected outlets appear in the results as "UNIT.port".
@@ -76,6 +92,8 @@ class Variable:
             return cls(ref, f"{ref.stream} {label}", quantity)
 
         cls_ = _unit_class(ref.unit, model, where)
+        if ref.property in UNIT_COSTS:
+            return cls(ref, f"{ref.unit} {_lower(UNIT_COSTS[ref.property])}", None)
         fields = {f.name: f for f in cls_.result_fields}
         if ref.property not in fields:
             raise SimulationError(
@@ -87,7 +105,9 @@ class Variable:
 
     def read(self, result: SolveResult) -> float:
         ref = self.ref
-        if ref.stream is not None:
+        if ref.stream is None and ref.unit is None:
+            value = (result.costing or {}).get(ref.property)
+        elif ref.stream is not None:
             stream = result.streams.get(ref.stream)
             if stream is None:
                 raise SimulationError(f"stream {ref.stream} is not in the results",
@@ -95,6 +115,10 @@ class Variable:
             value = stream[_STREAM_KEYS.get(ref.property, ref.property)]
             if ref.component is not None:
                 value = value[ref.component]
+        elif ref.property in UNIT_COSTS and ref.property not in result.units.get(ref.unit, {}):
+            raise SimulationError(f"{self.label} has no value in this solution",
+                                  hint="the costing does not cover this unit; see the costing "
+                                  "summary")
         else:
             value = result.units.get(ref.unit, {}).get(ref.property)
         if not isinstance(value, (int, float)) or not math.isfinite(value):

@@ -32,7 +32,13 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .dynamics.models import DynamicsModel
-from .study_models import CalculatorModel, DesignSpecModel, SensitivityModel
+from .study_models import (
+    CalculatorModel,
+    CostingModel,
+    DesignSpecModel,
+    OptimizationModel,
+    SensitivityModel,
+)
 
 FORMAT = "fluxsheet/1"
 
@@ -145,6 +151,8 @@ class FlowsheetModel(BaseModel):
     sensitivity: list[SensitivityModel] | None = None  # run on request; sensitivity.py
     calculators: list[CalculatorModel] | None = None  # set parameters from formulas; calculator.py
     dynamics: DynamicsModel | None = None  # run on request; dynamics/
+    costing: CostingModel | None = None  # equipment and utility costs; costing.py
+    optimizations: list[OptimizationModel] | None = None  # run on request; optimization.py
 
     @classmethod
     def load(cls, path: str | Path) -> FlowsheetModel:

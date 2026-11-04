@@ -28,7 +28,8 @@ import { ShortcutHelp } from "./Shortcuts";
 import { StreamEdge } from "./StreamEdge";
 import { DynamicsSettings } from "./DynamicsEditor";
 import { StudiesSettings } from "./StudiesEditor";
-import type { DesignSpec, Dynamics, Example, FlowsheetModel, Method, Params, Reaction, SensitivityStudy, SolveResult, UnitResult, UnitType, Utility } from "./types";
+import { OptimizationSettings } from "./OptimizationEditor";
+import type { Costing, DesignSpec, Dynamics, Example, FlowsheetModel, Method, Optimization, OptimizationResult, Params, Reaction, SensitivityStudy, SolveResult, UnitResult, UnitType, Utility } from "./types";
 import { UtilitiesEditor } from "./UtilitiesEditor";
 import { UnitNode, type UnitFlowNode } from "./UnitNode";
 import { fmt } from "./quantities";
@@ -69,6 +70,8 @@ type Meta = Pick<FlowsheetModel, "name" | "description" | "components" | "proper
   sensitivity: SensitivityStudy[];
   calculators?: unknown[];
   dynamics?: Dynamics;
+  costing?: Costing;
+  optimizations?: Optimization[];
 };
 type Selection = { kind: "unit" | "stream"; id: string } | null;
 
@@ -219,6 +222,8 @@ function Editor() {
       sensitivity: meta.sensitivity.length ? meta.sensitivity : undefined,
       calculators: meta.calculators?.length ? meta.calculators : undefined,
       dynamics: meta.dynamics,
+      costing: meta.costing,
+      optimizations: meta.optimizations?.length ? meta.optimizations : undefined,
       units: nodes.map((n) => ({
         id: n.id,
         type: n.data.type,
@@ -258,6 +263,8 @@ function Editor() {
         sensitivity: model.sensitivity ?? [],
         calculators: model.calculators,
         dynamics: model.dynamics,
+        costing: model.costing,
+        optimizations: model.optimizations,
       });
       setResult(null);
       setStale(false);
@@ -363,6 +370,26 @@ function Editor() {
   const updateParams = (id: string, params: Params) => {
     history.commit(`params:${id}`);
     setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, data: { ...n.data, params } } : n)));
+    touch();
+  };
+
+  /** Set the parameters an optimization found (SI values), replacing the other members of
+   * their specification groups as the solver does (specs.set_param). */
+  const applyOptimum = (values: NonNullable<OptimizationResult["apply"]>) => {
+    history.commit();
+    setNodes((ns) =>
+      ns.map((n) => {
+        const mine = values.filter((v) => v.unit === n.id);
+        if (!mine.length) return n;
+        const params = { ...n.data.params };
+        for (const v of mine) {
+          for (const group of n.data.schema.exclusive_groups)
+            if (group.includes(v.param)) for (const other of group) if (other !== v.param) delete params[other];
+          params[v.param] = v.component ? { ...((params[v.param] as Record<string, unknown>) ?? {}), [v.component]: v.value } : v.value;
+        }
+        return { ...n, data: { ...n.data, params } as typeof n.data };
+      }),
+    );
     touch();
   };
 
@@ -897,6 +924,18 @@ function Editor() {
                   if (patch.design_specs) touch();
                 }}
               />
+              <OptimizationSettings
+                costing={meta.costing}
+                optimizations={meta.optimizations ?? []}
+                units={nodes.map((n) => ({ id: n.id, schema: n.data.schema }))}
+                streams={edges.map((e) => e.id)}
+                components={meta.components}
+                onChange={(patch) => {
+                  history.commit(`meta:${Object.keys(patch).join()}`);
+                  setMeta((m) => ({ ...m, ...patch }));
+                  if ("costing" in patch) touch();
+                }}
+              />
               <h3>Dynamics</h3>
               <DynamicsSettings
                 dynamics={meta.dynamics}
@@ -920,6 +959,8 @@ function Editor() {
           onSelectStream={(id) => setSelection({ kind: "stream", id })}
           studies={meta.sensitivity}
           getModel={toModel}
+          optimizations={meta.optimizations ?? []}
+          onApplyOptimum={applyOptimum}
         />
       </footer>
     </div>

@@ -23,11 +23,17 @@ See specs.py and sensitivity.py for how they are solved.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+# Flowsheet totals of the costing (costing.py) that a VariableRef without owner can name.
+COSTING_TOTALS = ("tac", "capital_cost", "operating_cost", "bare_module_cost", "purchased_cost")
 
 
 class VariableRef(BaseModel):
-    """A computed value: ``property`` of a stream, or the result ``property`` of a unit."""
+    """A computed value: ``property`` of a stream, the result ``property`` of a unit, or,
+    with neither, a flowsheet total of the costing such as ``{"property": "tac"}``."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -38,8 +44,11 @@ class VariableRef(BaseModel):
 
     @model_validator(mode="after")
     def _one_owner(self) -> VariableRef:
-        if (self.stream is None) == (self.unit is None):
-            raise ValueError("a variable belongs to exactly one of 'stream' or 'unit'")
+        if self.stream is not None and self.unit is not None:
+            raise ValueError("a variable belongs to one of 'stream' or 'unit', not both")
+        if self.stream is None and self.unit is None and self.property not in COSTING_TOTALS:
+            raise ValueError("a variable belongs to a 'stream' or a 'unit', unless it is a "
+                             f"costing total: {', '.join(COSTING_TOTALS)}")
         return self
 
 
@@ -119,3 +128,79 @@ class CalculatorModel(BaseModel):
     variables: dict[str, VariableRef | ParamRef] = Field(default_factory=dict)
     assign: list[Assignment] = Field(min_length=1)
     active: bool = True
+
+
+class OptimizationVary(VariedParam):
+    """A decision variable of an optimization: a unit parameter between bounds."""
+
+    start: float | str | None = None  # default: the parameter's value, else mid-range
+
+
+class ConstraintModel(BaseModel):
+    """``expression`` (SI units) must be ``<=``, ``>=`` or ``=`` to ``value``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expression: str
+    relation: Literal["<=", ">=", "="] = "<="
+    value: float = 0.0
+
+
+class OptimizationModel(BaseModel):
+    """Minimize or maximize an expression over flowsheet values by varying unit parameters,
+    like Aspen's Optimization block::
+
+        {"id": "MIN_TAC",
+         "variables": {"tac": {"property": "tac"},
+                       "x": {"stream": "DIST", "property": "mole_fraction",
+                             "component": "benzene"}},
+         "objective": "tac", "sense": "minimize",
+         "vary": [{"unit": "COLUMN", "param": "reflux_ratio", "lower": 1.2, "upper": 5}],
+         "constraints": [{"expression": "x", "relation": ">=", "value": 0.99}]}
+
+    Variables and expressions are those of calculator blocks; ``{"property": "tac"}`` reads
+    the costing summary (costing.py). See optimization.py for the method.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    variables: dict[str, VariableRef | ParamRef] = Field(default_factory=dict)
+    objective: str
+    sense: Literal["minimize", "maximize"] = "minimize"
+    vary: list[OptimizationVary] = Field(min_length=1, max_length=10)
+    constraints: list[ConstraintModel] = Field(default_factory=list)
+    method: Literal["auto", "slsqp", "cobyla"] = "auto"
+    max_iterations: int = Field(default=50, ge=1, le=500)
+    tolerance: float = Field(default=1e-5, gt=0.0, lt=1.0)  # on the scaled objective
+    step: float = Field(default=1e-3, gt=0.0, le=0.1)  # finite differences, fraction of range
+
+
+class UnitCostingModel(BaseModel):
+    """Per-unit costing choices."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    material: Literal["CS", "SS"] | None = None  # default: the flowsheet's
+    U: float | str | None = None  # heat transfer coefficient for exchanger areas
+    exclude: bool = False  # leave the unit out (capital and utilities)
+
+
+class CostingModel(BaseModel):
+    """Equipment and utility costing; see costing.py. Prices in US$ (``$/GJ``, ``$/kWh``)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    cepci: float = Field(default=800.0, gt=0.0)  # cost index of the estimate's year
+    hours_per_year: float = Field(default=8000.0, gt=0.0, le=8760.0)
+    interest_rate: float = Field(default=0.10, ge=0.0, le=1.0)
+    plant_life: float = Field(default=10.0, gt=0.0, le=100.0)  # years
+    annualization_factor: float | None = Field(default=None, gt=0.0, le=10.0)  # 1/yr
+    electricity_price: float = Field(default=0.07, ge=0.0)  # $/kWh
+    heating_price: float | None = Field(default=None, ge=0.0)  # $/GJ; default by temperature
+    cooling_price: float | None = Field(default=None, ge=0.0)  # $/GJ; default by temperature
+    utility_prices: dict[str, float] = Field(default_factory=dict)  # $/GJ per utility id
+    material: Literal["CS", "SS"] = "CS"
+    U: float | str = 500.0  # W/(m2 K), exchangers without a given area
+    tray_efficiency: float = Field(default=0.7, gt=0.0, le=1.0)
+    units: dict[str, UnitCostingModel] = Field(default_factory=dict)

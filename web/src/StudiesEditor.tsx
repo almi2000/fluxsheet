@@ -31,6 +31,20 @@ export const STREAM_PROPERTIES: { key: string; label: string; quantity: string |
 
 export const DISCRETE = ["integer", "choice", "component", "string_list"];
 
+/** Mirrors COSTING_TOTALS (study_models.py) and UNIT_COSTS (specs.py): values in $ or $/yr. */
+export const COSTING_TOTALS = [
+  { key: "tac", label: "Total annualized cost ($/yr)" },
+  { key: "capital_cost", label: "Capital cost ($)" },
+  { key: "operating_cost", label: "Operating cost ($/yr)" },
+  { key: "bare_module_cost", label: "Bare module cost ($)" },
+  { key: "purchased_cost", label: "Purchased cost ($)" },
+];
+export const UNIT_COSTS = [
+  { name: "purchased_cost", label: "Purchased cost ($)", quantity: null },
+  { name: "bare_module_cost", label: "Bare module cost ($)", quantity: null },
+  { name: "operating_cost", label: "Operating cost ($/yr)", quantity: null },
+];
+
 /** Parameters a study can vary: numbers, or one entry of a per-component table. */
 export function continuousParams(schema: UnitType) {
   return schema.params.filter((p) => !DISCRETE.includes(p.quantity ?? ""));
@@ -42,6 +56,7 @@ export function perComponent(schema: UnitType | undefined, param: string): boole
 }
 
 export function variableQuantity(ref: VariableRef, units: UnitInfo[]): string | null {
+  if (ref.stream === undefined && ref.unit === undefined) return null; // a costing total
   if (ref.stream !== undefined) return STREAM_PROPERTIES.find((p) => p.key === ref.property)?.quantity ?? null;
   const schema = units.find((u) => u.id === ref.unit)?.schema;
   return schema?.result_fields.find((f) => f.name === ref.property)?.quantity ?? null;
@@ -58,6 +73,9 @@ export function variableLabel(ref: VariableRef, units: UnitInfo[]): string {
     const name = p?.perComponent ? `${ref.component ?? "?"} ${p.label.replace(" of…", "").toLowerCase()}` : p?.label.toLowerCase();
     return `${ref.stream} ${name ?? ref.property}`;
   }
+  if (ref.unit === undefined) return COSTING_TOTALS.find((c) => c.key === ref.property)?.label ?? ref.property;
+  const cost = UNIT_COSTS.find((c) => c.name === ref.property);
+  if (cost) return `${ref.unit} ${cost.label}`;
   const field = units.find((u) => u.id === ref.unit)?.schema.result_fields.find((f) => f.name === ref.property);
   return `${ref.unit} ${field?.label ?? ref.property}`;
 }
@@ -135,17 +153,21 @@ export function VariablePicker({
   units,
   streams,
   components,
+  costing = false,
   onChange,
 }: {
   value: VariableRef;
   units: UnitInfo[];
   streams: string[];
   components: string[];
+  costing?: boolean; // offer the costing totals and the units' costs
   onChange: (v: VariableRef) => void;
 }) {
-  const owner = value.stream !== undefined ? `stream:${value.stream}` : `unit:${value.unit}`;
-  const unitsWithResults = units.filter((u) => u.schema.result_fields.length > 0);
+  const owner =
+    value.stream !== undefined ? `stream:${value.stream}` : value.unit !== undefined ? `unit:${value.unit}` : "costing:";
+  const unitsWithResults = units.filter((u) => costing || u.schema.result_fields.length > 0);
   const schema = units.find((u) => u.id === value.unit)?.schema;
+  const unitFields = [...(schema?.result_fields ?? []), ...(costing ? UNIT_COSTS : [])];
   const prop = STREAM_PROPERTIES.find((p) => p.key === value.property);
   return (
     <div className="study-pick">
@@ -155,8 +177,9 @@ export function VariablePicker({
         onChange={(e) => {
           const [kind, id] = e.target.value.split(/:(.*)/s);
           if (kind === "stream") onChange({ stream: id, property: value.stream !== undefined ? value.property : "T", component: value.component });
+          else if (kind === "costing") onChange({ property: "tac" });
           else {
-            const first = units.find((u) => u.id === id)?.schema.result_fields[0]?.name ?? "duty";
+            const first = units.find((u) => u.id === id)?.schema.result_fields[0]?.name ?? (costing ? "bare_module_cost" : "duty");
             onChange({ unit: id, property: first });
           }
         }}
@@ -175,7 +198,12 @@ export function VariablePicker({
             </option>
           ))}
         </optgroup>
-        {!streams.includes(value.stream ?? "") && !units.some((u) => u.id === value.unit) && (
+        {(costing || owner === "costing:") && (
+          <optgroup label="Costing">
+            <option value="costing:">Flowsheet totals</option>
+          </optgroup>
+        )}
+        {owner !== "costing:" && !streams.includes(value.stream ?? "") && !units.some((u) => u.id === value.unit) && (
           <option value={owner}>{value.stream ?? value.unit} (missing)</option>
         )}
       </select>
@@ -193,11 +221,17 @@ export function VariablePicker({
                 {p.label}
               </option>
             ))
-          : (schema?.result_fields ?? []).map((f) => (
-              <option key={f.name} value={f.name}>
-                {f.label}
-              </option>
-            ))}
+          : owner === "costing:"
+            ? COSTING_TOTALS.map((c) => (
+                <option key={c.key} value={c.key}>
+                  {c.label}
+                </option>
+              ))
+            : unitFields.map((f) => (
+                <option key={f.name} value={f.name}>
+                  {f.label}
+                </option>
+              ))}
       </select>
       {value.stream !== undefined && prop?.perComponent && (
         <select aria-label="Component" value={value.component ?? ""} onChange={(e) => onChange({ ...value, component: e.target.value })}>
@@ -212,7 +246,7 @@ export function VariablePicker({
   );
 }
 
-function ParamPicker<T extends VariedParam>({
+export function ParamPicker<T extends VariedParam>({
   value,
   units,
   components,
@@ -270,7 +304,7 @@ function ParamPicker<T extends VariedParam>({
   );
 }
 
-function Bounds<T extends VariedParam>({ value, units, onChange }: { value: T; units: UnitInfo[]; onChange: (v: T) => void }) {
+export function Bounds<T extends VariedParam>({ value, units, onChange }: { value: T; units: UnitInfo[]; onChange: (v: T) => void }) {
   const q = paramQuantity(value, units);
   return (
     <div className="study-bounds">

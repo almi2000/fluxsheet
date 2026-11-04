@@ -50,3 +50,20 @@
 .dyn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .dyn-row label { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .dyn-row input { min-width: 0; width: 100%; }
+
+/* Optimization: named variables, objective, constraints; costing table. */
+.opt-var { display: grid; grid-template-columns: 1fr 1fr auto; grid-template-areas: "name kind remove" "pick pick pick"; gap: 4px; align-items: start; margin-bottom: 8px; }
+.opt-var > input { grid-area: name; }
+.opt-var > select { grid-area: kind; }
+.opt-var > button { grid-area: remove; }
+.opt-var-pick { grid-area: pick; }
+.opt-var input, .opt-var select { min-width: 0; width: 100%; }
+.opt-var input.invalid { border-color: var(--error, #c92a2a); }
+.opt-var > button, .opt-constraint > button { padding: 2px 8px; }
+.opt-objective { display: flex; gap: 4px; }
+.opt-objective input { flex: 1; min-width: 0; }
+.opt-constraint { display: grid; grid-template-columns: 1fr 52px 80px auto; gap: 4px; margin-bottom: 4px; }
+.opt-constraint input { min-width: 0; width: 100%; }
+.profile-chart .dot.infeasible { fill: none; stroke: var(--series); }
+.costing { display: flex; flex-direction: column; gap: 6px; }
+.costing p { margin: 0; }
