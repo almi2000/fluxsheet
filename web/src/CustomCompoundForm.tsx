@@ -29,7 +29,8 @@ export function CustomCompoundForm({
   function save() {
     const result = fromDraft(draft, taken);
     if (typeof result === "string") return setError(result);
-    onSave(result, editing?.name ?? null);
+    // Fields the form does not show (set in the file) survive an edit.
+    onSave({ vapor_pressure: editing?.vapor_pressure, antoine: editing?.antoine, ...result }, editing?.name ?? null);
   }
 
   const field = (label: string, key: keyof CompoundDraft, placeholder: string, multiline = false) => (
@@ -38,7 +39,14 @@ export function CustomCompoundForm({
       {multiline ? (
         <textarea rows={2} value={draft[key]} placeholder={placeholder} onChange={(e) => set({ [key]: e.target.value })} />
       ) : (
-        <input value={draft[key]} placeholder={placeholder} onChange={(e) => set({ [key]: e.target.value })} />
+        <input
+          value={draft[key]}
+          placeholder={placeholder}
+          // Feeds, reactions and specs refer to the name: rename by removing and adding again.
+          disabled={key === "name" && editing !== null}
+          title={key === "name" && editing ? "To rename, remove the compound and add it again" : undefined}
+          onChange={(e) => set({ [key]: e.target.value })}
+        />
       )}
     </label>
   );

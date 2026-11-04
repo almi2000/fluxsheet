@@ -182,8 +182,8 @@ below 310 K, as long as a solvent is present and a Henry constant exists. Overri
 
 (`[]` turns Henry's law off). Constants for gases in water come from IAPWS G7-04 (valid to
 250 °C), otherwise from the Sander (2015) and ChemSep compilations, and for organic solvents
-from Peng-Robinson predictions shipped with `thermo`; solvents without any constant get a
-Raoult's-law estimate. Each result lists the source per gas and solvent, and warns where the
+from Peng-Robinson predictions shipped with `thermo`; for a solvent without any constant the
+gas's solubility comes from the other solvents' constants (with a warning). Each result lists the source per gas and solvent, and warns where the
 model is stretched (more than 3 % gas in a liquid, or above 20 bar).
 
 ### User-defined compounds

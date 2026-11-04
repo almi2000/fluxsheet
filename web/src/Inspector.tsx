@@ -815,9 +815,7 @@ export function FlowsheetInspector({
           onSave={(def, previous) => {
             onChange({
               custom_compounds: [...customCompounds.filter((d) => d.name !== previous), def],
-              components: previous
-                ? components.map((c) => (c === previous ? def.name : c))
-                : [...components, def.name],
+              ...(previous ? {} : { components: [...components, def.name] }),
             });
             setCustomForm(null);
           }}

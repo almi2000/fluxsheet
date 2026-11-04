@@ -74,7 +74,7 @@ export function fromDraft(d: CompoundDraft, taken: string[]): CustomCompound | s
   if (!name) return "give the compound a name";
   if (taken.some((t) => t.toLowerCase() === name.toLowerCase())) return `"${name}" is already a component`;
   if (!formula) return "give the molecular formula, e.g. C2H6O";
-  if (!/^([A-Z][a-z]?\d*)+$/.test(formula)) return `formula "${formula}" should look like C2H6O`;
+  if (!/^[A-Z][A-Za-z0-9()]*$/.test(formula)) return `formula "${formula}" should look like C2H6O`;
   try {
     const joback = parseGroups(d.joback);
     const unifac = parseGroups(d.unifac);

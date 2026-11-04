@@ -146,6 +146,7 @@ class CustomCompoundModel(BaseModel):
     unifac_groups: dict[str, int] | None = None  # UNIFAC (Dortmund) subgroups
     constants: dict[str, float | str] | None = None  # Tc, Pc, omega, Tb, MW, Hf, Gf, ...
     vapor_pressure: str | None = None  # "lee-kesler" (default) or "ambrose-walton"
+    antoine: dict[str, float | str] | None = None  # A, B, C: log10(P/Pa) = A - B/(T/K + C)
 
 
 class FlowsheetModel(BaseModel):

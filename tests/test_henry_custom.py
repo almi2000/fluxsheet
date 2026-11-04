@@ -141,18 +141,23 @@ def test_explicit_henry_components_and_errors():
     assert pkg.henry_components == ["hydrogen sulfide"]
     off = PropertyPackage(["water", "nitrogen"], "nrtl", henry_components=())
     assert off.henry_components == []
+    eos = PropertyPackage(["water", "nitrogen"], "srk", henry_components=("nitrogen",))
+    assert any("henry_components is ignored" in w for w in eos.warnings)
     with pytest.raises(SimulationError, match="not among the components"):
         PropertyPackage(["water", "nitrogen"], "nrtl", henry_components=("argon",))
     with pytest.raises(SimulationError, match="every component"):
         PropertyPackage(["water", "nitrogen"], "nrtl", henry_components=("water", "nitrogen"))
 
 
-def test_missing_henry_constant_is_estimated_and_warned():
-    """Without a constant for a solvent, a Raoult's-law estimate stands in and is flagged."""
+def test_missing_henry_constant_is_warned():
+    """Without a constant for a solvent, the other solvents' constants are used, with a
+    warning (an extrapolated vapor pressure would be orders of magnitude off)."""
     pkg = PropertyPackage(["water", "my-ethanol", "oxygen"], "nrtl",
                           custom=(custom(**ETHANOL_GROUPS),))
     pairs = {s["pair"]: s["source"] for s in pkg.parameter_sources}
-    assert "estimated" in pairs["oxygen in my-ethanol"]
+    assert "none" in pairs["oxygen in my-ethanol"]
+    x = pkg.phase_props("liquid", T25, ATM, [0.9, 0.0999, 1e-4])  # still finite
+    assert all(math.isfinite(v) for v in x.lnphi)
     assert any("no Henry constant for oxygen in my-ethanol" in w for w in pkg.warnings)
 
 
@@ -241,6 +246,25 @@ def test_joback_groups_from_smiles_with_rdkit():
     est = estimate(custom(smiles="CCO"))
     assert est.joback == {1: 1, 2: 1, 20: 1}  # -CH3, -CH2-, -OH (alcohol)
     assert est.estimated["Joback groups"].startswith("RDKit")
+
+
+def test_joback_group_without_a_contribution():
+    """Joback has no Gf or Cp value for -N= (nonring): Gf stays unknown, Cp falls back to
+    Lastovka-Shaw; =NH has no Tc, which must then be given."""
+    est = estimate(CustomCompound.from_dict({
+        "name": "imine", "formula": "C3H7N", "joback_groups": {"-CH3": 2, "-N= (nonring)": 1,
+                                                                 "=CH-": 1}}))
+    assert est.values["Gf"] is None and est.cp_coeffs is None
+    with pytest.raises(SimulationError) as err:
+        estimate(CustomCompound.from_dict({
+            "name": "x", "formula": "C2H5N", "joback_groups": {"-CH3": 1, "=CH-": 1, "=NH": 1}}))
+    assert "=NH" in (err.value.hint or "")
+
+
+def test_flowsheet_file_with_antoine_constants():
+    r = solve(custom_flowsheet(antoine={"A": 10.2370, "B": 1592.864, "C": -46.976},
+                               constants={"Tc": 514.7, "Pc": "62.68 bar"}, **ETHANOL_GROUPS))
+    assert r.ok, r.error
 
 
 def test_given_constants_are_used_and_not_flagged():

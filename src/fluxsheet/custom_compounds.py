@@ -269,28 +269,34 @@ def estimate(compound: CustomCompound) -> Estimate:
         A, B, C = compound.antoine[:3]
         v["Tb"] = B / (A - math.log10(101325.0)) - C
         estimated["Tb"] = "the given Antoine equation at 1 atm"
+    lacking: dict[str, list[str]] = {}  # property -> groups Joback has no value for
     if joback:
         jb = "Joback group contribution"
-        if v["Tb"] is None:
-            v["Tb"], estimated["Tb"] = Joback.Tb(joback), jb
-        if v["Tc"] is None:
-            v["Tc"], estimated["Tc"] = Joback.Tc(joback, v["Tb"]), jb
-        if v["Pc"] is None:
-            v["Pc"], estimated["Pc"] = Joback.Pc(joback, n_atoms), jb
-        if v["Vc"] is None:
-            v["Vc"], estimated["Vc"] = Joback.Vc(joback), jb
-        if v["Tm"] is None:
-            v["Tm"], estimated["Tm"] = Joback.Tm(joback), jb
-        if v["Hf"] is None:
-            v["Hf"], estimated["Hf"] = Joback.Hf(joback), jb
-        if v["Gf"] is None:
-            v["Gf"], estimated["Gf"] = Joback.Gf(joback), jb
+        estimators = {
+            "Tb": ("Tb", lambda: Joback.Tb(joback)),
+            "Tc": ("Tc", lambda: Joback.Tc(joback, v["Tb"])),
+            "Pc": ("Pc", lambda: Joback.Pc(joback, n_atoms)),
+            "Vc": ("Vc", lambda: Joback.Vc(joback)),
+            "Tm": ("Tm", lambda: Joback.Tm(joback)),
+            "Hf": ("Hform", lambda: Joback.Hf(joback)),
+            "Gf": ("Gform", lambda: Joback.Gf(joback)),
+        }
+        for prop, (attr, compute) in estimators.items():
+            if v[prop] is not None:
+                continue
+            gaps = _joback_gaps(joback, attr)
+            if gaps or (prop == "Tc" and v["Tb"] is None):
+                lacking[prop] = gaps
+                continue
+            v[prop], estimated[prop] = compute(), jb
     missing = [k for k in ("Tb", "Tc", "Pc") if v[k] is None]
     if missing:
+        gaps = sorted({g for k in missing for g in lacking.get(k, [])})
         raise SimulationError(
             f"{where}: no {', '.join(CONSTANTS[k][0] for k in missing)}",
-            hint="give the missing constants, or Joback groups (or a SMILES with RDKit "
-            "installed) to estimate them",
+            hint=(f"Joback has no contribution for {', '.join(gaps)} to estimate it; give "
+                  "the value" if gaps else "give the missing constants, or Joback groups (or "
+                  "a SMILES with RDKit installed) to estimate them"),
         )
     if not v["Tb"] < v["Tc"]:
         raise SimulationError(f"{where}: the boiling point ({v['Tb']:.1f} K) must lie below "
@@ -319,7 +325,8 @@ def estimate(compound: CustomCompound) -> Estimate:
         if rq is not None:
             v["r"], v["q"] = rq
             estimated["UNIQUAC r, q"] = "UNIFAC group volumes and areas"
-    cp = list(Joback.Cpig_coeffs(joback)) if joback else None
+    cp = (list(Joback.Cpig_coeffs(joback))
+          if joback and not _joback_gaps(joback, "Cpa") else None)
     estimated["ideal-gas heat capacity"] = (
         "Joback group contribution" if cp else "Lastovka-Shaw, from the formula")
     if compound.antoine is None:
@@ -327,6 +334,11 @@ def estimate(compound: CustomCompound) -> Estimate:
                                        "ambrose-walton": "Ambrose-Walton"}[compound.vapor_pressure]
     estimated["liquid volume"] = "COSTALD"
     return Estimate(compound, v, atoms, joback, unifac, cp, estimated, notes)
+
+
+def _joback_gaps(joback: dict[int, int], attr: str) -> list[str]:
+    """Groups for which Joback's table has no contribution to ``attr``."""
+    return [JOBACK_GROUPS[g].group for g in joback if getattr(JOBACK_GROUPS[g], attr) is None]
 
 
 def _check_group_atoms(groups: dict[int, int], table: dict, kind: str, atoms: dict[str, int],

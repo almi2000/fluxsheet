@@ -120,19 +120,6 @@ def henry_constant(solute_cas: str, solvent_cas: str) -> HenryConstant | None:
     return found[0] if found else None
 
 
-def raoult_estimate(vapor_pressure) -> HenryConstant:
-    """A stand-in Henry constant from the extrapolated vapor pressure (ideal solution).
-
-    ``ln H = A + B / T`` through the correlation at 0 and 100 °C. Only for solvents that
-    have no measured constant, so that they still count in the mixing rule.
-    """
-    T1, T2 = 273.15, 373.15
-    l1, l2 = math.log(vapor_pressure(T1)), math.log(vapor_pressure(T2))
-    B = (l1 - l2) / (1.0 / T1 - 1.0 / T2)
-    return HenryConstant((l1 - B / T1, B, 0.0, 0.0, 0.0, 0.0),
-                         "estimated from the extrapolated vapor pressure (ideal solution)")
-
-
 class HenryLiquid(GibbsExcessLiquid):
     """GibbsExcessLiquid whose Henry constants survive a liquid without solvent.
 

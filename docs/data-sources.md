@@ -36,7 +36,7 @@ and solvent the first available source is used:
 | ChemSep Henry table (Artistic License 2.0, via `thermo`) | 41 gases in water | Taken over Sander only where both agree within 10 % at 25 °C (ChemSep's N2 and H2 values are off by a factor of 5 to 10) |
 | Sander (2015) constants | About 4400 solutes in water, 25 °C only | No heat of solution |
 | `thermo`'s Peng-Robinson predictions ("PRTranslated Henry Best") | Gases in about 160 organic solvents | Predicted, not measured; never used for water |
-| Raoult's-law estimate from the extrapolated vapor pressure | Any solvent without a constant | Rough; always warned |
+| None: the solvent is left out of the mixing rule | Any solvent without a constant | The other solvents' constants apply in liquids rich in it; always warned (an extrapolated vapor pressure would be orders of magnitude off) |
 
 Literature checks in `tests/test_henry_custom.py`: solubilities of O2, N2, CO2, H2, CH4 and Ar
 in water at 25 °C within 5 % of Wilhelm, Battino and Wilcock (1977) and Carroll et al. (1991).

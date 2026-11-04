@@ -232,7 +232,9 @@ class Solver:
             for uid, u in self.units.items()
         }
         self._check_balances(pkg, streams)
-        self.warnings.extend(pkg.henry_validity({k: s.state for k, s in streams.items()}))
+        states = {k: s.state for k, s in streams.items()}
+        for p in self.sections.packages.values():  # the default and per-unit methods
+            self.warnings.extend(p.henry_validity(states))
         result.warnings = self.warnings
         self.sections.annotate(result, streams, self.connections)
         if self.model.costing is not None:

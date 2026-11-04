@@ -62,11 +62,13 @@ export function Diagrams({
   method,
   fractions,
   customCompounds,
+  henryComponents,
 }: {
   components: string[];
   method: string | null;
   fractions: Record<string, number> | null;
   customCompounds?: CustomCompound[]; // definitions of user-defined components
+  henryComponents?: string[]; // the flowsheet's explicit Henry list, if any
 }) {
   const [kind, setKind] = useState<Kind>(EOS.includes(method ?? "") && components.length > 2 ? "envelope" : "txy");
   const [pair, setPair] = useState<[string, string]>([components[0] ?? "", components[1] ?? ""]);
@@ -107,6 +109,7 @@ export function Diagrams({
           fractions: components.map((c) => shares[c] ?? 0),
           method: envelopeMethod,
           custom_compounds: customCompounds,
+          henry_components: henryComponents,
         });
         if (r.ok) setEnvelope(r);
         else setError(r.error);
@@ -115,6 +118,7 @@ export function Diagrams({
           components: pair,
           method: chosen,
           custom_compounds: customCompounds,
+          henry_components: henryComponents?.filter((c) => pair.includes(c)),
           ...(kind === "txy" ? { P: pressure } : { T: temperature }),
         });
         if (r.ok) setBinary(r);
