@@ -3,6 +3,7 @@ import { Diagrams } from "./Diagrams";
 import { DynamicsView } from "./DynamicsView";
 import { MethodsSummary, ParameterSources, shortMethod } from "./PropertyMethods";
 import { fmt, formatQuantity } from "./quantities";
+import { ReportExport } from "./ReportExport";
 import { SensitivityView } from "./SensitivityView";
 import type { FlowsheetModel, SensitivityStudy, SolveResult } from "./types";
 
@@ -113,6 +114,7 @@ export function ResultsPanel({
           </span>
         ))}
         {stale && <span className="warn-text">Flowsheet changed since this run</span>}
+        {getModel && <ReportExport getModel={getModel} />}
       </div>
       {sensitivityOpened && getModel && (
         <div hidden={view !== "sensitivity"}>

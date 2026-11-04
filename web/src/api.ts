@@ -1,6 +1,12 @@
 import type { Compound, DynamicResult, Example, FlowsheetModel, Method, SensitivityResult, SolveResult, UnitType } from "./types";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await send(path, init);
+  return res.json() as Promise<T>;
+}
+
+/** fetch with JSON headers; a failed request throws with the server's explanation. */
+async function send(path: string, init?: RequestInit): Promise<Response> {
   const res = await fetch(`/api${path}`, {
     headers: { "Content-Type": "application/json" },
     ...init,
@@ -17,7 +23,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     }
     throw new Error(detail);
   }
-  return res.json() as Promise<T>;
+  return res;
 }
 
 export const api = {
@@ -36,6 +42,12 @@ export const api = {
     request<SolveResult>("/solve", { method: "POST", body: JSON.stringify(model) }),
   sensitivity: (model: FlowsheetModel, study: string) =>
     request<SensitivityResult>("/sensitivity", { method: "POST", body: JSON.stringify({ model, study }) }),
+  /** A report file of the solved flowsheet (see src/fluxsheet/report.py). */
+  report: async (model: FlowsheetModel, format: "xlsx" | "html") => {
+    const res = await send(`/report?format=${format}`, { method: "POST", body: JSON.stringify(model) });
+    const name = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") ?? "")?.[1];
+    return { blob: await res.blob(), filename: name ?? `flowsheet_report.${format}` };
+  },
   dynamic: (model: FlowsheetModel) =>
     request<DynamicResult>("/dynamic", { method: "POST", body: JSON.stringify(model) }),
 };
