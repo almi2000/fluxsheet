@@ -93,6 +93,13 @@ export const UNITS: Record<string, { value: string; label: string }[]> = {
     { value: "kJ/kg", label: "kJ/kg" },
     { value: "J/kg", label: "J/kg" },
   ],
+  energy: [
+    { value: "MJ", label: "MJ" },
+    { value: "kJ", label: "kJ" },
+    { value: "GJ", label: "GJ" },
+    { value: "kWh", label: "kWh" },
+    { value: "J", label: "J" },
+  ],
 };
 
 const SI_UNIT: Record<string, string> = {
@@ -114,6 +121,7 @@ const SI_UNIT: Record<string, string> = {
   specific_heat: "J/kgK",
   volumetric_flow: "m3/s",
   specific_energy: "J/kg",
+  energy: "J",
 };
 
 /** Split a stored value ("80 degC" or 353.15) into number text and unit. */
@@ -163,6 +171,7 @@ const DISPLAY: Record<string, [number, number, string]> = {
   specific_heat: [1e-3, 0, "kJ/kg·K"],
   volumetric_flow: [3600, 0, "m³/h"],
   specific_energy: [1e-3, 0, "kJ/kg"],
+  energy: [1e-6, 0, "MJ"],
 };
 
 /** Display unit label for a quantity ("" for dimensionless). */

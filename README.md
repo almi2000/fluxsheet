@@ -236,6 +236,7 @@ optional:
 | Gibbs | Minimum Gibbs energy of an ideal-gas mixture under element balances; no reactions needed |
 | CSTR | Power-law kinetics, gas or liquid, solved for the outlet extents (and temperature) |
 | Plug flow | Power-law kinetics integrated along volume or length, with conversion, temperature and composition profiles |
+| Batch | One batch cycle integrated over time (stiff BDF with stop events); the product leaves as the average stream per cycle |
 
 All reactors run isothermal, adiabatic, at a given duty, or cooled/heated through a jacket
 or coil (see utilities below), with an optional pressure drop.
@@ -243,6 +244,47 @@ The energy balance uses enthalpies that include formation enthalpies, so heats o
 need no separate input. See `examples/steam_reforming.json` and
 `examples/ethyl_acetate.json`, and [reactions.py](src/fluxsheet/reactions.py) for units
 and conventions.
+
+The **Batch Reactor** works like Aspen Plus' RBatch: the continuous feed is collected into
+charges (charge = feed × cycle time). Each cycle the vessel is filled (`charge_time`), reacts
+until a stop criterion is met, and is emptied and cleaned (`down_time`). The product leaves
+as the average stream over the cycle, so mass balances against the feed and the unit fits
+into continuous flowsheets.
+
+- **Cycle:** give the `cycle_time` or the `charge` per batch. With neither, one vessel runs
+  back to back. When a batch occupies the vessel longer than the cycle, the unit reports how
+  many vessels are needed in turn.
+- **Stop criteria:** stop after `batch_time` (always required; with another criterion it is
+  the upper limit), or at a conversion of the key component, a mole fraction of a component,
+  or a temperature. A target that is not reached within the batch time is reported as an
+  error.
+- **Vessel:**
+  - Constant pressure: the contents are flashed, and vapor that forms stays in the vessel.
+  - Constant pressure with `vent: "yes"` (liquid phase only): the liquid boils at its bubble
+    point once it gets there, and the vapor goes to the `vent` outlet as it forms.
+  - Constant volume (`vessel: "constant_volume"`, gas phase only): a closed, rigid vessel in
+    which the pressure follows the moles and the temperature.
+- **Energy:** isothermal, adiabatic, a fixed duty, a temperature program (`T_profile`, a
+  table of time and temperature), or a jacket with a utility (U, area). The jacket's heat
+  follows the contents' temperature through the batch.
+- **Results:**
+  - Time profiles of temperature, pressure, conversion, duty, contents volume and
+    composition.
+  - Cycle time and charge.
+  - Heat per batch and peak duty.
+  - Productivity: the production rate of the product component.
+  - Vented amount and the largest contents volume (for sizing).
+
+```json
+{"id": "BATCH", "type": "BatchReactor",
+ "params": {"reactions": ["EST"], "phase": "liquid", "key": "acetic acid",
+            "batch_time": "8 h", "stop_conversion": 0.6, "cycle_time": "2 h",
+            "charge_time": "30 min", "down_time": "1 h",
+            "area": "6 m2", "U": "400 W/m2K", "utility": "CW", "utility_flow": "2 kg/s"}}
+```
+
+See `examples/ethyl_acetate_batch.json`: a preheated esterification batch, cooled by
+cooling water in the jacket.
 
 ## Heat integration, design specs and sensitivity studies
 
@@ -482,7 +524,8 @@ extend it.
 - [x] Utilities with jacket/coil heat transfer (U·A) on heaters, drums and reactors
 - [x] Calculator blocks; Broyden recycle convergence
 - [x] Dynamic simulation: vessel, CSTR and heater hold-ups, PID controllers, steps and ramps
-- [ ] Dynamic columns (tray hold-ups), batch reactor, pressure-driven dynamics
+- [x] Batch reactor (RBatch-like): stop criteria, vent, jacket, cycle-time averaging
+- [ ] Dynamic columns (tray hold-ups), pressure-driven dynamics
 - [x] Optimization around the flowsheet (objective and constraints as formulas), equipment costing
 - [ ] Columns with side draws, pumparounds and reactive stages; pump and compressor curves
 - [ ] Reports (Excel, PDF), unit plug-ins

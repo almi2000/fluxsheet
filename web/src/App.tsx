@@ -43,7 +43,7 @@ const ID_PREFIX: Record<string, string> = {
   Feed: "FEED", Product: "PROD", Mixer: "MIX", Splitter: "SPLIT", Heater: "HX", Flash: "FLASH",
   ComponentSplitter: "SEP", Valve: "VLV", Pump: "PUMP", Compressor: "COMP",
   StoichiometricReactor: "STOIC", YieldReactor: "YIELD", EquilibriumReactor: "EQ", GibbsReactor: "GIBBS",
-  CSTR: "CSTR", PFR: "PFR", HeatExchanger: "EX", MixingTank: "TANK", ThinFilmEvaporator: "TFE",
+  CSTR: "CSTR", PFR: "PFR", BatchReactor: "BATCH", HeatExchanger: "EX", MixingTank: "TANK", ThinFilmEvaporator: "TFE",
   Turbine: "TURB", MultistageCompressor: "MCOMP", Pipe: "PIPE", ExtractionColumn: "EXTR",
   Decanter: "DEC", ShortcutColumn: "SCOL", DistillationColumn: "COL", Absorber: "ABS",
 };
@@ -57,6 +57,7 @@ const DEFAULT_PARAMS: Record<string, Params> = {
   ComponentSplitter: { fractions: {} },
   CSTR: { V: "1 m3", phase: "liquid" },
   PFR: { V: "1 m3", phase: "gas" },
+  BatchReactor: { batch_time: "1 h", phase: "liquid" },
   HeatExchanger: { min_approach: "10 K" },
   ThinFilmEvaporator: { VF: 0.5, P: "0.1 bar" },
   Turbine: { P: "1 bar" },
