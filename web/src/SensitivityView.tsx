@@ -102,9 +102,12 @@ function Chart({ result, output }: { result: SensitivityResult; output: number }
 export function SensitivityView({
   studies,
   getModel,
+  onRun,
 }: {
   studies: SensitivityStudy[];
   getModel: () => FlowsheetModel;
+  /** A study finished, for the flowsheet `model` (the report includes it). */
+  onRun?: (model: FlowsheetModel, result: SensitivityResult) => void;
 }) {
   const [studyId, setStudyId] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
@@ -124,8 +127,11 @@ export function SensitivityView({
   const run = async () => {
     setRunning(true);
     try {
-      setResult(await api.sensitivity(getModel(), study.id));
+      const model = getModel();
+      const r = await api.sensitivity(model, study.id);
+      setResult(r);
       setOutput(0);
+      onRun?.(model, r);
     } catch (err) {
       setResult({ ok: false, error: { message: (err as Error).message, where: null, hint: null } });
     } finally {

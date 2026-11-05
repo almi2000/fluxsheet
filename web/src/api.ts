@@ -1,5 +1,8 @@
 import type { Compound, CustomCompound, DynamicResult, Example, FlowsheetModel, Method, OptimizationResult, SensitivityResult, SolveResult, UnitType } from "./types";
 
+/** The demo server's answer to a request body over its size limit (server.py). */
+export const DEMO_BODY_LIMIT_DETAIL = "request too large for the demo server";
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await send(path, init);
   return res.json() as Promise<T>;
@@ -45,8 +48,9 @@ export const api = {
   optimize: (model: FlowsheetModel, optimization: string) =>
     request<OptimizationResult>("/optimize", { method: "POST", body: JSON.stringify({ model, optimization }) }),
   /** A report file of the solved flowsheet (see src/fluxsheet/report.py). */
-  report: async (model: FlowsheetModel, format: "xlsx" | "html") => {
-    const res = await send(`/report?format=${format}`, { method: "POST", body: JSON.stringify(model) });
+  report: async (model: FlowsheetModel, format: "xlsx" | "html", runs?: unknown) => {
+    const body = runs ? { model, runs } : model;
+    const res = await send(`/report?format=${format}`, { method: "POST", body: JSON.stringify(body) });
     const name = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") ?? "")?.[1];
     return { blob: await res.blob(), filename: name ?? `flowsheet_report.${format}` };
   },

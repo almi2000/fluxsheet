@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractFragment, freshId, parseFragment, remapFragment } from "./clipboard";
+import { extractFragment, freshId, mergeComponents, parseFragment, remapFragment } from "./clipboard";
 import type { FlowsheetModel } from "./types";
 
 const model: FlowsheetModel = {
@@ -79,5 +79,57 @@ describe("clipboard", () => {
     expect(parseFragment('{"format": "other", "units": []}')).toBeNull();
     expect(parseFragment('{"format": "fluxsheet/1", "units": [{"id": 3}]}')).toBeNull();
     expect(parseFragment('{"format": "fluxsheet/1", "units": []}')?.streams).toEqual([]);
+  });
+});
+
+describe("clipboard and custom compounds", () => {
+  const ester = { name: "my-ester", formula: "C5H10O2", joback_groups: { "-CH3": 2, "-COO- (ester)": 1 } };
+  const source: FlowsheetModel = {
+    ...model,
+    components: ["water", "my-ester"],
+    custom_compounds: [ester, { name: "unused-def", formula: "CH4" }],
+  };
+
+  it("carries the definitions of the fragment's custom components", () => {
+    const f = extractFragment(source, new Set(["MIX1"]));
+    expect(f.custom_compounds).toEqual([ester]);
+    const back = parseFragment(JSON.stringify(f))!;
+    expect(back.custom_compounds).toEqual([ester]);
+    expect(parseFragment(JSON.stringify({ ...f, custom_compounds: [{ name: 1 }, ester] }))!.custom_compounds).toEqual([ester]);
+  });
+
+  it("adds missing components with their definitions", () => {
+    const f = extractFragment(source, new Set(["MIX1"]));
+    const m = mergeComponents({ components: ["water"], custom_compounds: [] }, f);
+    expect(m.components).toEqual(["water", "my-ester"]);
+    expect(m.custom_compounds).toEqual([ester]);
+    expect(m.conflicts).toEqual([]);
+  });
+
+  it("does not duplicate an identical definition, whatever its key order", () => {
+    const f = extractFragment(source, new Set(["MIX1"]));
+    const same = { joback_groups: { "-COO- (ester)": 1, "-CH3": 2 }, formula: "C5H10O2", name: "my-ester" };
+    const m = mergeComponents({ components: ["water", "my-ester"], custom_compounds: [same] }, f);
+    expect(m.components).toEqual(["water", "my-ester"]);
+    expect(m.custom_compounds).toEqual([same]);
+    expect(m.conflicts).toEqual([]);
+  });
+
+  it("keeps the target's meaning of a name and reports the conflict", () => {
+    const f = extractFragment(source, new Set(["MIX1"]));
+    const other = { name: "my-ester", formula: "C6H12O2" };
+    const m = mergeComponents({ components: ["water", "my-ester"], custom_compounds: [other] }, f);
+    expect(m.custom_compounds).toEqual([other]);
+    expect(m.conflicts).toEqual(["my-ester"]);
+    // A database compound of that name in the target.
+    expect(mergeComponents({ components: ["my-ester"] }, f).conflicts).toEqual(["my-ester"]);
+    // Custom in the target, database compound in the fragment.
+    const plain = { ...f, custom_compounds: undefined };
+    expect(mergeComponents({ components: ["my-ester"], custom_compounds: [other] }, plain).conflicts).toEqual(["my-ester"]);
+  });
+
+  it("reports conflicts only for components the pasted units use", () => {
+    const f = extractFragment(source, new Set(["MIX1"]));
+    expect(mergeComponents({ components: ["my-ester"] }, f, new Set(["water"])).conflicts).toEqual([]);
   });
 });

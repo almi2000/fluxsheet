@@ -7,8 +7,14 @@ always show the same numbers. Values are converted from SI to the units the edit
 
 The HTML page is self-contained (no scripts, no external files) and has print styles, so
 the browser's "Print to PDF" gives a PDF report. Excel output needs ``openpyxl``
-(``pip install fluxsheet[report]``). Sensitivity studies and dynamic runs have their own
-CSV exports and are not part of the report.
+(``pip install fluxsheet[report]``).
+
+A model with a ``costing`` section gets a Costing sheet from the report's own solve. Results of
+sensitivity studies, optimizations and a dynamic run are added when given as ``runs``
+(``ReportRuns``): the editor passes the results of its last runs that still match the
+flowsheet, so the report shows what the user saw without repeating long calculations on the
+server. ``compute_runs`` runs them all instead (the CLI's ``--with-runs``). Dynamic time
+series go to the Excel workbook only; the HTML report names the run and points there.
 """
 
 from __future__ import annotations
@@ -20,6 +26,8 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from . import __version__
 from .compounds import UnknownCompoundError
@@ -93,6 +101,8 @@ class Table:
     label_column: bool = False
     # Table of the Streams sheet split in chunks for print; see to_html.
     chunk: bool = False
+    # Shown in the HTML report too; long time series are in the Excel workbook only.
+    html: bool = True
 
 
 @dataclass
@@ -105,6 +115,153 @@ class Report:
     error: dict | None
     # Sheet name -> tables shown on it, in order.
     sheets: dict[str, list[Table]] = field(default_factory=dict)
+
+
+# ---- results of runs the report includes ----------------------------------------------------
+# They mirror the results of run_sensitivity, run_optimization and simulate (as the editor
+# gets them from the API); unknown fields are ignored and sizes are capped, as a report has to
+# stay a sensible size.
+
+_Num = float | None
+# As many as the runs can produce: study points (sensitivity.MAX_POINTS), dynamic output
+# points (DynamicsModel.points).
+MAX_STUDY_ROWS = 101 * 101
+MAX_RUN_POINTS = 2001
+MAX_RUN_CELLS = 2_000_000  # all run tables together; writing more takes openpyxl minutes
+
+
+class _Loose(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+
+class RunError(_Loose):
+    message: str = ""
+    where: str | None = None
+    hint: str | None = None
+
+
+class SensitivityColumnRun(_Loose):
+    label: str
+    quantity: str | None = None
+
+
+class SensitivityRowRun(_Loose):
+    inputs: list[_Num] = Field(max_length=10)
+    outputs: list[_Num] = Field(max_length=200)
+    error: RunError | None = None
+
+
+class SensitivityRun(_Loose):
+    ok: bool
+    id: str | None = None
+    inputs: list[SensitivityColumnRun] = Field(default_factory=list, max_length=10)
+    outputs: list[SensitivityColumnRun] = Field(default_factory=list, max_length=200)
+    rows: list[SensitivityRowRun] = Field(default_factory=list, max_length=MAX_STUDY_ROWS)
+    error: RunError | None = None
+
+
+class OptimizationVariableRun(_Loose):
+    label: str
+    quantity: str | None = None
+    lower: _Num = None
+    upper: _Num = None
+    start: _Num = None
+    value: _Num = None
+    at_bound: bool = False
+
+
+class OptimizationConstraintRun(_Loose):
+    expression: str
+    relation: str
+    value: _Num = None
+    achieved: _Num = None
+    satisfied: bool = True
+    active: bool = False
+
+
+class OptimizationObjectiveRun(_Loose):
+    expression: str = ""
+    value: _Num = None
+    start: _Num = None
+
+
+class OptimizationHistoryRun(_Loose):
+    iteration: int
+    objective: _Num = None
+    x: list[_Num] = Field(default_factory=list, max_length=200)
+    max_violation: _Num = None
+
+
+class OptimizationRun(_Loose):
+    ok: bool
+    id: str | None = None
+    sense: str | None = None
+    method: str | None = None
+    converged: bool | None = None
+    message: str | None = None
+    iterations: int | None = None
+    evaluations: int | None = None
+    failed_evaluations: int | None = None
+    history: list[OptimizationHistoryRun] = Field(default_factory=list, max_length=5_000)
+    objective: OptimizationObjectiveRun | None = None
+    variables: list[OptimizationVariableRun] = Field(default_factory=list, max_length=200)
+    constraints: list[OptimizationConstraintRun] = Field(default_factory=list, max_length=200)
+    error: RunError | None = None
+
+
+class DynamicSeriesRun(_Loose):
+    key: str = ""
+    owner: str = ""
+    label: str
+    quantity: str | None = None
+    values: list[_Num] = Field(max_length=MAX_RUN_POINTS)
+
+
+class DynamicRun(_Loose):
+    ok: bool
+    time: list[_Num] = Field(default_factory=list, max_length=MAX_RUN_POINTS)
+    series: list[DynamicSeriesRun] = Field(default_factory=list, max_length=2_000)
+    warnings: list[str] = Field(default_factory=list, max_length=200)
+    error: RunError | None = None
+
+
+class ReportRuns(_Loose):
+    sensitivity: list[SensitivityRun] = Field(default_factory=list, max_length=20)
+    optimizations: list[OptimizationRun] = Field(default_factory=list, max_length=20)
+    dynamics: DynamicRun | None = None
+
+    @model_validator(mode="after")
+    def _not_too_large(self) -> ReportRuns:
+        cells = sum(len(r.rows) * (len(r.inputs) + len(r.outputs) + 1) for r in self.sensitivity)
+        cells += sum(len(r.history) * (len(r.variables) + 3) for r in self.optimizations)
+        if self.dynamics:
+            cells += len(self.dynamics.time) * (len(self.dynamics.series) + 1)
+        if cells > MAX_RUN_CELLS:
+            raise ValueError(f"the runs add {cells} table cells to the report, more than "
+                             f"{MAX_RUN_CELLS}; leave the dynamic run or a large study out")
+        return self
+
+
+def compute_runs(model: FlowsheetModel, dynamics: bool = True) -> ReportRuns:
+    """Run every sensitivity study and optimization of ``model``, and its dynamic run, for a
+    report. This can take long: each study point and iteration is a flowsheet solve."""
+    from .dynamics.simulator import simulate
+    from .optimization import run_optimization
+    from .sensitivity import run_sensitivity
+
+    def safe(run, *args) -> dict:
+        try:
+            return run(*args)
+        except SimulationError as exc:
+            return {"ok": False, "error": exc.to_dict()}
+        except (UnknownCompoundError, ValueError, ArithmeticError) as exc:
+            return {"ok": False, "error": {"message": str(exc)}}
+
+    return ReportRuns.model_validate({
+        "sensitivity": [safe(run_sensitivity, model, s.id) for s in model.sensitivity or []],
+        "optimizations": [safe(run_optimization, model, o.id) for o in model.optimizations or []],
+        "dynamics": safe(simulate, model) if dynamics and model.dynamics is not None else None,
+    })
 
 
 def solve_for_report(model: FlowsheetModel) -> SolveResult:
@@ -120,8 +277,10 @@ def solve_for_report(model: FlowsheetModel) -> SolveResult:
             "hint": "search for the compound and pick it from the list"})
 
 
-def build_report(model: FlowsheetModel, result: SolveResult, now: datetime | None = None) -> Report:
+def build_report(model: FlowsheetModel, result: SolveResult, now: datetime | None = None,
+                 runs: ReportRuns | None = None) -> Report:
     now = now or datetime.now(timezone.utc)
+    runs = runs or ReportRuns()
     summary: list[tuple[str, Any]] = [
         ("Flowsheet", model.name),
         ("Description", model.description or ""),
@@ -135,6 +294,11 @@ def build_report(model: FlowsheetModel, result: SolveResult, now: datetime | Non
         recycle = (f"tear {', '.join(result.tear_streams)}; converged in {result.iterations} "
                    "iterations" if result.tear_streams else "no recycle loops")
         summary.append(("Recycle", recycle))
+    included = [*(f"sensitivity study {r.id}" for r in runs.sensitivity),
+                *(f"optimization {r.id}" for r in runs.optimizations),
+                *(["dynamic run"] if runs.dynamics else [])]
+    if included and result.ok:  # a failed solve gets no result sheets, runs included
+        summary.append(("Included runs", ", ".join(included)))
     summary += [("Generated", now.strftime("%Y-%m-%d %H:%M UTC")),
                 ("Fluxsheet version", __version__)]
 
@@ -163,6 +327,15 @@ def build_report(model: FlowsheetModel, result: SolveResult, now: datetime | Non
         report.sheets["Profiles"] = profiles
     if result.design_specs:
         report.sheets["Design specs"] = [_spec_table(result)]
+    if result.costing:
+        report.sheets["Costing"] = _costing_tables(result.costing)
+    if runs.sensitivity:
+        report.sheets["Sensitivity"] = [t for r in runs.sensitivity for t in _sensitivity_tables(r)]
+    if runs.optimizations:
+        report.sheets["Optimization"] = [t for r in runs.optimizations
+                                         for t in _optimization_tables(r)]
+    if runs.dynamics:
+        report.sheets["Dynamics"] = _dynamic_tables(runs.dynamics)
     return report
 
 
@@ -262,6 +435,135 @@ def _spec_table(result: SolveResult) -> Table:
                  ["Spec", "Target", "Target value", "Achieved", "Unit", "Varied", "Value",
                   "Unit", "Converged", "Flowsheet solves"], rows,
                  kinds=["", "", "num", "num", "", "", "num", "", "", "int"])
+
+
+def _costing_tables(costing: dict) -> list[Table]:
+    summary = Table("Cost summary", ["Item", "Value", "Unit"], [
+        ["Purchased equipment", costing.get("purchased_cost"), "$"],
+        ["Bare module", costing.get("bare_module_cost"), "$"],
+        ["Capital (bare module + 18 %)", costing.get("capital_cost"), "$"],
+        ["Operating", costing.get("operating_cost"), "$/yr"],
+        ["Annualization factor", costing.get("annualization_factor"), "1/yr"],
+        ["Annualized capital", costing.get("annualized_capital"), "$/yr"],
+        ["Total annualized cost (TAC)", costing.get("tac"), "$/yr"],
+        ["CEPCI", costing.get("cepci"), ""],
+        ["Operating hours", costing.get("hours_per_year"), "h/yr"],
+    ], kinds=["", "num", ""])
+    rows = []
+    for uid, u in (costing.get("units") or {}).items():
+        items = u.get("items") or []
+        rows.append([
+            uid, ", ".join(str(i.get("item", "")) for i in items),
+            ", ".join(f"{_fmt_num(i.get('size'))} {i.get('size_unit', '')}"
+                      + (f" ×{i['parallel']}" if (i.get("parallel") or 1) > 1 else "")
+                      for i in items),
+            u.get("purchased_cost"), u.get("bare_module_cost"),
+            ", ".join(f"{x.get('utility')} "
+                      f"{_fmt_num(to_display(abs(x.get('duty') or 0), 'power'))} kW"
+                      for x in u.get("utilities") or []),
+            u.get("operating_cost"), "; ".join(u.get("notes") or []),
+        ])
+    tables = [summary, Table("Equipment costs", [
+        "Unit", "Equipment", "Size", "Purchased [$]", "Bare module [$]", "Utilities",
+        "Operating [$/yr]", "Notes"], rows, kinds=["", "", "", "num", "num", "", "num", ""])]
+    if costing.get("not_costed"):
+        tables.append(Table("Not costed", ["Unit"], [[u] for u in costing["not_costed"]]))
+    return tables
+
+
+def _kind_of(quantity: str | None) -> str:
+    return "T" if quantity == "temperature" else "frac" if quantity == "fraction" else "num"
+
+
+def _error_table(title: str, error: RunError | None) -> Table:
+    return Table(title, ["Error"], [[_error_text(error.model_dump()) if error else "failed"]])
+
+
+def _sensitivity_tables(run: SensitivityRun) -> list[Table]:
+    title = f"Sensitivity study {run.id or ''}".strip()
+    if not run.ok:
+        return [_error_table(title, run.error)]
+    cols = [*run.inputs, *run.outputs]
+    rows = []
+    for row in run.rows:
+        values = [*row.inputs, *row.outputs]
+        rows.append([to_display(values[i], c.quantity) if i < len(values) else None
+                     for i, c in enumerate(cols)]
+                    + [row.error.message if row.error else ""])
+    return [Table(title, [_label(c.label, display_unit(c.quantity)) for c in cols] + ["Error"],
+                  rows, kinds=[_kind_of(c.quantity) for c in cols] + [""])]
+
+
+def _optimization_tables(run: OptimizationRun) -> list[Table]:
+    name = f"Optimization {run.id or ''}".strip()
+    if not run.ok:
+        status = "failed"
+    elif run.converged:
+        status = "converged"
+    else:
+        status = f"not converged: {run.message or ''}".strip()
+    summary: list[list[Any]] = [
+        ["Status", status], ["Method", run.method], ["Sense", run.sense],
+        ["Iterations", run.iterations], ["Flowsheet solves", run.evaluations],
+        ["Failed solves", run.failed_evaluations]]
+    if run.objective:
+        at = ("optimum" if run.ok and run.converged else "best point" if run.ok
+              else "least violation")
+        summary += [["Objective", run.objective.expression],
+                    ["Objective at start", run.objective.start],
+                    [f"Objective at {at}", run.objective.value]]
+    if not run.ok and run.error:
+        summary.append(["Error", _error_text(run.error.model_dump())])
+    tables = [Table(name, ["Item", "Value"], [r for r in summary if r[1] is not None],
+                    kinds=["", "num"])]
+    if run.variables:
+        tables.append(Table(f"{name}: variables", [
+            "Variable", "Start", "Result", "Lower bound", "Upper bound", "Unit", "At bound"],
+            [[v.label, to_display(v.start, v.quantity), to_display(v.value, v.quantity),
+              to_display(v.lower, v.quantity), to_display(v.upper, v.quantity),
+              display_unit(v.quantity), "yes" if v.at_bound else ""] for v in run.variables],
+            kinds=["", "num", "num", "num", "num", "", ""]))
+    if run.constraints:
+        tables.append(Table(f"{name}: constraints", [
+            "Constraint", "Relation", "Limit", "Achieved", "Status"],
+            [[c.expression, c.relation, c.value, c.achieved,
+              "violated" if not c.satisfied else "active" if c.active else "met"]
+             for c in run.constraints], kinds=["", "", "num", "num", ""]))
+    if run.history:
+        variables = run.variables
+        n = max(len(h.x) for h in run.history)
+        labels = [_label(variables[k].label, display_unit(variables[k].quantity))
+                  if k < len(variables) else f"x{k + 1}" for k in range(n)]
+        quantity = [variables[k].quantity if k < len(variables) else None for k in range(n)]
+        tables.append(Table(f"{name}: iteration history",
+                            ["Iteration", "Objective", "Max. violation", *labels],
+                            [[h.iteration, h.objective, h.max_violation,
+                              *(to_display(h.x[k], quantity[k]) if k < len(h.x) else None
+                                for k in range(n))] for h in run.history],
+                            kinds=["int", "num", "num", *(_kind_of(q) for q in quantity)]))
+    return tables
+
+
+# Excel's last column is XFD (16 384); the time takes the first.
+MAX_XLSX_SERIES = 16_383
+
+
+def _dynamic_tables(run: DynamicRun) -> list[Table]:
+    if not run.ok and not run.series:
+        return [_error_table("Dynamic run", run.error)]
+    series = run.series[:MAX_XLSX_SERIES]
+    columns = ["Time [s]"] + [_label(f"{s.owner} {s.label}".strip(), display_unit(s.quantity))
+                              for s in series]
+    rows = [[t, *(to_display(s.values[i], s.quantity) if i < len(s.values) else None
+                  for s in series)] for i, t in enumerate(run.time)]
+    tables = [Table("Dynamic run", columns, rows,
+                    kinds=["num", *(_kind_of(s.quantity) for s in series)], html=False)]
+    notes = [[w] for w in run.warnings]
+    if run.error:
+        notes.insert(0, [f"stopped: {_error_text(run.error.model_dump())}"])
+    if notes:
+        tables.append(Table("Dynamic run: notes", ["Note"], notes))
+    return tables
 
 
 # ---- Excel ---------------------------------------------------------------------------------
@@ -469,6 +771,10 @@ def to_html(report: Report) -> str:
             continue
         out.append(f"<h2>{e(_HTML_SECTION.get(sheet, sheet))}</h2>")
         for table in tables:
+            if not table.html:
+                out.append(f'<p class="muted">{e(table.title)}: {len(table.rows)} time points of '
+                           f'{len(table.columns) - 1} variables, in the Excel report.</p>')
+                continue
             out.append(_html_table(table, heading="h3" if len(tables) > 1 else None))
     out.append("</body></html>")
     return "\n".join(out)

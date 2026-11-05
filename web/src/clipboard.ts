@@ -1,4 +1,4 @@
-import type { FlowsheetModel, StreamModel, UnitModel } from "./types";
+import type { CustomCompound, FlowsheetModel, StreamModel, UnitModel } from "./types";
 
 /**
  * Copy/paste of flowsheet fragments. A fragment is an ordinary Fluxsheet file holding the
@@ -17,6 +17,10 @@ export function extractFragment(model: FlowsheetModel, ids: ReadonlySet<string>)
     name: model.name,
     components: model.components,
     property_method: model.property_method,
+    // The definitions of user-defined components travel along, for pasting into another flowsheet.
+    ...(model.custom_compounds?.length && {
+      custom_compounds: model.custom_compounds.filter((c) => model.components.includes(c.name)),
+    }),
     units: model.units.filter((u) => ids.has(u.id)),
     streams: model.streams.filter((s) => s.to && ids.has(unitOf(s.from)) && ids.has(unitOf(s.to))),
   };
@@ -29,7 +33,15 @@ export function parseFragment(text: string): FlowsheetModel | null {
     if (!m || typeof m !== "object" || typeof m.format !== "string" || !m.format.startsWith("fluxsheet/")) return null;
     if (!Array.isArray(m.units) || m.units.some((u: UnitModel) => typeof u?.id !== "string" || typeof u?.type !== "string"))
       return null;
-    return { ...m, streams: Array.isArray(m.streams) ? m.streams : [], components: m.components ?? [] };
+    const custom = Array.isArray(m.custom_compounds)
+      ? m.custom_compounds.filter((c: CustomCompound) => typeof c?.name === "string" && typeof c?.formula === "string")
+      : undefined;
+    return {
+      ...m,
+      streams: Array.isArray(m.streams) ? m.streams : [],
+      components: Array.isArray(m.components) ? m.components.filter((c: unknown) => typeof c === "string") : [],
+      custom_compounds: custom,
+    };
   } catch {
     return null;
   }
@@ -104,4 +116,47 @@ export function remapFragment(
     }
   }
   return { units, streams, idMap };
+}
+
+/** JSON with sorted keys, so two definitions compare equal whatever their key order. */
+export function canonical(x: unknown): string {
+  if (Array.isArray(x)) return `[${x.map(canonical).join(",")}]`;
+  if (x && typeof x === "object")
+    return `{${Object.keys(x)
+      .filter((k) => (x as Record<string, unknown>)[k] !== undefined)
+      .sort()
+      .map((k) => `${JSON.stringify(k)}:${canonical((x as Record<string, unknown>)[k])}`)
+      .join(",")}}`;
+  return JSON.stringify(x);
+}
+
+/**
+ * The components and custom compound definitions of `target` after pasting `fragment`: the
+ * fragment's missing components are added, with their definitions if they are user-defined.
+ * A name the target already uses keeps the target's meaning; if the fragment means another
+ * compound by it (another definition, or custom versus database), it is listed in `conflicts`.
+ * Names are matched exactly, as the backend does.
+ */
+export function mergeComponents(
+  target: { components: string[]; custom_compounds?: CustomCompound[] },
+  fragment: FlowsheetModel,
+  /** The components the pasted units refer to; only they are reported as conflicts. */
+  used?: ReadonlySet<string>,
+): { components: string[]; custom_compounds: CustomCompound[]; conflicts: string[] } {
+  const components = [...target.components];
+  const custom = [...(target.custom_compounds ?? [])];
+  const conflicts: string[] = [];
+  const theirs = new Map((fragment.custom_compounds ?? []).map((c) => [c.name, c]));
+  for (const name of fragment.components ?? []) {
+    const def = theirs.get(name);
+    const mine = custom.find((c) => c.name === name);
+    if (!components.includes(name)) {
+      components.push(name);
+      if (def && !mine) custom.push(def);
+      else if (def && mine && canonical(def) !== canonical(mine)) conflicts.push(name);
+    } else if (def ? !mine || canonical(def) !== canonical(mine) : !!mine) {
+      conflicts.push(name);
+    }
+  }
+  return { components, custom_compounds: custom, conflicts: used ? conflicts.filter((c) => used.has(c)) : conflicts };
 }

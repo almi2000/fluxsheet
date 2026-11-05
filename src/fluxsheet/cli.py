@@ -168,7 +168,11 @@ def _report(args) -> int:
         return 2
     model = FlowsheetModel.load(args.file)
     result = report.solve_for_report(model)
-    built = report.build_report(model, result)
+    runs = None
+    if args.with_runs and result.ok:
+        print("running the sensitivity studies, optimizations and dynamic run ...")
+        runs = report.compute_runs(model)
+    built = report.build_report(model, result, runs=runs)
     if args.xlsx:
         try:
             data = report.to_xlsx(built)
@@ -296,6 +300,9 @@ def main(argv: list[str] | None = None) -> int:
     rep.add_argument("file")
     rep.add_argument("--xlsx", help="write an Excel workbook to this file")
     rep.add_argument("--html", help="write a printable HTML report to this file")
+    rep.add_argument("--with-runs", action="store_true",
+                     help="also run the flowsheet's sensitivity studies, optimizations and "
+                     "dynamic run and include their results (may take long)")
     rep.set_defaults(func=_report)
     sens = sub.add_parser("sensitivity", help="run a sensitivity study and print it as CSV")
     sens.add_argument("file")

@@ -15,6 +15,7 @@ export type UnitNodeData = {
   property_method?: string; // the unit's own override, if any
   method?: string; // effective method, shown as a tag when the flowsheet mixes methods
   jacket?: "heat" | "cool"; // heated or cooled by a utility
+  warning?: string; // a setup problem the editor sees before running, e.g. an idle side outlet
 };
 
 export type UnitFlowNode = Node<UnitNodeData, "unit">;
@@ -42,8 +43,11 @@ function UnitNodeView({ id, data, selected }: NodeProps<UnitFlowNode>) {
         selected ? "selected" : "",
         data.hasError ? "error" : "",
         data.stale ? "stale" : "",
+        data.warning ? "warning" : "",
       ].join(" ")}
-      title={schema.description}
+      title={data.warning ? `${data.warning}
+
+${schema.description}` : schema.description}
     >
       <div className="unit-symbol" style={{ width: sym.w, height: sym.h }}>
         <UnitIcon type={data.type} jacket={data.jacket} />
@@ -72,7 +76,14 @@ function UnitNodeView({ id, data, selected }: NodeProps<UnitFlowNode>) {
           </Handle>
         ))}
       </div>
-      <div className="unit-id">{id}</div>
+      <div className="unit-id">
+        {id}
+        {data.warning && (
+          <span className="unit-warning" aria-label={data.warning}>
+            {" "}⚠
+          </span>
+        )}
+      </div>
       {badge && <div className="unit-badge">{badge}</div>}
       {data.method && <MethodTag method={data.method} override={!!data.property_method} />}
     </div>
