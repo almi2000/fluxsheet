@@ -278,9 +278,9 @@ into continuous flowsheets.
 ```json
 {"id": "BATCH", "type": "BatchReactor",
  "params": {"reactions": ["EST"], "phase": "liquid", "key": "acetic acid",
-            "batch_time": "8 h", "stop_conversion": 0.6, "cycle_time": "2 h",
+            "batch_time": "8 h", "stop_conversion": 0.6, "cycle_time": "3 h",
             "charge_time": "30 min", "down_time": "1 h",
-            "area": "6 m2", "U": "400 W/m2K", "utility": "CW", "utility_flow": "2 kg/s"}}
+            "area": "3 m2", "U": "400 W/m2K", "utility": "CW", "utility_flow": "1 kg/s"}}
 ```
 
 See `examples/ethyl_acetate_batch.json`: a preheated esterification batch, cooled by

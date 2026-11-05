@@ -11,6 +11,7 @@ from scipy.integrate import solve_ivp
 from fluxsheet import FlowsheetModel, solve
 from fluxsheet.flowsheet import ReactionModel, UtilityModel
 from fluxsheet.reactions import R, parse_reactions
+from fluxsheet.stream import Stream
 from fluxsheet.thermo_package import get_package
 from fluxsheet.units.base import empty_stream
 from fluxsheet.units.batch import BatchReactor
@@ -262,6 +263,96 @@ def test_vent_follows_rayleigh_distillation():
     assert N_end / 600.0 == pytest.approx(math.exp(ln_ratio), rel=1e-3)
     vent = r.streams["VENT"]
     assert mass(out) + mass(vent) == pytest.approx(mass(r.streams["IN"]), rel=1e-9)
+
+
+def energy_gap(r):
+    """Enthalpy out (product + vent) minus in, minus the reported average duty, W."""
+    out = h_flow(ISOMER, r.streams["OUT"]) + h_flow(ISOMER, r.streams["VENT"])
+    return out - h_flow(ISOMER, r.streams["IN"]) - r.units["B"]["duty"]
+
+
+@pytest.mark.parametrize("duty", ["0 kW", "-5 kW"])
+def test_vented_charge_above_its_bubble_point_flashes_off(duty):
+    # Feed at 10 bar and 325 K let down into a 4 bar vessel: part of it flashes to the vent
+    # at once. Without heat the rest stays at its bubble point; cooled, it ends subcooled.
+    still = {**FIRST_ORDER, "kinetics": {"k0": 0.0, "Ea": "0 kJ/mol"}}
+    r = run({"phase": "liquid", "batch_time": "10 min", "duty": duty, "vent": "yes",
+             "cycle_time": "10 min", "P": "4 bar"},
+            flows={"n-butane": "0.5 mol/s", "isobutane": "0.5 mol/s"}, T="325 K", P="10 bar",
+            reactions=[still])
+    u = r.units["B"]
+    assert u["vent_amount"] > 0.05 * u["charge"]
+    assert energy_gap(r) == pytest.approx(0.0, abs=1e-6 * abs(h_flow(ISOMER, r.streams["IN"])))
+    pkg = get_package(tuple(ISOMER), "ideal")
+    out = r.streams["OUT"]
+    zs = [out["mole_fractions"][n] for n in pkg.names]
+    T_bubble = pkg.saturation_point(zs, "bubble", P=4e5).T
+    if duty == "0 kW":
+        assert u["T_out"] == pytest.approx(T_bubble, abs=0.02)
+    else:
+        assert u["T_out"] < T_bubble - 1.0
+
+
+def test_superheated_pure_liquid_charge_boils_down_to_its_boiling_point():
+    still = {**FIRST_ORDER, "kinetics": {"k0": 0.0, "Ea": "0 kJ/mol"}}
+    r = run({"phase": "liquid", "batch_time": "5 min", "vent": "yes", "P": "4 bar"},
+            T="325 K", P="10 bar", reactions=[still])
+    u = r.units["B"]
+    pkg = get_package(tuple(ISOMER), "ideal")
+    assert u["T_out"] == pytest.approx(pkg.flash([1.0, 0.0], P=4e5, VF=0.0).T, abs=0.02)
+    assert u["vent_amount"] > 0.0
+    assert energy_gap(r) == pytest.approx(0.0, abs=1e-6 * abs(h_flow(ISOMER, r.streams["IN"])))
+
+
+def test_constant_volume_adiabatic_conserves_internal_energy():
+    # Endothermic cracking in a closed, insulated vessel: U stays, so
+    # H_out - P_end V = H_in - P0 V per batch (ideal gas: P V = N R T).
+    comps = ["ethane", "ethylene", "hydrogen"]
+    crack = {"id": "ISO", "stoichiometry": {"ethane": -1, "ethylene": 1, "hydrogen": 1},
+             "kinetics": {"k0": 0.05, "Ea": "150 kJ/mol", "T_ref": "1000 K"}}
+    T0, t_c = 1000.0, 100.0
+    r = run({"phase": "gas", "batch_time": "60 s", "vessel": "constant_volume",
+             "cycle_time": t_c}, components=comps, flows={"ethane": "1 mol/s"}, T=T0,
+            reactions=[crack])
+    u = r.units["B"]
+    assert u["T_out"] < T0 - 20.0
+    out = r.streams["OUT"]
+    n_end = out["molar_flow"] * t_c
+    pv_end = n_end * R * u["T_out"]
+    pv_0 = u["charge"] * R * T0
+    assert u["P_final"] == pytest.approx(1e5 * n_end * u["T_out"] / (u["charge"] * T0),
+                                         rel=1e-7)
+    assert h_flow(comps, out) * t_c - pv_end == pytest.approx(
+        h_flow(comps, r.streams["IN"]) * t_c - pv_0, rel=1e-8, abs=1e-3)
+
+
+def test_cooling_water_flow_follows_the_heat_removed():
+    r = run({"phase": "gas", "batch_time": "60 s", "U": 200.0, "area": "1 m2",
+             "utility": "CW", "cycle_time": "100 s"}, T="420 K", utilities=[CW])
+    u = r.units["B"]
+    assert u["duty"] < 0.0
+    assert u["utility_flow"] == pytest.approx(-u["heat_per_batch"] / (4180.0 * 10.0) / 100.0,
+                                              rel=1e-9)
+
+
+def test_stop_at_a_rising_mole_fraction():
+    r = run({"phase": "gas", "batch_time": "10 min", "stop_mole_fraction": 0.75,
+             "stop_component": "isobutane", "T": "400 K"})
+    assert r.units["B"]["batch_time"] == pytest.approx(math.log(4.0) / K1, rel=1e-6)
+
+
+def test_changed_parameters_are_recalculated():
+    pkg = get_package(tuple(ISOMER), "ideal")
+    unit = BatchReactor("B", {"reactions": ["ISO"], "phase": "gas", "batch_time": 20.0,
+                              "T": 400.0})
+    unit.reactions = parse_reactions([ReactionModel(**FIRST_ORDER)], pkg)
+    feed = {"in": [Stream.from_flash(pkg, [1.0, 0.0], T=400.0, P=1e5)]}
+    unit.calculate(pkg, feed)
+    first = unit.results["conversion"]
+    unit.p["batch_time"] = 40.0  # as a dynamic event or controller would
+    unit.calculate(pkg, feed)
+    assert unit.results["conversion"] == pytest.approx(1.0 - math.exp(-K1 * 40.0), rel=1e-6)
+    assert first == pytest.approx(1.0 - math.exp(-K1 * 20.0), rel=1e-6)
 
 
 # --- cycle and averaging ----------------------------------------------------------------------

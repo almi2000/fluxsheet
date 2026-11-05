@@ -22,9 +22,9 @@
     {"id": "BATCH", "type": "BatchReactor", "ui": {"x": 330, "y": 50},
      "params": {"reactions": ["EST"], "phase": "liquid", "key": "acetic acid",
                 "product": "ethyl acetate", "batch_time": "8 h", "stop_conversion": 0.6,
-                "cycle_time": "2 h", "charge_time": "30 min", "down_time": "1 h",
-                "area": "6 m2", "U": "400 W/m2K", "utility": "CW",
-                "utility_flow": "2 kg/s"}},
+                "cycle_time": "3 h", "charge_time": "30 min", "down_time": "1 h",
+                "area": "3 m2", "U": "400 W/m2K", "utility": "CW",
+                "utility_flow": "1 kg/s"}},
     {"id": "PRODUCT", "type": "Product", "ui": {"x": 520, "y": 80}}
   ],
   "streams": [

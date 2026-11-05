@@ -41,6 +41,7 @@ from dataclasses import dataclass
 
 import numpy as np
 from scipy.integrate import solve_ivp
+from scipy.optimize import brentq
 
 from ..contents_flash import ContentsFlash
 from ..errors import SimulationError
@@ -48,7 +49,7 @@ from ..reactions import R
 from ..stream import Stream
 from .base import IN, Param, Port, ResultField, empty_stream, single_inlet
 from .heat_transfer import AREA, HEAT_PARAMS
-from .reactors import DUTY_SPEC, KEY, REACTIONS, T_SPEC, KineticReactor
+from .reactors import DUTY_SPEC, KEY, REACTIONS, KineticReactor
 
 N_POINTS = 101  # profile points
 N_REF = 1.0  # mol, reference charge of the integration
@@ -74,6 +75,9 @@ class _Snap:
     fv: float = 0.0  # vent flow, mol/s
 
 
+T_BATCH = Param("T", "Temperature", "temperature", min=0.0, tab="Isothermal",
+                help="Isothermal batch at this temperature; the charge is brought to it at "
+                "the start.")
 T_PROFILE = Param(
     "T_profile", "Temperature program", "records", tab="Program",
     fields=(Param("time", "Time", "time", min=0.0), Param("T", "Temperature", "temperature",
@@ -132,7 +136,7 @@ class BatchReactor(KineticReactor):
         Param("vent", "Vent vapor", "choice", default="no", options=("no", "yes"),
               help="Constant pressure, liquid phase: vapor that forms leaves into the vent "
               "outlet as it forms."),
-        T_SPEC, T_PROFILE, DUTY_SPEC, AREA, *HEAT_PARAMS,
+        T_BATCH, T_PROFILE, DUTY_SPEC, AREA, *HEAT_PARAMS,
     )
     exclusive_groups = (("T", "T_profile", "duty", "area"),
                         ("stop_conversion", "stop_mole_fraction", "stop_T"),
@@ -188,7 +192,7 @@ class BatchReactor(KineticReactor):
 
     def calculate(self, pkg, inlets):
         s = single_inlet(inlets)
-        key = (tuple(s.flows), s.T, s.P)
+        key = (tuple(s.flows), s.T, s.P, repr(sorted(self.p.items())))
         if self._cache is not None and self._cache[0] == key:  # e.g. recycle passes
             _, outputs, results, profiles, notes = self._cache
             self.results, self.profiles, self.notes = dict(results), dict(profiles), list(notes)
@@ -324,6 +328,8 @@ class BatchReactor(KineticReactor):
         self._n = n
         energy = self._prog is None
         parts = [N0]
+        self._T_last = s.T
+        self._memo = None
         if self._const_v:
             st = pkg.flash(list(z0), T=s.T, P=P)
             if st.VF < 1.0 - 1e-9:
@@ -344,16 +350,11 @@ class BatchReactor(KineticReactor):
                 raise SimulationError("the charge is all vapor at the vessel pressure",
                                       where=self.id, hint="raise the vessel pressure, or cool "
                                       "the feed")
-            self._boiling = st.VF > 0.0
+            # Start subcooled with the feed's enthalpy; _settle() lets a charge above its
+            # bubble point flash off at once.
+            self._boiling = False
             self._T_last, self._y_last = st.T, np.asarray(st.y or z0)
-            if self._boiling:
-                xl, yv = np.asarray(st.x), np.asarray(st.y)
-                h_v = pkg.phase_props("vapor", st.T, P, list(yv)).H + float(yv @ self._hf)
-                h_l = pkg.phase_props("liquid", st.T, P, list(xl)).H + float(xl @ self._hf)
-                n_v = N_REF * st.VF
-                parts = [N_REF * z0 - n_v * yv, [(N_REF - n_v) * h_l], n_v * yv, [n_v * h_v]]
-            else:
-                parts += [[N_REF * h_feed], np.zeros(n), [0.0]]
+            parts += [[N_REF * h_feed], np.zeros(n), [0.0]]
         elif energy:
             parts.append([N_REF * h_feed])  # the charge enters with the feed's enthalpy
         if energy:
@@ -395,6 +396,14 @@ class BatchReactor(KineticReactor):
         return n * Vm * (r @ self._nu)
 
     def _snap(self, t: float, y: np.ndarray) -> _Snap:
+        key = (t, y.tobytes(), self._boiling)
+        if self._memo is not None and self._memo[0] == key:
+            return self._memo[1]
+        snap = self._evaluate(t, y)
+        self._memo = (key, snap)
+        return snap
+
+    def _evaluate(self, t: float, y: np.ndarray) -> _Snap:
         N = np.maximum(y[: self._n], 0.0)
         Nt = N.sum()
         if Nt <= 1e-12 * N_REF:
@@ -466,7 +475,7 @@ class BatchReactor(KineticReactor):
                 cv = (self._internal_energy(T + dT, Nt, z)[0] - u0) / dT
                 step = (U - u0) / cv
                 step = max(min(step, 100.0), -100.0)
-                T = max(T + step, 20.0)
+                T = _above_floor(T + step, self.id)
                 if abs(step) <= 1e-11 * T:
                     break
             else:
@@ -495,7 +504,7 @@ class BatchReactor(KineticReactor):
             if cp <= 0.0:
                 break
             step = max(min((h - h0) / cp, 50.0), -50.0)
-            T = max(T + step, 20.0)
+            T = _above_floor(T + step, self.id)
             if abs(step) <= 1e-11 * T:
                 return T
         raise SimulationError("could not find the liquid temperature", where=self.id)
@@ -520,7 +529,7 @@ class BatchReactor(KineticReactor):
             T += step
             moved = float(np.abs(y_new - y).max())
             y = y_new
-            if abs(step) <= 1e-11 * T and moved <= 1e-12:
+            if abs(step) <= 1e-10 * T and moved <= 1e-10:
                 return T, y
         raise SimulationError("could not find the bubble point of the contents",
                               where=self.id, hint="check the vessel pressure")
@@ -556,7 +565,59 @@ class BatchReactor(KineticReactor):
         return snap
 
     def _vent_flow(self, snap: _Snap) -> float:
-        return snap.fv if self._vented and self._boiling else 0.0
+        return max(snap.fv, 0.0) if self._vented and self._boiling else 0.0
+
+    def _settle(self, t: float, y: np.ndarray) -> np.ndarray:
+        """Vented batch at the start of a segment: the regime the state is in. Boiling needs
+        a vent flow; a liquid at or above its bubble point flashes off at once, in small
+        steps along the bubble line (a differential flash), with the vapor's enthalpy going
+        to the vent, so the energy balance stays exact."""
+        if not self._vented:
+            return y
+        if self._boiling:
+            self._boiling = self._snap(t, y).fv > 0.0
+            return y
+        snap = self._snap(t, y)
+        if snap.T < self._bubble(snap.z, snap.T)[0]:
+            return y
+        n, pkg, P, hf = self._n, self._pkg, self._P, self._hf
+        y = y.copy()
+        N, E = np.maximum(y[:n], 0.0), y[self._iE]
+        for _ in range(500):
+            Nt = N.sum()
+            z = N / Nt
+            T, yv = self._bubble(z)
+            self._T_last, self._y_last = T, yv
+            if E - Nt * self._h_liquid(T, z) <= 1e-10 * abs(E) + 1e-9:
+                break
+            h_v = pkg.phase_props("vapor", T, P, list(yv)).H + float(yv @ hf)
+
+            def left(dn, N=N, yv=yv, T=T, E=E, h_v=h_v):  # enthalpy left once dn has gone
+                N2 = N - dn * yv
+                z2 = N2 / N2.sum()
+                T2, _ = self._bubble(z2, T, yv)
+                return E - dn * h_v - N2.sum() * self._h_liquid(T2, z2)
+
+            room = min(N[i] / yv[i] for i in range(n) if yv[i] > 0.0)
+            cap = min(0.05 * Nt, 0.5 * room)
+            last = left(cap) <= 0.0
+            dn = brentq(left, 0.0, cap, xtol=1e-14 * Nt) if last else cap
+            if Nt - dn <= 1e-6 * N_REF:
+                raise SimulationError("the charge is all vapor at the vessel pressure",
+                                      where=self.id, hint="raise the vessel pressure, or cool "
+                                      "the feed")
+            N = N - dn * yv
+            E -= dn * h_v
+            y[self._iNv] += dn * yv
+            y[self._iHv] += dn * h_v
+            if last:
+                break
+        else:
+            raise SimulationError("the flash of the charge did not converge", where=self.id)
+        y[:n], y[self._iE] = N, E
+        self._boiling = True
+        self._boiling = self._snap(t, y).fv > 0.0
+        return y
 
     def _regime_event(self):
         """Vented batch: the subcooled liquid reaches its bubble point, or boiling stops."""
@@ -588,7 +649,7 @@ class BatchReactor(KineticReactor):
         snap = self._snap(t, y)
         dy = np.zeros_like(y)
         Fv = self._vent_flow(snap)
-        dy[: self._n] = snap.gen - (Fv * snap.y_vap if Fv > 0.0 else 0.0)
+        dy[: self._n] = snap.gen - Fv * snap.y_vap if Fv > 0.0 else snap.gen
         if self._energy:
             Q = self._heat(snap.T)
             dy[self._iE] = Q - Fv * snap.h_vap
@@ -601,7 +662,7 @@ class BatchReactor(KineticReactor):
     # ---- integration -------------------------------------------------------------------
 
     def _events(self, y0):
-        z0 = self._z0
+        z0 = y0[: self._n] / y0[: self._n].sum()  # the contents as they start
         events = []
         if self._stop is not None:
             kind, k, target = self._stop
@@ -643,20 +704,28 @@ class BatchReactor(KineticReactor):
 
     def _integrate(self, y0, t_max):
         rtol = 1e-7
+        y0 = self._settle(0.0, y0)
         events = self._events(y0)
         breaks = sorted({b for b in (self._prog[1] if self._prog else []) if 0.0 < b < t_max})
         ends = [*breaks, t_max]
         ts, ys, sols, regimes = [], [], [], []
         y, hit, t = y0, False, 0.0
-        boiling = self._boiling
         for _ in range(200):  # segments: temperature-program kinks, vent regime switches
             b = next(e for e in ends if e > t)
-            self._boiling = boiling
+            if t > 0.0:
+                y = self._settle(t, y)
+            boiling = self._boiling
             regime = [self._regime_event()] if self._vented else []
             self._last_error = None
-            sol = solve_ivp(self._trial_rhs, (t, b), y, method="BDF", rtol=rtol,
-                            atol=self._atol, events=(events + regime) or None,
-                            dense_output=True, max_step=t_max / 50.0)
+            try:
+                sol = solve_ivp(self._trial_rhs, (t, b), y, method="BDF", rtol=rtol,
+                                atol=self._atol, events=(events + regime) or None,
+                                dense_output=True, max_step=t_max / 50.0)
+            except (ValueError, np.linalg.LinAlgError) as exc:  # e.g. NaN in the Jacobian
+                why = self._last_error.message if self._last_error else str(exc)
+                raise SimulationError(f"the batch integration failed ({why})", where=self.id,
+                                      hint="check the rate constants and units, or give a "
+                                      "temperature") from exc
             if not sol.success:
                 why = f" ({self._last_error.message})" if self._last_error else ""
                 raise SimulationError(f"the batch integration failed: {sol.message}{why}",
@@ -672,7 +741,9 @@ class BatchReactor(KineticReactor):
                 hit = True
                 break
             if self._vented and fired and fired[-1]:
-                boiling = not boiling  # bubble point reached, or boiling stopped
+                self._boiling = not boiling  # bubble point reached, or boiling stopped
+                if t >= t_max * (1.0 - 1e-12):
+                    break
                 continue
             if self._vented and fired and fired[-2]:
                 raise SimulationError(
@@ -684,7 +755,6 @@ class BatchReactor(KineticReactor):
             raise SimulationError("the vented batch switched between boiling and subcooled "
                                   "too often", where=self.id,
                                   hint="change the duty or the jacket")
-        self._boiling = boiling
         self._regimes = np.concatenate(regimes)
         t_stop = float(ts[-1][-1])
         if self._stop is not None and not hit:
@@ -757,11 +827,11 @@ class BatchReactor(KineticReactor):
         # Profiles from the dense output, and the duty at every accepted step for its peak.
         grid = np.linspace(0.0, t_stop, N_POINTS)
         final = self._boiling
-        Ys = np.column_stack([self._dense(t) for t in grid])
-        regimes = []
+        columns, regimes = [], []
         for t in grid:
-            self._dense(t)
+            columns.append(self._dense(t))
             regimes.append(self._boiling)
+        Ys = np.column_stack(columns)
         Ys[:, 0], Ys[:, -1] = self._steps[1][:, 0], y_end
         regimes[0], regimes[-1] = bool(self._regimes[0]), final
 
@@ -775,9 +845,9 @@ class BatchReactor(KineticReactor):
         q_grid = [e[1] for e in evaluated]
         q_all = list(q_grid)
         t_steps, y_steps = self._steps
-        if len(t_steps) <= 2000:
-            q_all += [at(t, y_steps[:, j], bool(self._regimes[j]))[1]
-                      for j, t in enumerate(t_steps)]
+        every = max(1, len(t_steps) // 500)  # the accepted steps, at most about 500 of them
+        q_all += [at(t_steps[j], y_steps[:, j], bool(self._regimes[j]))[1]
+                  for j in range(0, len(t_steps), every)]
         self._boiling = final
         peak = max(q_all, key=abs) if q_all else 0.0
         if self._medium is not None and any(q == 0.0 for q in q_grid[1:]):
@@ -838,7 +908,8 @@ class BatchReactor(KineticReactor):
         if self._medium is not None:
             ut = self._medium
             UA = p["U"] * p["area"]
-            q_medium = abs(y_end[self._iQ]) * S  # J per batch through the jacket
+            # J per batch through the jacket; Utility.rate never changes sign for one medium
+            q_medium = abs(y_end[self._iQ]) * S
             if p["utility_flow"] is not None:
                 mass = p["utility_flow"] * t_stop
             elif ut.kind == "steam":
@@ -880,6 +951,13 @@ class BatchReactor(KineticReactor):
             {f"{pkg.names[i]} (mole fraction)": ("fraction", [float(sn.z[i]) for sn in snaps])
              for i in present},
         )
+
+
+def _above_floor(T: float, where: str) -> float:
+    if T < 50.0:
+        raise SimulationError("the contents would cool below 50 K", where=where,
+                              hint="check the heat removal and the heat of reaction")
+    return T
 
 
 def _liquid(pkg, flows: np.ndarray, T: float, P: float) -> Stream:
