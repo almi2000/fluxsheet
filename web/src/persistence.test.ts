@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   AUTOSAVE_KEY, MAX_AUTOSAVE_CHARS, MAX_RECENT, RECENT_KEY, addRecent, clearAutosave, isBlank,
-  UNRESTORED_KEY, keepUnrestored, readAutosave, readRecent, writeAutosave, type StorageLike,
+  UNRESTORED_KEY, keepUnrestored, otherTabAutosave, readAutosave, readRecent, tabId, writeAutosave, type StorageLike,
 } from "./persistence";
 import type { FlowsheetModel } from "./types";
 
@@ -127,5 +127,64 @@ describe("recent flowsheets", () => {
     const list = readRecent(storage);
     expect(list[0].name).toBe("F3");
     expect(list.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("autosave with several tabs", () => {
+  const known = (m: FlowsheetModel) => JSON.stringify(m);
+
+  it("stores and reads the tab that wrote the autosave", () => {
+    const { storage } = memory();
+    writeAutosave(storage, model(), false, 1, "tab-a");
+    expect(readAutosave(storage)?.tab).toBe("tab-a");
+  });
+
+  it("reports another tab's newer changes, not our own or ones we know", () => {
+    const { storage } = memory();
+    const a = model("A");
+    writeAutosave(storage, a, true, 1, "tab-a");
+    expect(otherTabAutosave(storage, "tab-a", known(a))).toBeNull(); // our own
+    expect(otherTabAutosave(storage, "tab-b", known(a))).toBeNull(); // b restored the same flowsheet
+    const conflict = otherTabAutosave(storage, "tab-b", known(model("B")));
+    expect(conflict?.model.name).toBe("A");
+    expect(conflict?.dirty).toBe(true);
+    expect(otherTabAutosave(storage, "tab-b", null)?.tab).toBe("tab-a");
+  });
+
+  it("treats autosaves of older versions (no tab) and missing ones as no conflict", () => {
+    const { storage, data } = memory();
+    expect(otherTabAutosave(storage, "tab-b", null)).toBeNull();
+    writeAutosave(storage, model("Old"), false, 1);
+    expect(otherTabAutosave(storage, "tab-b", null)).toBeNull();
+    data.set(AUTOSAVE_KEY, "{broken");
+    expect(otherTabAutosave(storage, "tab-b", null)).toBeNull();
+  });
+
+  it("never throws when storage fails", () => {
+    expect(otherTabAutosave(memory({ failGet: true }).storage, "t", null)).toBeNull();
+    expect(otherTabAutosave(null, "t", null)).toBeNull();
+    expect(typeof tabId(memory({ failGet: true, failSet: true }).storage)).toBe("string");
+    expect(typeof tabId(null)).toBe("string");
+  });
+
+  it("keeps the tab id across reloads of the tab", () => {
+    const { storage } = memory();
+    const id = tabId(storage);
+    expect(tabId(storage)).toBe(id);
+    expect(tabId(memory().storage)).not.toBe(id);
+  });
+
+  it("lets a tab notice another tab's edit before overwriting it", () => {
+    // Tab A autosaves; tab B opens the same flowsheet; A edits again; B's next autosave must stop.
+    const { storage } = memory();
+    const v1 = model("Shared");
+    writeAutosave(storage, v1, false, 1, "a");
+    const knownB = known(v1); // B restored v1
+    expect(otherTabAutosave(storage, "b", knownB)).toBeNull();
+    writeAutosave(storage, v1, false, 2, "b"); // B re-saves it after restoring
+    expect(otherTabAutosave(storage, "a", known(v1))).toBeNull(); // A may overwrite: nothing new
+    const v2 = { ...v1, description: "edited in A" };
+    writeAutosave(storage, v2, true, 3, "a");
+    expect(otherTabAutosave(storage, "b", knownB)?.model.description).toBe("edited in A");
   });
 });

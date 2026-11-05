@@ -88,7 +88,14 @@ function defaults(r: DynamicResult): string[] {
   return keys.length ? keys.slice(0, 6) : r.series.slice(0, 2).map((s) => s.key);
 }
 
-export function DynamicsView({ getModel }: { getModel: () => FlowsheetModel }) {
+export function DynamicsView({
+  getModel,
+  onRun,
+}: {
+  getModel: () => FlowsheetModel;
+  /** A run finished, for the flowsheet `model` (the report can include it). */
+  onRun?: (model: FlowsheetModel, result: DynamicResult) => void;
+}) {
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<DynamicResult | null>(null);
   const [shown, setShown] = useState<string[]>([]);
@@ -99,8 +106,10 @@ export function DynamicsView({ getModel }: { getModel: () => FlowsheetModel }) {
   const run = async () => {
     setRunning(true);
     try {
-      const r = await api.dynamic(getModel());
+      const sent = getModel();
+      const r = await api.dynamic(sent);
       setResult(r);
+      onRun?.(sent, r);
       if (r.series.length) setShown((prev) => (prev.some((k) => r.series.some((s) => s.key === k)) ? prev : defaults(r)));
     } catch (err) {
       setResult({ ok: false, time: [], series: [], warnings: [], error: { message: (err as Error).message, where: null, hint: null } });

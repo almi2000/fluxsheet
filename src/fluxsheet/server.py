@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Any, Literal
 from urllib.parse import quote
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Body, FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from . import __version__, limits, report
 from .compounds import UnknownCompoundError, lookup, search
@@ -248,16 +249,37 @@ _REPORT_TYPES = {
 }
 
 
+class ReportRequest(BaseModel):
+    model: FlowsheetModel
+    runs: report.ReportRuns | None = None  # results of the editor's last runs, see report.py
+
+
+def _report_request(payload: Any) -> ReportRequest:
+    """The body is a flowsheet, or ``{"model": flowsheet, "runs": {...}}``."""
+    wrapped = isinstance(payload, dict) and isinstance(payload.get("model"), dict)         and "units" not in payload
+    try:
+        if wrapped:
+            return ReportRequest.model_validate(payload)
+        return ReportRequest(model=FlowsheetModel.model_validate(payload))
+    except ValidationError as exc:
+        raise RequestValidationError(exc.errors(include_url=False)) from exc
+
+
 @app.post("/api/report")
-def report_file(model: FlowsheetModel, format: Literal["xlsx", "html"] = "xlsx") -> Response:
-    """Solve the flowsheet and return its report as an Excel workbook or printable HTML."""
+def report_file(payload: Annotated[Any, Body()],
+                format: Literal["xlsx", "html"] = "xlsx") -> Response:
+    """Solve the flowsheet and return its report as an Excel workbook or printable HTML.
+    The body is the flowsheet, or ``{"model": ..., "runs": ...}`` with the results of
+    sensitivity studies, optimizations and a dynamic run to include (report.ReportRuns)."""
+    request = _report_request(payload)
+    model = request.model
     try:
         limits.check_model_size(model)
     except SimulationError as exc:
         raise HTTPException(413, exc.message) from exc
 
     def compute():
-        built = report.build_report(model, report.solve_for_report(model))
+        built = report.build_report(model, report.solve_for_report(model), runs=request.runs)
         return report.to_xlsx(built) if format == "xlsx" else report.to_html(built)
 
     try:

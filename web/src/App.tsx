@@ -16,13 +16,18 @@ import {
 } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
-import { extractFragment, fragmentOrigin, parseFragment, remapFragment, type Point } from "./clipboard";
+import { extractFragment, fragmentOrigin, mergeComponents, parseFragment, remapFragment, type Point } from "./clipboard";
+import { componentsUsed, renameComponent } from "./compoundRename";
+import { idleSideOutlets, idleSideOutletText } from "./sideOutlets";
 import { useHistory } from "./history";
 import { FlowsheetInspector, StreamInspector, UnitInspector } from "./Inspector";
 import { getSymbol, portAt, SymbolDefs } from "./icons";
 import { layeredLayout } from "./layout";
 import { OpenMenu } from "./OpenMenu";
-import { addRecent, clearAutosave, clearRecent, isBlank, keepUnrestored, readAutosave, readRecent, safeStorage, writeAutosave, type RecentEntry } from "./persistence";
+import {
+  AUTOSAVE_KEY, addRecent, clearAutosave, clearRecent, isBlank, keepUnrestored, otherTabAutosave, readAutosave, readRecent,
+  safeSessionStorage, safeStorage, tabId, writeAutosave, type Autosave, type RecentEntry,
+} from "./persistence";
 import { Palette } from "./Palette";
 import { UnitMethodField } from "./PropertyMethods";
 import { ResultsPanel } from "./ResultsPanel";
@@ -145,6 +150,8 @@ const PASTE_OFFSET = 40;
 /** savedVersion of a document never saved to a file (history versions are >= 0). */
 const NEVER_SAVED = -1;
 const storage = safeStorage();
+/** This editor tab, for telling its autosaves from those of other tabs. */
+const TAB = tabId(safeSessionStorage());
 const AUTOSAVE_DELAY_MS = 800;
 
 function Editor() {
@@ -308,6 +315,7 @@ function Editor() {
       // Cleared while restoring and written back by the autosave once the flowsheet is on
       // screen: a session that breaks the editor is not restored again on the next load.
       clearAutosave(storage);
+      known.current = JSON.stringify(saved.model);
       try {
         loadModel(saved.model, true);
         history.reset(); // restoring is not an undo step
@@ -330,18 +338,76 @@ function Editor() {
 
   const [recent, setRecent] = useState<RecentEntry[]>(() => readRecent(storage));
   const lastAutosave = useRef<string | null>(null);
+  // Several tabs share the autosave (see persistence.ts): `known` is the flowsheet this tab last
+  // restored or autosaved; `foreignWrite` is set when another tab wrote since we last checked.
+  const known = useRef<string | null>(null);
+  const foreignWrite = useRef(true);
+  const [otherTab, setOtherTab] = useState<Autosave | null>(null);
   const autosave = useRef(() => {});
   autosave.current = () => {
-    if (!booted.current) return;
+    if (!booted.current || otherTab) return; // while another tab's changes wait, keep them
     const model = toModel();
-    const key = `${dirty}${JSON.stringify(model)}`;
+    const text = JSON.stringify(model);
+    const key = `${dirty}${text}`;
     if (key === lastAutosave.current) return; // selection changes, re-renders, ...
-    if (writeAutosave(storage, model, dirty)) lastAutosave.current = key;
+    if (foreignWrite.current) {
+      const other = otherTabAutosave(storage, TAB, known.current);
+      if (other) return setOtherTab(other);
+      foreignWrite.current = false;
+    }
+    if (writeAutosave(storage, model, dirty, Date.now(), TAB)) {
+      lastAutosave.current = key;
+      known.current = text;
+    }
+  };
+  const onStorage = useRef((_: StorageEvent) => {});
+  onStorage.current = (e) => {
+    if (e.key !== AUTOSAVE_KEY && e.key !== null) return; // null: the storage was cleared
+    foreignWrite.current = true;
+    if (!booted.current || otherTab) return;
+    if (e.newValue === null) {
+      // Another tab restored (and so cleared) or discarded the autosave: save ours again.
+      lastAutosave.current = null;
+      autosave.current();
+      return;
+    }
+    const other = otherTabAutosave(storage, TAB, known.current);
+    if (other) setOtherTab(other);
+  };
+  useEffect(() => {
+    const handler = (e: StorageEvent) => onStorage.current(e);
+    window.addEventListener("storage", handler);
+    return () => window.removeEventListener("storage", handler);
+  }, []);
+
+  /** Open the flowsheet another tab autosaved; undo returns to this tab's. */
+  const loadOtherTab = () => {
+    if (!otherTab) return;
+    if (!otherTab.model.units.every((u) => u && schemas[u.type])) {
+      alert("The other tab's flowsheet uses unit types this version does not know.");
+      return;
+    }
+    known.current = JSON.stringify(otherTab.model);
+    lastAutosave.current = null;
+    setOtherTab(null);
+    setRestoredAt(null);
+    loadModel(otherTab.model, true);
+    if (otherTab.dirty) setSavedVersion(NEVER_SAVED);
+  };
+  /** Autosave this tab's flowsheet over the other tab's. */
+  const keepThisTab = () => {
+    setOtherTab(null);
+    const model = toModel();
+    if (writeAutosave(storage, model, dirty, Date.now(), TAB)) {
+      known.current = JSON.stringify(model);
+      lastAutosave.current = `${dirty}${known.current}`;
+      foreignWrite.current = false;
+    }
   };
   useEffect(() => {
     const t = window.setTimeout(() => autosave.current(), AUTOSAVE_DELAY_MS);
     return () => window.clearTimeout(t);
-  }, [meta, nodes, edges, dirty]);
+  }, [meta, nodes, edges, dirty, otherTab]);
   useEffect(() => {
     const flush = () => autosave.current(); // edits within the delay before closing the tab
     window.addEventListener("pagehide", flush);
@@ -350,8 +416,10 @@ function Editor() {
 
   const discardRestored = () => {
     setRestoredAt(null);
-    clearAutosave(storage);
+    // Only our own autosave: another tab may have saved in the meantime.
+    if (!otherTabAutosave(storage, TAB, known.current)) clearAutosave(storage);
     lastAutosave.current = null;
+    known.current = null; // what another tab saves from now on is not ours to overwrite
     // Undo brings the restored session back.
     if (examples.length) loadStartExample(true);
     else loadModel({ format: "fluxsheet/1", ...EMPTY_META, units: [], streams: [] }, true);
@@ -462,6 +530,28 @@ function Editor() {
     touch();
   };
 
+  /** A component renamed everywhere the flowsheet refers to it (one undo step). */
+  const renameCompound = (from: string, to: string, patch: { custom_compounds?: CustomCompound[] }) => {
+    history.commit();
+    const renamed = renameComponent(toModel(), from, to, schemas);
+    const params = new Map(renamed.units.map((u) => [u.id, u.params]));
+    setNodes((ns) => ns.map((n) => (params.get(n.id) === n.data.params ? n : { ...n, data: { ...n.data, params: params.get(n.id) ?? {} } })));
+    setMeta((m) => ({
+      ...m,
+      components: renamed.components,
+      henry_components: renamed.henry_components,
+      custom_compounds: patch.custom_compounds ?? renamed.custom_compounds ?? [],
+      reactions: renamed.reactions ?? [],
+      design_specs: renamed.design_specs ?? [],
+      sensitivity: renamed.sensitivity ?? [],
+      calculators: renamed.calculators,
+      dynamics: renamed.dynamics,
+      optimizations: renamed.optimizations,
+    }));
+    setEpoch((n) => n + 1); // fields with drafts (feed flows, ...) start over from the new names
+    touch();
+  };
+
   const renameUnit = (oldId: string, newId: string): string | null => {
     const clean = newId.trim();
     if (!clean || clean.includes(".")) return "Use letters, digits, - or _";
@@ -519,6 +609,7 @@ function Editor() {
 
   const clipboard = useRef<FlowsheetModel | null>(null);
   const pasteCount = useRef(0);
+  const [pasteConflicts, setPasteConflicts] = useState<string[]>([]);
   const pointer = useRef<Point | null>(null); // screen position while over the canvas
 
   const copySelection = (): FlowsheetModel | null => {
@@ -541,9 +632,12 @@ function Editor() {
       ...canvas.nodes.map((n) => ({ ...n, selected: true })),
     ]);
     setEdges((es) => [...es.map((e) => (e.selected ? { ...e, selected: false } : e)), ...canvas.edges]);
-    // Units pasted from another flowsheet may refer to components this one lacks.
-    const missing = (fragment.components ?? []).filter((c) => !meta.components.includes(c));
-    if (missing.length) setMeta((m) => ({ ...m, components: [...m.components, ...missing] }));
+    // Units pasted from another flowsheet may refer to components this one lacks, some of them
+    // user-defined: their definitions come along. A name this flowsheet already uses keeps its meaning.
+    const merged = mergeComponents(meta, fragment, componentsUsed(known, schemas));
+    if (merged.components.length !== meta.components.length || merged.custom_compounds.length !== meta.custom_compounds.length)
+      setMeta((m) => ({ ...m, components: merged.components, custom_compounds: merged.custom_compounds }));
+    setPasteConflicts(merged.conflicts);
     setSelection(units.length === 1 ? { kind: "unit", id: units[0].id } : null);
     touch();
   };
@@ -747,17 +841,31 @@ function Editor() {
       (n.data.type === "Product" ? undefined : defaultMethod),
     [result, stale, defaultMethod],
   );
+  /** Connected column side outlets that no side draw feeds. */
+  const idleOutlets = useCallback(
+    (n: UnitFlowNode) =>
+      idleSideOutlets(
+        n.data.schema,
+        n.data.params,
+        edges.filter((e) => e.source === n.id).map((e) => ({ outlet: e.sourceHandle ?? "", stream: e.id })),
+      ),
+    [edges],
+  );
   const shownNodes = useMemo(() => {
     const mixed = new Set(nodes.map(unitMethod).filter(Boolean)).size > 1;
-    return nodes.map((n) => ({
-      ...n,
-      data: {
-        ...n.data, result: result?.units[n.id], hasError: errorAt === n.id, stale,
-        method: mixed ? unitMethod(n) : undefined,
-        jacket: jacketOf(n.data.params, result?.units[n.id], meta.utilities),
-      },
-    }));
-  }, [nodes, result, errorAt, stale, unitMethod, meta.utilities]);
+    return nodes.map((n) => {
+      const idle = idleOutlets(n);
+      return {
+        ...n,
+        data: {
+          ...n.data, result: result?.units[n.id], hasError: errorAt === n.id, stale,
+          method: mixed ? unitMethod(n) : undefined,
+          jacket: jacketOf(n.data.params, result?.units[n.id], meta.utilities),
+          warning: idle.length ? `Side outlet ${idle.map((x) => x.outlet).join(", ")} has no side draw` : undefined,
+        },
+      };
+    });
+  }, [nodes, result, errorAt, stale, unitMethod, meta.utilities, idleOutlets]);
 
   const setUnitMethod = (id: string, method: string | undefined) => {
     setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, data: { ...n.data, property_method: method } } : n)));
@@ -779,6 +887,7 @@ function Editor() {
 
   const selectedNode = selection?.kind === "unit" ? nodes.find((n) => n.id === selection.id) : undefined;
   const selectedCount = nodes.reduce((k, n) => k + (n.selected ? 1 : 0), 0);
+  const selectedIdle = selectedNode ? idleOutlets(selectedNode) : [];
   const mod = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl+";
 
   return (
@@ -882,6 +991,21 @@ function Editor() {
             <button className="link" onClick={() => setUnrestored(false)}> OK</button>
           </div>
         )}
+        {otherTab && (
+          <div className="banner warn" role="alert">
+            Another tab autosaved changes to {otherTab.model.name === meta.name ? "this flowsheet" : `“${otherTab.model.name}”`} (
+            {new Date(otherTab.savedAt).toLocaleTimeString()}). This tab&apos;s changes are not autosaved meanwhile.
+            <button onClick={loadOtherTab}>Load the other tab&apos;s version</button>
+            <button onClick={keepThisTab}>Autosave this tab instead</button>
+          </div>
+        )}
+        {pasteConflicts.length > 0 && (
+          <div className="banner info" role="status">
+            The pasted units use {pasteConflicts.join(", ")}, which this flowsheet defines differently; this
+            flowsheet&apos;s {pasteConflicts.length === 1 ? "definition is" : "definitions are"} kept.
+            <button onClick={() => setPasteConflicts([])}>OK</button>
+          </div>
+        )}
         {result && !result.ok && result.error && (
           <div className="banner error">
             <b>{result.error.where ? `${result.error.where}: ` : ""}</b>
@@ -980,6 +1104,11 @@ function Editor() {
               onChange={(p) => updateParams(selectedNode.id, p)}
               onDelete={() => deleteUnit(selectedNode.id)}
             >
+              {selectedIdle.length > 0 && (
+                <p className="callout warn">
+                  {idleSideOutletText(selectedIdle, Array.isArray(selectedNode.data.params.side_draws) ? selectedNode.data.params.side_draws.length : 0)}
+                </p>
+              )}
               <UnitMethodField
                 value={selectedNode.data.property_method}
                 flowsheetMethod={defaultMethod}
@@ -1002,6 +1131,7 @@ function Editor() {
               method={meta.property_method}
               methods={methods}
               reactions={meta.reactions}
+              onRenameComponent={renameCompound}
               onChange={(patch) => {
                 // Typing a name or editing reactions coalesces into one step per field.
                 history.commit(patch.components || patch.property_method ? null : `meta:${Object.keys(patch).join()}`);

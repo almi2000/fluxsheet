@@ -233,8 +233,31 @@ export type CurveValue = {
 const HEAD_UNITS = [...UNITS.length, ...UNITS.specific_energy];
 
 /** Performance curve: rows of flow, head and (optionally) efficiency, with their units. */
+/**
+ * Stable React keys for rows of a list that has no ids: one key per row, kept across edits,
+ * removed with its row; regenerated if the list changed length from outside (undo, a new unit).
+ */
+export function rowKeys(keys: number[], length: number, next: () => number): number[] {
+  return keys.length === length ? keys : Array.from({ length }, next);
+}
+
 export function CurveInput({ value, onChange }: { value: CurveValue; onChange: (v: CurveValue) => void }) {
   const points = value.points ?? [];
+  const keyCounter = useRef(0);
+  const keys = useRef<number[]>([]);
+  keys.current = rowKeys(keys.current, points.length, () => keyCounter.current++);
+  const table = useRef<HTMLDivElement>(null);
+  // After a row is removed or added, focus what the user most likely wants next.
+  const pendingFocus = useRef<{ remove: number } | { add: true } | null>(null);
+  useEffect(() => {
+    const f = pendingFocus.current;
+    pendingFocus.current = null;
+    if (!f || !table.current) return;
+    const rows = table.current.querySelectorAll<HTMLElement>(".curve-point");
+    if ("add" in f) return rows[rows.length - 1]?.querySelector<HTMLElement>("input")?.focus();
+    const row = rows[Math.min(f.remove, rows.length - 1)];
+    (row?.querySelector<HTMLElement>("button") ?? table.current.querySelector<HTMLElement>(".curve-add"))?.focus();
+  });
   const width = points.length ? points[0].length : value.efficiency_unit === undefined ? 2 : 3;
   const effUnit = width === 3 ? (value.efficiency_unit ?? "") : null;
   const update = (patch: Partial<CurveValue>) => onChange({ ...value, ...patch });
@@ -257,7 +280,7 @@ export function CurveInput({ value, onChange }: { value: CurveValue; onChange: (
     </select>
   );
   return (
-    <div className="curve-table">
+    <div className="curve-table" ref={table}>
       <div className="curve-row curve-head">
         <span>Flow</span>
         <span>Head</span>
@@ -279,7 +302,7 @@ export function CurveInput({ value, onChange }: { value: CurveValue; onChange: (
         <span />
       </div>
       {points.map((row, i) => (
-        <div key={i} className="curve-row">
+        <div key={keys.current[i]} className="curve-row curve-point">
           {[0, 1, 2].map((j) =>
             j < row.length ? (
               <input
@@ -298,7 +321,12 @@ export function CurveInput({ value, onChange }: { value: CurveValue; onChange: (
             type="button"
             className="icon-button"
             title="Remove point"
-            onClick={() => update({ points: points.filter((_, k) => k !== i) })}
+            aria-label={`Remove point ${i + 1}`}
+            onClick={() => {
+              keys.current = keys.current.filter((_, k) => k !== i);
+              pendingFocus.current = { remove: i };
+              update({ points: points.filter((_, k) => k !== i) });
+            }}
           >
             ×
           </button>
@@ -306,9 +334,11 @@ export function CurveInput({ value, onChange }: { value: CurveValue; onChange: (
       ))}
       <button
         type="button"
-        className="small"
+        className="small curve-add"
         onClick={() => {
           const last = points[points.length - 1];
+          keys.current = [...keys.current, keyCounter.current++];
+          pendingFocus.current = { add: true };
           update({ points: [...points, last ? last.map(() => null) : width === 3 ? [null, null, null] : [null, null]] });
         }}
       >
@@ -722,6 +752,7 @@ export function FlowsheetInspector({
   methods,
   reactions,
   onChange,
+  onRenameComponent,
   children,
 }: {
   name: string;
@@ -739,6 +770,8 @@ export function FlowsheetInspector({
     property_method?: string;
     reactions?: Reaction[];
   }) => void;
+  /** A custom compound renamed: update every reference to it (feeds, reactions, specs, ...). */
+  onRenameComponent?: (from: string, to: string, patch: { custom_compounds: CustomCompound[] }) => void;
   children?: React.ReactNode; // further settings sections, e.g. design specs
 }) {
   const [suggestion, setSuggestion] = useState<{ method: string; reason: string } | null>(null);
@@ -813,10 +846,12 @@ export function FlowsheetInspector({
           editing={customForm === "new" ? null : customForm}
           onClose={() => setCustomForm(null)}
           onSave={(def, previous) => {
-            onChange({
-              custom_compounds: [...customCompounds.filter((d) => d.name !== previous), def],
-              ...(previous ? {} : { components: [...components, def.name] }),
-            });
+            // An edited definition keeps its place in the list.
+            const custom_compounds = previous
+              ? customCompounds.map((d) => (d.name === previous ? def : d))
+              : [...customCompounds, def];
+            if (previous && previous !== def.name && onRenameComponent) onRenameComponent(previous, def.name, { custom_compounds });
+            else onChange({ custom_compounds, ...(previous ? {} : { components: [...components, def.name] }) });
             setCustomForm(null);
           }}
         />

@@ -24,6 +24,8 @@ export interface Autosave {
   /** The flowsheet had unsaved changes (not yet saved to a file). */
   dirty: boolean;
   model: FlowsheetModel;
+  /** The editor tab that wrote it (see tabId); absent in autosaves of older versions. */
+  tab?: string;
 }
 
 export interface RecentEntry {
@@ -98,18 +100,23 @@ export function readAutosave(storage: StorageLike | null): Autosave | null {
     remove(storage, AUTOSAVE_KEY);
     return null;
   }
-  return { savedAt: data.savedAt, dirty: !!data.dirty, model: data.model };
+  return {
+    savedAt: data.savedAt, dirty: !!data.dirty, model: data.model,
+    ...(typeof data.tab === "string" && { tab: data.tab }),
+  };
 }
 
 /**
  * Store the open flowsheet. The autosave matters more than the recent list: if storage is
  * full, recent entries are dropped (oldest first) to make room. Returns whether it was stored.
  */
-export function writeAutosave(storage: StorageLike | null, model: FlowsheetModel, dirty: boolean, now = Date.now()): boolean {
+export function writeAutosave(
+  storage: StorageLike | null, model: FlowsheetModel, dirty: boolean, now = Date.now(), tab?: string,
+): boolean {
   if (!storage) return false;
   let text: string;
   try {
-    text = JSON.stringify({ v: 1, savedAt: now, dirty, model });
+    text = JSON.stringify({ v: 1, savedAt: now, dirty, model, tab });
   } catch {
     return false; // not serializable
   }
@@ -131,6 +138,64 @@ export function writeAutosave(storage: StorageLike | null, model: FlowsheetModel
 
 export function clearAutosave(storage: StorageLike | null): void {
   remove(storage, AUTOSAVE_KEY);
+}
+
+// ---- several editor tabs -------------------------------------------------------------------
+//
+// All tabs of the editor share the one autosave. Each tab remembers the flowsheet it last
+// restored or autosaved ("known", as JSON). Before overwriting the autosave it checks that the
+// stored one is either its own or the flowsheet it knows; otherwise another tab saved changes
+// this tab has not seen, and the editor asks instead of silently overwriting them.
+
+export const TAB_KEY = "fluxsheet:tab";
+
+function newId(): string {
+  try {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  } catch {
+    /* insecure context: fall back */
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/**
+ * The id of this editor tab, kept in the tab's own sessionStorage so it survives a reload
+ * (a duplicated tab inherits it; the browser copies sessionStorage). Without storage, an id
+ * for this page load.
+ */
+export function tabId(session: StorageLike | null): string {
+  try {
+    const id = session?.getItem(TAB_KEY);
+    if (id) return id;
+  } catch {
+    /* storage disabled */
+  }
+  const id = newId();
+  write(session, TAB_KEY, id);
+  return id;
+}
+
+/** window.sessionStorage, or null where it is unavailable. */
+export function safeSessionStorage(): StorageLike | null {
+  try {
+    return typeof window !== "undefined" && window.sessionStorage ? window.sessionStorage : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The autosave of another tab that overwriting would lose: written by a tab other than `tab`,
+ * holding a flowsheet other than `known`. Null if there is none (or storage is unreadable).
+ */
+export function otherTabAutosave(storage: StorageLike | null, tab: string, known: string | null): Autosave | null {
+  const saved = readAutosave(storage);
+  if (!saved || saved.tab === undefined || saved.tab === tab) return null;
+  try {
+    return JSON.stringify(saved.model) === known ? null : saved;
+  } catch {
+    return null;
+  }
 }
 
 export const UNRESTORED_KEY = "fluxsheet:autosave:unrestored";

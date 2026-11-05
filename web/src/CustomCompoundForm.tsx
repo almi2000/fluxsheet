@@ -42,9 +42,11 @@ export function CustomCompoundForm({
         <input
           value={draft[key]}
           placeholder={placeholder}
-          // Feeds, reactions and specs refer to the name: rename by removing and adding again.
-          disabled={key === "name" && editing !== null}
-          title={key === "name" && editing ? "To rename, remove the compound and add it again" : undefined}
+          title={
+            key === "name" && editing
+              ? "Renaming updates feeds, reactions, specs, studies, calculators, dynamics and optimizations"
+              : undefined
+          }
           onChange={(e) => set({ [key]: e.target.value })}
         />
       )}

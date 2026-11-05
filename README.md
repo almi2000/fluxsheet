@@ -83,12 +83,17 @@ then open http://localhost:5173.
 
 In the editor, Ctrl/⌘ Z and Ctrl/⌘ Shift Z undo and redo every change, Ctrl/⌘ C / V / D copy,
 paste and duplicate the selected units (shift-click or shift-drag to select several; copies also
-paste into another editor tab as Fluxsheet JSON), and **Arrange** lays the flowsheet out left to
-right. Press `?` for all shortcuts.
+paste into another editor tab as Fluxsheet JSON, together with the definitions of user-defined
+compounds they use; a name the target flowsheet already defines differently keeps its own
+meaning, and the editor says so), and **Arrange** lays the flowsheet out left to right. Press `?`
+for all shortcuts.
 
 The editor autosaves the open flowsheet in the browser: after a reload or a crash it comes back
 with a "Restored your last session" notice (Discard starts over). **Open** also lists the last
 flowsheets you opened or saved. These copies live only in this browser; **Save** writes the file.
+With the editor open in several tabs, a tab never silently overwrites the autosave of another
+tab's newer changes: it stops autosaving and offers to load the other tab's version or to
+autosave its own instead.
 
 **Reports.** **Export: Excel / Printable report** in the results bar, or from the command line:
 
@@ -98,10 +103,18 @@ fluxsheet report examples/benzene_toluene_purity.json --xlsx report.xlsx --html 
 
 The Excel workbook has sheets for the summary (components, property method and why, binary
 parameter sources, warnings, convergence), the stream table, unit results, column and reactor
-profiles and design specs, all in the editor's units (°C, bar, kmol/h, kg/h, kW) with the unit
-named on every row or column. The HTML report is a self-contained page with print styles: print
-it to PDF from the browser. Excel output needs `openpyxl` (included in `[server]`, or
-`pip install "fluxsheet[report]"`); the HTTP API is `POST /api/report?format=xlsx|html`.
+profiles, design specs and, with a `costing` section, the costs (summary and per unit), all in
+the editor's units (°C, bar, kmol/h, kg/h, kW) with the unit named on every row or column.
+Sensitivity studies (one table per study), optimizations (optimum, variables with bounds,
+constraints and whether they are active, iteration history) and the time series of a dynamic
+run are added when they were run in the editor and the flowsheet has not changed since; the
+time series go to the Excel workbook only (**with dynamic run** next to the buttons). From the
+command line, `--with-runs` runs all studies, optimizations and the dynamic run for the report.
+The HTML report is a self-contained page with print styles: print it to PDF from the browser.
+Excel output needs `openpyxl` (included in `[server]`, or `pip install "fluxsheet[report]"`);
+the HTTP API is `POST /api/report?format=xlsx|html` with the flowsheet as the body, or
+`{"model": ..., "runs": {"sensitivity": [...], "optimizations": [...], "dynamics": {...}}}`
+with results as the API returned them.
 
 **Use it from Python**
 
@@ -210,7 +223,9 @@ volume by COSTALD. Joback groups can come from the SMILES when RDKit is installe
 `parameter_sources` and warnings. Equations of state and the ideal method need nothing more;
 UNIFAC needs `unifac_groups` (Dortmund subgroups), UNIQUAC those or `r` and `q`; NRTL and
 Wilson fit missing pairs to UNIFAC when groups are given. In the editor, **+ Custom
-compound** in the components section opens a form for this.
+compound** in the components section opens a form for this; clicking a custom compound edits
+it, and renaming it there updates every reference (feed flows, key components, reactions,
+specs, studies, calculators, dynamics and optimizations).
 
 ## Reactions and reactors
 
@@ -363,7 +378,8 @@ fluxsheet optimize examples/ethyl_acetate_optimization.json
 
 In the editor, costing and optimizations are edited in the flowsheet settings. They run from
 the **Costing** and **Optimization** tabs of the results, and **Use optimum** writes the
-optimal parameters back into the flowsheet.
+optimal parameters back into the flowsheet (only while the flowsheet is still the one the
+optimization ran on; after a change, run it again).
 
 ## Dynamic simulation
 
@@ -436,7 +452,9 @@ cubic (PCHIP) and continue as straight lines beyond the last points, with a warn
 Kirkbride); rigorous distillation on equilibrium stages (MESH equations solved together by
 Newton's method, Naphtali-Sandholm) with total, partial or no condenser, optional reboiler,
 stage pressure drop and Murphree efficiency, any number of feeds on their own stages, up
-to four liquid or vapor side draws (flow or fraction of the stage outflow), pumparounds
+to four liquid or vapor side draws (flow or fraction of the stage outflow; they leave through
+the outlets Side draw 1, 2, ... in table order, and the editor flags a connected side outlet
+without a draw), pumparounds
 (flow or fraction, cooled or heated by a duty or to a return temperature), side heaters and
 coolers on single stages, and kinetic reactive stages (liquid hold-up per stage, rates from
 the flowsheet's reactions, heat of reaction from formation enthalpies);

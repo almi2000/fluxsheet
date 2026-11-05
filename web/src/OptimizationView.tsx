@@ -1,9 +1,10 @@
 // Runs an optimization (POST /api/optimize) and shows the objective per iteration, the optimum
 // and the constraints; and the costing of a solved flowsheet as a table. See optimization.py.
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { api } from "./api";
 import { ticks } from "./ProfileView";
 import { formatQuantity } from "./quantities";
+import { runKey } from "./runs";
 import "./studies.css";
 import type { CostingResult, FlowsheetModel, Optimization, OptimizationResult } from "./types";
 
@@ -66,15 +67,22 @@ export function OptimizationView({
   optimizations,
   getModel,
   onApply,
+  onRun,
 }: {
   optimizations: Optimization[];
   getModel: () => FlowsheetModel;
   onApply?: (values: NonNullable<OptimizationResult["apply"]>) => void;
+  /** A run finished, for the flowsheet `model` (the report includes it). */
+  onRun?: (model: FlowsheetModel, result: OptimizationResult) => void;
 }) {
   const [optId, setOptId] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
-  const [result, setResult] = useState<OptimizationResult | null>(null);
+  // The last result and the fingerprint (runs.ts) of the flowsheet it was computed for.
+  const [last, setLast] = useState<{ id: string; key: string; result: OptimizationResult } | null>(null);
   const [applied, setApplied] = useState(false);
+  // Computed only while there is a result; getModel changes whenever the flowsheet does.
+  const currentKey = useMemo(() => (last ? runKey(getModel(), "optimization", last.id) : null), [last, getModel]);
+  const changed = !!last && currentKey !== last.key;
 
   if (optimizations.length === 0)
     return (
@@ -87,16 +95,21 @@ export function OptimizationView({
   const run = async () => {
     setRunning(true);
     setApplied(false);
+    const model = getModel();
+    const key = runKey(model, "optimization", opt.id);
     try {
-      setResult(await api.optimize(getModel(), opt.id));
+      const r = await api.optimize(model, opt.id);
+      setLast({ id: opt.id, key, result: r });
+      onRun?.(model, r);
     } catch (err) {
-      setResult({ ok: false, error: { message: (err as Error).message, where: null, hint: null } });
+      setLast({ id: opt.id, key, result: { ok: false, error: { message: (err as Error).message, where: null, hint: null } } });
     } finally {
       setRunning(false);
     }
   };
 
-  const r = result;
+  // A result belongs to the optimization it was run for.
+  const r = last && last.id === opt.id ? last.result : null;
   return (
     <div className="sensitivity">
       <div className="sens-toolbar">
@@ -114,7 +127,12 @@ export function OptimizationView({
         </button>
         {r?.ok && r.apply && onApply && (
           <button
-            disabled={applied}
+            disabled={applied || changed}
+            title={
+              !applied && changed
+                ? "The flowsheet changed after this run, so its optimum may no longer hold. Run the optimization again to use it."
+                : "Set the optimized parameters in the flowsheet"
+            }
             onClick={() => {
               onApply(r.apply!);
               setApplied(true);
@@ -123,6 +141,7 @@ export function OptimizationView({
             {applied ? "Optimum applied" : "Use optimum"}
           </button>
         )}
+        {r && changed && !applied && <span className="warn-text">Flowsheet changed since this run; run again to use its optimum</span>}
         {r?.history && (
           <span className="muted small">
             {r.method}: {r.iterations} iterations, {r.evaluations} flowsheet solves

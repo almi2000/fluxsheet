@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Diagrams } from "./Diagrams";
 import { DynamicsView } from "./DynamicsView";
 import { MethodsSummary, ParameterSources, shortMethod } from "./PropertyMethods";
@@ -6,6 +6,7 @@ import { fmt, formatQuantity } from "./quantities";
 import { ReportExport } from "./ReportExport";
 import { SensitivityView } from "./SensitivityView";
 import { CostingView, OptimizationView, money } from "./OptimizationView";
+import { emptyRuns, runKey, type Runs } from "./runs";
 import type { FlowsheetModel, Optimization, OptimizationResult, SensitivityStudy, SolveResult } from "./types";
 
 // Streams that split into two liquids carry this (see Stream.to_dict); null otherwise.
@@ -33,6 +34,11 @@ export function ResultsPanel({
   const [diagramOpened, setDiagramOpened] = useState(false);
   const [sensitivityOpened, setSensitivityOpened] = useState(false);
   const [dynamicsOpened, setDynamicsOpened] = useState(false);
+  // The last result of every study, optimization and dynamic run, for the report; each is
+  // included only while the flowsheet still matches it (runs.ts).
+  const runs = useRef<Runs>(emptyRuns());
+  const [, setRunCount] = useState(0); // re-render, so the export offers what is current
+
   if (!result) {
     return (
       <div className="results empty muted">
@@ -141,22 +147,45 @@ export function ResultsPanel({
           </span>
         )}
         {stale && <span className="warn-text">Flowsheet changed since this run</span>}
-        {getModel && <ReportExport getModel={getModel} />}
+        {getModel && <ReportExport getModel={getModel} getRuns={() => runs.current} />}
       </div>
       {sensitivityOpened && getModel && (
         <div hidden={view !== "sensitivity"}>
-          <SensitivityView studies={studies} getModel={getModel} />
+          <SensitivityView
+            studies={studies}
+            getModel={getModel}
+            onRun={(m, r) => {
+              if (!r.ok || !r.id) return;
+              runs.current.sensitivity[r.id] = { key: runKey(m, "sensitivity", r.id), result: r };
+              setRunCount((n) => n + 1);
+            }}
+          />
         </div>
       )}
       {optimizationOpened && getModel && (
         <div hidden={view !== "optimization"}>
-          <OptimizationView optimizations={optimizations} getModel={getModel} onApply={onApplyOptimum} />
+          <OptimizationView
+            optimizations={optimizations}
+            getModel={getModel}
+            onApply={onApplyOptimum}
+            onRun={(m, r) => {
+              if (!r.id) return; // the request itself failed
+              runs.current.optimizations[r.id] = { key: runKey(m, "optimization", r.id), result: r };
+              setRunCount((n) => n + 1);
+            }}
+          />
         </div>
       )}
       {result.costing && view === "costing" && <CostingView costing={result.costing} />}
       {dynamicsOpened && getModel && (
         <div hidden={view !== "dynamics"}>
-          <DynamicsView getModel={getModel} />
+          <DynamicsView
+            getModel={getModel}
+            onRun={(m, r) => {
+              runs.current.dynamics = { key: runKey(m, "dynamics"), result: r };
+              setRunCount((n) => n + 1);
+            }}
+          />
         </div>
       )}
       {diagramOpened && (
