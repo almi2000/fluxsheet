@@ -30,6 +30,18 @@ format or API).
 - **User-defined compounds:** a flowsheet can define its own compounds (formula, SMILES or
   Joback groups, known constants); missing properties are estimated by Joback and marked as
   estimates. Editor form in the components section.
+- **Batch reactor:** one batch cycle integrated with stop criteria (time, conversion,
+  composition, temperature) at constant pressure (optionally vented at the bubble point)
+  or constant volume; isothermal, adiabatic, duty, temperature program or utility
+  jacket. The product leaves as the cycle-average stream, with time profiles in the
+  results.
+- **Reports with runs:** the report also holds the costing summary and the editor's latest
+  sensitivity, optimization and (in Excel) dynamic runs; `POST /api/report` takes
+  `{model, runs}`, the CLI `--with-runs`.
+- **Editor:** copy and paste carries user-defined compounds, and renaming one updates every
+  reference; autosave no longer lets one browser tab silently overwrite another's newer
+  changes; "Use optimum" is disabled after the flowsheet changed; a warning for connected
+  column side outlets without a side draw.
 - **Reports:** Excel workbook (summary, stream table, unit results, profiles, design specs)
   and a printable HTML report, from the results panel, `fluxsheet report` or
   `POST /api/report`. Excel needs the `report` extra (`openpyxl`), included in `server`.
