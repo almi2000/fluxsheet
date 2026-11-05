@@ -1,0 +1,35 @@
+{
+  "format": "fluxsheet/1",
+  "name": "Ethyl acetate batch esterification",
+  "description": "Acetic acid and ethanol are collected over the cycle time, preheated to 70 °C and charged into a jacketed batch reactor. The equilibrium-limited esterification gives off heat; cooling water in the jacket takes it away while the batch runs until 60 % of the acid is converted. Charging takes 30 min and discharging and cleaning 1 h per cycle; the product leaves as the average stream per cycle. The inspector shows temperature, conversion, duty and composition over the batch.",
+  "components": ["acetic acid", "ethanol", "ethyl acetate", "water"],
+  "property_method": "auto",
+  "reactions": [
+    {"id": "EST",
+     "stoichiometry": {"acetic acid": -1, "ethanol": -1, "ethyl acetate": 1, "water": 1},
+     "kinetics": {"k0": 2e-7, "Ea": "50 kJ/mol", "T_ref": "70 degC",
+                  "orders": {"acetic acid": 1, "ethanol": 1}, "equilibrium_limited": true},
+     "keq": {"A": 1.386}}
+  ],
+  "utilities": [
+    {"id": "CW", "type": "fluid", "T_in": "25 degC", "T_out": "35 degC", "cp": "4.18 kJ/kgK"}
+  ],
+  "units": [
+    {"id": "FEED", "type": "Feed", "ui": {"x": 0, "y": 80},
+     "params": {"T": "25 degC", "P": "3 bar",
+                "flows": {"acetic acid": "2 kmol/h", "ethanol": "2 kmol/h"}}},
+    {"id": "PREHEAT", "type": "Heater", "ui": {"x": 160, "y": 80}, "params": {"T": "70 degC"}},
+    {"id": "BATCH", "type": "BatchReactor", "ui": {"x": 330, "y": 50},
+     "params": {"reactions": ["EST"], "phase": "liquid", "key": "acetic acid",
+                "product": "ethyl acetate", "batch_time": "8 h", "stop_conversion": 0.6,
+                "cycle_time": "3 h", "charge_time": "30 min", "down_time": "1 h",
+                "area": "3 m2", "U": "400 W/m2K", "utility": "CW",
+                "utility_flow": "1 kg/s"}},
+    {"id": "PRODUCT", "type": "Product", "ui": {"x": 520, "y": 80}}
+  ],
+  "streams": [
+    {"id": "S1", "from": "FEED.out", "to": "PREHEAT.in"},
+    {"id": "S2", "from": "PREHEAT.out", "to": "BATCH.in"},
+    {"id": "S3", "from": "BATCH.out", "to": "PRODUCT.in"}
+  ]
+}

@@ -58,6 +58,7 @@ DISPLAY: dict[str, tuple[float, float, str]] = {
     "velocity": (1.0, 0.0, "m/s"),
     "volumetric_flow": (3600.0, 0.0, "m³/h"),
     "specific_energy": (1e-3, 0.0, "kJ/kg"),
+    "energy": (1e-6, 0.0, "MJ"),
 }
 
 MAX_HTML_STREAMS = 8  # stream columns per printed table; wider tables are split

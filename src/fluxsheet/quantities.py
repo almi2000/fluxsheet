@@ -128,6 +128,14 @@ _UNITS: dict[str, dict[str, tuple[float, float]]] = {
         "gpm": (3.785411784e-3 / 60.0, 0.0),  # US gallons
         "cfm": (0.028316846592 / 60.0, 0.0),
     },
+    # Energy, e.g. the heat exchanged per batch.
+    "energy": {
+        "j": (1.0, 0.0),
+        "kj": (1e3, 0.0),
+        "mj": (1e6, 0.0),
+        "gj": (1e9, 0.0),
+        "kwh": (3.6e6, 0.0),
+    },
     # Energy per mass, e.g. the head of a compressor.
     "specific_energy": {
         "j/kg": (1.0, 0.0),
