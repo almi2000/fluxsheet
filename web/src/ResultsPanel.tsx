@@ -37,7 +37,7 @@ export function ResultsPanel({
   // The last result of every study, optimization and dynamic run, for the report; each is
   // included only while the flowsheet still matches it (runs.ts).
   const runs = useRef<Runs>(emptyRuns());
-  const [, setRunCount] = useState(0); // re-render, so the export offers what is current
+  const [runCount, setRunCount] = useState(0); // a new run: the export offers what is current
 
   if (!result) {
     return (
@@ -147,7 +147,7 @@ export function ResultsPanel({
           </span>
         )}
         {stale && <span className="warn-text">Flowsheet changed since this run</span>}
-        {getModel && <ReportExport getModel={getModel} getRuns={() => runs.current} />}
+        {getModel && <ReportExport getModel={getModel} getRuns={() => runs.current} runCount={runCount} />}
       </div>
       {sensitivityOpened && getModel && (
         <div hidden={view !== "sensitivity"}>

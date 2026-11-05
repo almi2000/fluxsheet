@@ -66,6 +66,10 @@ describe("column side outlets", () => {
     expect(idleSideOutlets(column, {}, connected).map((x) => x.outlet)).toEqual(["side1", "side3"]);
     expect(idleSideOutlets(column, { side_draws: [{}, {}, {}] }, connected)).toEqual([]);
     expect(idleSideOutlets({ params: [] } as unknown as UnitType, {}, connected)).toEqual([]);
+    // Numbers compare as numbers: side10 is beyond 9 draws, side2 is not.
+    const many = Array.from({ length: 9 }, () => ({}));
+    const ten = [{ outlet: "side2", stream: "A" }, { outlet: "side10", stream: "B" }];
+    expect(idleSideOutlets(column, { side_draws: many }, ten).map((x) => x.outlet)).toEqual(["side10"]);
   });
 
   it("explains the renumbering", () => {

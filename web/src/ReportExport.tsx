@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api, DEMO_BODY_LIMIT_DETAIL } from "./api";
-import { currentRuns, type Runs } from "./runs";
+import { currentRunNames, currentRuns, useSettled, type Runs } from "./runs";
 import type { FlowsheetModel } from "./types";
 
 /**
@@ -8,18 +8,20 @@ import type { FlowsheetModel } from "./types";
  * report solves the flowsheet and adds the sensitivity studies, optimizations and (in Excel,
  * optionally) the dynamic run last run here, if the flowsheet has not changed since.
  */
-export function ReportExport({ getModel, getRuns }: { getModel: () => FlowsheetModel; getRuns?: () => Runs }) {
+export function ReportExport({
+  getModel,
+  getRuns,
+  runCount = 0,
+}: {
+  getModel: () => FlowsheetModel;
+  getRuns?: () => Runs;
+  runCount?: number; // changes with every finished run
+}) {
   const [busy, setBusy] = useState<"xlsx" | "html" | null>(null);
   const [withDynamics, setWithDynamics] = useState(true);
-  const model = getModel();
-  const included = getRuns ? currentRuns(getRuns(), model) : null;
-  const names = included
-    ? [
-        ...included.sensitivity.map((r) => `study ${r.id}`),
-        ...included.optimizations.map((r) => `optimization ${r.id}`),
-        ...(included.dynamics ? ["dynamic run (Excel)"] : []),
-      ]
-    : [];
+  // What would be included, for the tooltip; recomputed once edits settle, not per drag frame.
+  const names = useSettled(() => (getRuns ? currentRunNames(getRuns(), getModel()) : []), [getModel, runCount]) ?? [];
+  const hasDynamics = names.some((n) => n.startsWith("dynamic"));
 
   const exportReport = async (format: "xlsx" | "html") => {
     // Open the tab inside the click, before the request, or popup blockers stop it.
@@ -34,10 +36,18 @@ export function ReportExport({ getModel, getRuns }: { getModel: () => FlowsheetM
       try {
         file = await api.report(m, format, runs);
       } catch (err) {
-        // The demo server takes small requests only: try again without the time series.
-        if (!runs?.dynamics || (err as Error).message !== DEMO_BODY_LIMIT_DETAIL) throw err;
-        file = await api.report(m, format, { ...runs, dynamics: null });
-        alert("The dynamic run is too large for the demo server and was left out of the report.");
+        // The demo server takes small requests only: without the time series, else without runs.
+        if (!runs || (err as Error).message !== DEMO_BODY_LIMIT_DETAIL) throw err;
+        let left = "The runs are";
+        try {
+          if (!runs.dynamics) throw err;
+          file = await api.report(m, format, { ...runs, dynamics: null });
+          left = "The dynamic run is";
+        } catch (again) {
+          if ((again as Error).message !== DEMO_BODY_LIMIT_DETAIL) throw again;
+          file = await api.report(m, format);
+        }
+        alert(`${left} too large for the demo server and left out of the report.`);
       }
       const url = URL.createObjectURL(file.blob);
       if (tab) {
@@ -70,7 +80,7 @@ export function ReportExport({ getModel, getRuns }: { getModel: () => FlowsheetM
       <button className="link" onClick={() => exportReport("html")} disabled={busy !== null}>
         {busy === "html" ? "Printable report…" : "Printable report"}
       </button>
-      {included?.dynamics && (
+      {hasDynamics && (
         <label className="small" title="Add the time series of the last dynamic run as a sheet of the Excel report">
           <input type="checkbox" checked={withDynamics} onChange={(e) => setWithDynamics(e.target.checked)} /> with
           dynamic run

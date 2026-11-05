@@ -163,15 +163,11 @@ describe("autosave with several tabs", () => {
   it("never throws when storage fails", () => {
     expect(otherTabAutosave(memory({ failGet: true }).storage, "t", null)).toBeNull();
     expect(otherTabAutosave(null, "t", null)).toBeNull();
-    expect(typeof tabId(memory({ failGet: true, failSet: true }).storage)).toBe("string");
-    expect(typeof tabId(null)).toBe("string");
+    expect(typeof tabId()).toBe("string");
   });
 
-  it("keeps the tab id across reloads of the tab", () => {
-    const { storage } = memory();
-    const id = tabId(storage);
-    expect(tabId(storage)).toBe(id);
-    expect(tabId(memory().storage)).not.toBe(id);
+  it("gives every page load its own tab id", () => {
+    expect(tabId()).not.toBe(tabId());
   });
 
   it("lets a tab notice another tab's edit before overwriting it", () => {

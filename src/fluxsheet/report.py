@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from . import __version__
 from .compounds import UnknownCompoundError
@@ -127,6 +127,7 @@ _Num = float | None
 # points (DynamicsModel.points).
 MAX_STUDY_ROWS = 101 * 101
 MAX_RUN_POINTS = 2001
+MAX_RUN_CELLS = 2_000_000  # all run tables together; writing more takes openpyxl minutes
 
 
 class _Loose(BaseModel):
@@ -229,6 +230,17 @@ class ReportRuns(_Loose):
     optimizations: list[OptimizationRun] = Field(default_factory=list, max_length=20)
     dynamics: DynamicRun | None = None
 
+    @model_validator(mode="after")
+    def _not_too_large(self) -> ReportRuns:
+        cells = sum(len(r.rows) * (len(r.inputs) + len(r.outputs) + 1) for r in self.sensitivity)
+        cells += sum(len(r.history) * (len(r.variables) + 3) for r in self.optimizations)
+        if self.dynamics:
+            cells += len(self.dynamics.time) * (len(self.dynamics.series) + 1)
+        if cells > MAX_RUN_CELLS:
+            raise ValueError(f"the runs add {cells} table cells to the report, more than "
+                             f"{MAX_RUN_CELLS}; leave the dynamic run or a large study out")
+        return self
+
 
 def compute_runs(model: FlowsheetModel, dynamics: bool = True) -> ReportRuns:
     """Run every sensitivity study and optimization of ``model``, and its dynamic run, for a
@@ -242,7 +254,7 @@ def compute_runs(model: FlowsheetModel, dynamics: bool = True) -> ReportRuns:
             return run(*args)
         except SimulationError as exc:
             return {"ok": False, "error": exc.to_dict()}
-        except UnknownCompoundError as exc:
+        except (UnknownCompoundError, ValueError, ArithmeticError) as exc:
             return {"ok": False, "error": {"message": str(exc)}}
 
     return ReportRuns.model_validate({
@@ -285,7 +297,7 @@ def build_report(model: FlowsheetModel, result: SolveResult, now: datetime | Non
     included = [*(f"sensitivity study {r.id}" for r in runs.sensitivity),
                 *(f"optimization {r.id}" for r in runs.optimizations),
                 *(["dynamic run"] if runs.dynamics else [])]
-    if included:
+    if included and result.ok:  # a failed solve gets no result sheets, runs included
         summary.append(("Included runs", ", ".join(included)))
     summary += [("Generated", now.strftime("%Y-%m-%d %H:%M UTC")),
                 ("Fluxsheet version", __version__)]
@@ -495,7 +507,8 @@ def _optimization_tables(run: OptimizationRun) -> list[Table]:
         ["Iterations", run.iterations], ["Flowsheet solves", run.evaluations],
         ["Failed solves", run.failed_evaluations]]
     if run.objective:
-        at = "optimum" if run.ok and run.converged else "best point" if run.ok else             "least violation"
+        at = ("optimum" if run.ok and run.converged else "best point" if run.ok
+              else "least violation")
         summary += [["Objective", run.objective.expression],
                     ["Objective at start", run.objective.start],
                     [f"Objective at {at}", run.objective.value]]

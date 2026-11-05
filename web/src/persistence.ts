@@ -147,41 +147,18 @@ export function clearAutosave(storage: StorageLike | null): void {
 // stored one is either its own or the flowsheet it knows; otherwise another tab saved changes
 // this tab has not seen, and the editor asks instead of silently overwriting them.
 
-export const TAB_KEY = "fluxsheet:tab";
-
-function newId(): string {
+/**
+ * An id for this page load of the editor. Not kept in sessionStorage: a duplicated tab copies
+ * it and would then overwrite the original's autosave as its own. After a reload the tab
+ * restores the autosave first, so a new id loses nothing.
+ */
+export function tabId(): string {
   try {
     if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
   } catch {
     /* insecure context: fall back */
   }
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-/**
- * The id of this editor tab, kept in the tab's own sessionStorage so it survives a reload
- * (a duplicated tab inherits it; the browser copies sessionStorage). Without storage, an id
- * for this page load.
- */
-export function tabId(session: StorageLike | null): string {
-  try {
-    const id = session?.getItem(TAB_KEY);
-    if (id) return id;
-  } catch {
-    /* storage disabled */
-  }
-  const id = newId();
-  write(session, TAB_KEY, id);
-  return id;
-}
-
-/** window.sessionStorage, or null where it is unavailable. */
-export function safeSessionStorage(): StorageLike | null {
-  try {
-    return typeof window !== "undefined" && window.sessionStorage ? window.sessionStorage : null;
-  } catch {
-    return null;
-  }
 }
 
 /**

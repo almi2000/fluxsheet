@@ -163,6 +163,22 @@ def test_failed_runs_show_their_error(tiny):
     assert "no dynamics" in json.dumps(_rows(wb["Dynamics"]))
 
 
+def test_failed_solve_lists_no_runs():
+    model = FlowsheetModel.model_validate({**TINY, "units": [
+        {**TINY["units"][0], "params": {"T": "25 degC", "P": "1 bar"}}, TINY["units"][1]]})
+    result = report.solve_for_report(model)
+    assert not result.ok
+    built = report.build_report(model, result, runs=_runs(sensitivity=[SENSITIVITY]))
+    assert "Included runs" not in dict(built.summary)
+    assert "Sensitivity" not in built.sheets
+
+
+def test_runs_have_a_total_size_cap():
+    series = [{"label": f"v{k}", "values": [0.0] * 2001} for k in range(1500)]
+    with pytest.raises(ValueError, match="table cells"):
+        _runs(dynamics={"ok": True, "time": [0.0] * 2001, "series": series})
+
+
 def test_costing_sheet():
     model = FlowsheetModel.model_validate({**TINY, "costing": {}})
     result = report.solve_for_report(model)
@@ -203,7 +219,7 @@ def test_api_takes_the_model_or_the_model_with_runs():
 def test_api_rejects_invalid_bodies(body):
     r = client.post("/api/report", json=body)
     assert r.status_code == 422
-    assert isinstance(r.json()["detail"], list)
+    assert all(d["loc"][0] == "body" for d in r.json()["detail"])
 
 
 def test_cli_with_runs(tmp_path):

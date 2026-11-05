@@ -232,7 +232,6 @@ export type CurveValue = {
 
 const HEAD_UNITS = [...UNITS.length, ...UNITS.specific_energy];
 
-/** Performance curve: rows of flow, head and (optionally) efficiency, with their units. */
 /**
  * Stable React keys for rows of a list that has no ids: one key per row, kept across edits,
  * removed with its row; regenerated if the list changed length from outside (undo, a new unit).
@@ -241,6 +240,7 @@ export function rowKeys(keys: number[], length: number, next: () => number): num
   return keys.length === length ? keys : Array.from({ length }, next);
 }
 
+/** Performance curve: rows of flow, head and (optionally) efficiency, with their units. */
 export function CurveInput({ value, onChange }: { value: CurveValue; onChange: (v: CurveValue) => void }) {
   const points = value.points ?? [];
   const keyCounter = useRef(0);

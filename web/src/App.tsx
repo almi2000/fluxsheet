@@ -26,7 +26,7 @@ import { layeredLayout } from "./layout";
 import { OpenMenu } from "./OpenMenu";
 import {
   AUTOSAVE_KEY, addRecent, clearAutosave, clearRecent, isBlank, keepUnrestored, otherTabAutosave, readAutosave, readRecent,
-  safeSessionStorage, safeStorage, tabId, writeAutosave, type Autosave, type RecentEntry,
+  safeStorage, tabId, writeAutosave, type Autosave, type RecentEntry,
 } from "./persistence";
 import { Palette } from "./Palette";
 import { UnitMethodField } from "./PropertyMethods";
@@ -151,7 +151,7 @@ const PASTE_OFFSET = 40;
 const NEVER_SAVED = -1;
 const storage = safeStorage();
 /** This editor tab, for telling its autosaves from those of other tabs. */
-const TAB = tabId(safeSessionStorage());
+const TAB = tabId();
 const AUTOSAVE_DELAY_MS = 800;
 
 function Editor() {
@@ -364,7 +364,12 @@ function Editor() {
   onStorage.current = (e) => {
     if (e.key !== AUTOSAVE_KEY && e.key !== null) return; // null: the storage was cleared
     foreignWrite.current = true;
-    if (!booted.current || otherTab) return;
+    if (!booted.current) return;
+    if (otherTab) {
+      // Keep the notice on the other tab's latest version (or drop it if that tab gave way).
+      setOtherTab(otherTabAutosave(storage, TAB, known.current));
+      return;
+    }
     if (e.newValue === null) {
       // Another tab restored (and so cleared) or discarded the autosave: save ours again.
       lastAutosave.current = null;
@@ -382,17 +387,18 @@ function Editor() {
 
   /** Open the flowsheet another tab autosaved; undo returns to this tab's. */
   const loadOtherTab = () => {
-    if (!otherTab) return;
-    if (!otherTab.model.units.every((u) => u && schemas[u.type])) {
+    const latest = otherTabAutosave(storage, TAB, known.current) ?? otherTab; // it may have saved again
+    if (!latest) return;
+    if (!latest.model.units.every((u) => u && schemas[u.type])) {
       alert("The other tab's flowsheet uses unit types this version does not know.");
       return;
     }
-    known.current = JSON.stringify(otherTab.model);
+    known.current = JSON.stringify(latest.model);
     lastAutosave.current = null;
     setOtherTab(null);
     setRestoredAt(null);
-    loadModel(otherTab.model, true);
-    if (otherTab.dirty) setSavedVersion(NEVER_SAVED);
+    loadModel(latest.model, true);
+    if (latest.dirty) setSavedVersion(NEVER_SAVED);
   };
   /** Autosave this tab's flowsheet over the other tab's. */
   const keepThisTab = () => {

@@ -256,13 +256,15 @@ class ReportRequest(BaseModel):
 
 def _report_request(payload: Any) -> ReportRequest:
     """The body is a flowsheet, or ``{"model": flowsheet, "runs": {...}}``."""
-    wrapped = isinstance(payload, dict) and isinstance(payload.get("model"), dict)         and "units" not in payload
+    wrapped = (isinstance(payload, dict) and isinstance(payload.get("model"), dict)
+               and "units" not in payload)
     try:
         if wrapped:
             return ReportRequest.model_validate(payload)
         return ReportRequest(model=FlowsheetModel.model_validate(payload))
     except ValidationError as exc:
-        raise RequestValidationError(exc.errors(include_url=False)) from exc
+        raise RequestValidationError([{**e, "loc": ("body", *e["loc"])}
+                                      for e in exc.errors(include_url=False)]) from exc
 
 
 @app.post("/api/report")
