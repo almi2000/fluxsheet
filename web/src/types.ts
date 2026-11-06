@@ -179,12 +179,23 @@ export interface SimError {
   hint: string | null;
 }
 
+export interface BalanceCheck {
+  scope: string;
+  quantity: "mass" | "component" | "element" | "elements" | "energy";
+  component: string | null;
+  residual: number | null;
+  unit: string;
+  tolerance: number | null;
+  status: "ok" | "warning" | "not_checkable";
+}
+
 export interface SolveResult {
   ok: boolean;
   streams: Record<string, StreamResult>;
   units: Record<string, UnitResult>;
   property_method: string | null;
   property_method_reason: string | null;
+  balance_checks?: BalanceCheck[];
   property_crossings?: unknown[]; // streams re-flashed between methods; see PropertyMethods.tsx
   // Where each binary parameter set came from ("ThermoML fit", "ChemSep", "UNIFAC estimate",
   // "none (ideal)"); `method` is set for pairs of a per-unit method other than the default.

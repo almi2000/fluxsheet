@@ -253,3 +253,29 @@ def test_product_takes_a_single_stream():
         [FEED, {**FEED, "id": "F2"}, {"id": "P", "type": "Product"}],
         [{"id": "S1", "from": "F.out", "to": "P.in"}, {"id": "S2", "from": "F2.out", "to": "P.in"}]))
     assert not r.ok and "accepts only one" in r.error["message"]
+
+
+@pytest.mark.parametrize("acceleration", ["none", "wegstein", "broyden"])
+def test_two_phase_pure_component_recycle_conserves_enthalpy(acceleration):
+    model = {
+        "components": ["propane"], "property_method": "peng-robinson",
+        "solver": {"acceleration": acceleration},
+        "units": [
+            {"id": "F", "type": "Feed", "params": {
+                "VF": 0.5, "P": "1 bar", "flows": {"propane": 1}}},
+            {"id": "M", "type": "Mixer"},
+            {"id": "S", "type": "Splitter", "params": {"split": 0.5}},
+        ],
+        "streams": [
+            {"id": "f", "from": "F.out", "to": "M.in"},
+            {"id": "m", "from": "M.out", "to": "S.in"},
+            {"id": "r", "from": "S.out1", "to": "M.in"},
+            {"id": "p", "from": "S.out2"},
+        ],
+    }
+    result = solve(model)
+    assert result.ok, result.error
+    assert result.streams["p"]["molar_flow"] == pytest.approx(1, rel=2e-6)
+    assert result.streams["p"]["vapor_fraction"] == pytest.approx(0.5, abs=2e-6)
+    assert result.streams["p"]["enthalpy_flow"] == pytest.approx(
+        result.streams["f"]["enthalpy_flow"], rel=2e-6)

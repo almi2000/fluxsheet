@@ -346,3 +346,13 @@ def test_cli_groups_parameter_sources_measured_first(tmp_path, capsys):
     lines = [ln for ln in capsys.readouterr().out.splitlines() if ln.startswith("  binary parameters,")]
     assert lines[0] == "  binary parameters, ThermoML fit: water/ethanol"
     assert len(lines) == 2 and "methane" in lines[1]
+
+
+@pytest.mark.parametrize("method", ["nrtl", "uniquac"])
+def test_ethanol_pressure_holdout_is_excluded_from_fit(method):
+    doi = "10.1016/j.fluid.2012.12.014"
+    fitted = store.lookup(method, WATER, ETHANOL)
+    assert fitted is not None
+    assert doi not in fitted.dois
+    assert any(entry["doi"] == doi and entry["conditions"] == "isothermal 363.30 K"
+               and not entry["used"] for entry in fitted.record["rejected_datasets"])

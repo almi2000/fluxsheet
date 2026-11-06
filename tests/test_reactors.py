@@ -404,3 +404,49 @@ def test_reaction_listed_twice_is_explained():
                            "params": {"reactions": ["WGS", "WGS"], "conversions": ["1", "1"]}},
                  components=["carbon monoxide", "water", "carbon dioxide", "hydrogen"])
     assert "listed twice" in err["message"]
+
+
+def test_equilibrium_limited_pfr_reacts_from_product_only():
+    import json
+    from pathlib import Path
+
+    model = json.loads((Path(__file__).parent.parent / "examples" / "ethyl_acetate.json")
+                       .read_text(encoding="utf-8"))
+    model["units"] = [u for u in model["units"] if u["id"] in ("FEED", "PFR")]
+    model["streams"] = [
+        {"id": "IN", "from": "FEED.out", "to": "PFR.in"},
+        {"id": "OUT", "from": "PFR.out"},
+    ]
+    feed = model["units"][0]["params"]
+    feed["T"] = "70 degC"
+    outputs = []
+    for trace in (0, 1e-6):
+        feed["flows"] = {"ethyl acetate": 2.7778, "water": 2.7778,
+                         "acetic acid": trace, "ethanol": trace}
+        result = solve(model)
+        assert result.ok, result.error
+        outputs.append(result.streams["OUT"]["component_flows"]["acetic acid"])
+    assert outputs[0] == pytest.approx(0.92593, abs=2e-4)
+    assert outputs[0] == pytest.approx(outputs[1], abs=2e-5)
+
+
+@pytest.mark.parametrize("basis", ["concentration", "partial_pressure"])
+def test_equilibrium_limited_rate_has_correct_gas_pressure_dependence(basis):
+    import numpy as np
+
+    from fluxsheet.reactions import Kinetics, RateLaw, Reaction
+
+    nu = np.array([-1.0, 2.0])
+    reaction = Reaction("R", nu, ("A", "B"), Kinetics(
+        RateLaw(k0=1.0, Ea=0.0, orders=(1.0, 0.0)), basis,
+        equilibrium_limited=True), keq=(0.0, 0.0, 0.0, 0.0))
+    pressure = 2e5
+    volume = 0.02
+    # For K=1, Q=(y_B**2/y_A)*(P/P_standard).
+    zs = np.array([0.5, 0.5])
+    rate = reaction.rate(None, 300.0, pressure, zs, volume, "gas")
+    assert rate == pytest.approx(0.0, abs=1e-9)
+    assert reaction.rate(None, 300.0, pressure, np.array([0.8, 0.2]),
+                         volume, "gas") > 0
+    assert reaction.rate(None, 300.0, pressure, np.array([0.2, 0.8]),
+                         volume, "gas") < 0

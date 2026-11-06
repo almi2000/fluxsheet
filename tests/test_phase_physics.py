@@ -118,3 +118,21 @@ def test_bubble_point_with_dissolved_traces_lies_below_the_dew_point(method):
     assert bubble.T < dew.T - 1.0
     assert max(abs(a - b) for a, b in zip(bubble.x, zs)) < 1e-3
     assert bubble.y[0] > 10 * zs[0] and bubble.y[1] > 10 * zs[1]
+
+
+@pytest.mark.parametrize("method", ["peng-robinson", "nrtl"])
+@pytest.mark.parametrize("temperature,composition", [
+    (330.0, [0.5, 0.5]), (370.0, [0.5, 0.5]), (410.0, [0.5, 0.5]),
+    (370.0, [1e-8, 1 - 1e-8]),
+])
+def test_flash_round_trip_and_component_order(method, temperature, composition):
+    pressure = 1e5
+    package = PropertyPackage(["benzene", "toluene"], method)
+    reverse = PropertyPackage(["toluene", "benzene"], method)
+    state = package.flash(composition, T=temperature, P=pressure)
+    restored = package.flash(composition, P=pressure, H=state.H)
+    swapped = reverse.flash(composition[::-1], T=temperature, P=pressure)
+    assert restored.T == pytest.approx(temperature, abs=1e-3)
+    assert restored.VF == pytest.approx(state.VF, abs=1e-5)
+    assert swapped.H == pytest.approx(state.H, abs=1e-3)
+    assert swapped.VF == pytest.approx(state.VF, abs=1e-5)

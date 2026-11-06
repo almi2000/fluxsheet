@@ -385,7 +385,7 @@ class DistillationColumn(_StageColumn):
             if pa["from_stage"] == 1 and self.p["condenser"] == "total" and pa["fraction"]:
                 fail(f"{what} takes a fraction of the condenser's outflow, which the "
                      "distillate specification also sets", "give the pumparound a flow")
-            if pa["rate"] == 0.0 and (pa["duty"] or pa["T"] is not None):
+            if (pa["rate"] == 0.0 or pa["fraction"] == 0.0) and (pa["duty"] or pa["T"] is not None):
                 fail(f"{what} has no flow to heat or cool",
                      "give it a flow, or use a side heater or cooler")
             key = (pa["from_stage"], "liquid")

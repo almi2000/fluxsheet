@@ -227,6 +227,79 @@ def vented():
                 "cycle_time": "10 min"}, T="300 K", P="4 bar", reactions=[slow])
 
 
+@pytest.mark.parametrize("params", [
+    {"phase": "gas", "batch_time": "60 s"},
+    {"phase": "gas", "batch_time": "60 s", "vessel": "constant_volume"},
+])
+def test_batch_reactor_balance_diagnostics(params):
+    result = run(params, T="400 K")
+    for scope in ("B", "flowsheet"):
+        checks = [check for check in result.balance_checks if check["scope"] == scope]
+        assert any(check["quantity"] == "element" and check["component"] == "C"
+                   for check in checks)
+        assert next(check for check in checks if check["quantity"] == "energy")["status"] == "ok"
+        assert not any(check["status"] == "warning" for check in checks)
+
+
+def test_vented_batch_balance_diagnostics():
+    result = vented()
+    for scope in ("B", "flowsheet"):
+        energy = next(check for check in result.balance_checks
+                      if check["scope"] == scope and check["quantity"] == "energy")
+        assert energy["status"] == "ok"
+
+
+def test_constant_volume_batch_balance_includes_pressure_volume_change():
+    cracking = {"id": "ISO", "stoichiometry": {"ethane": -1, "ethylene": 1, "hydrogen": 1},
+                "kinetics": {"k0": 0.01, "Ea": "0 kJ/mol"}}
+    result = run({"phase": "gas", "batch_time": "100 s", "T": "900 K",
+                  "vessel": "constant_volume", "cycle_time": "100 s"},
+                 components=["ethane", "ethylene", "hydrogen"],
+                 flows={"ethane": "1 mol/s"}, T="900 K", reactions=[cracking])
+    for scope in ("B", "flowsheet"):
+        energy = next(check for check in result.balance_checks
+                      if check["scope"] == scope and check["quantity"] == "energy")
+        assert energy["status"] == "ok"
+    assert result.units["B"]["P_final"] > result.streams["IN"]["P"] * 1.1
+
+
+def test_constant_volume_batch_with_different_fill_pressure_is_not_checkable():
+    result = run({"phase": "gas", "batch_time": "20 s", "vessel": "constant_volume",
+                  "P": "2 bar"}, T="400 K", P="1 bar")
+    for scope in ("B", "flowsheet"):
+        energy = next(check for check in result.balance_checks
+                      if check["scope"] == scope and check["quantity"] == "energy")
+        assert energy["status"] == "not_checkable"
+
+
+def test_zero_flow_batch_has_valid_zero_energy_balance():
+    model = {
+        "components": ISOMER,
+        "property_method": "ideal",
+        "reactions": [FIRST_ORDER],
+        "units": [
+            {"id": "F", "type": "Feed", "params": {
+                "T": "400 K", "P": "1 bar", "flows": {"n-butane": "1 mol/s"}}},
+            {"id": "S", "type": "Splitter", "params": {"split": 0}},
+            {"id": "B", "type": "BatchReactor", "params": {
+                "reactions": ["ISO"], "phase": "gas", "batch_time": "20 s",
+                "vessel": "constant_volume"}},
+        ],
+        "streams": [
+            {"id": "feed", "from": "F.out", "to": "S.in"},
+            {"id": "empty", "from": "S.out1", "to": "B.in"},
+            {"id": "bypass", "from": "S.out2"},
+            {"id": "out", "from": "B.out"},
+        ],
+    }
+    result = solve(model)
+    assert result.ok, result.error
+    for scope in ("B", "flowsheet"):
+        energy = next(check for check in result.balance_checks
+                      if check["scope"] == scope and check["quantity"] == "energy")
+        assert energy["status"] == "ok"
+
+
 def test_vent_closes_the_mass_and_energy_balance():
     r = vented()
     u = r.units["B"]

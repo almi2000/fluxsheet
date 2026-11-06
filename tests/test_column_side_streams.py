@@ -382,8 +382,28 @@ def test_a_pumparound_to_the_condenser_keeps_the_reflux_spec():
      "fraction of the condenser's outflow"),
     ({"pumparounds": [{"from_stage": 8, "to_stage": 4, "rate": 0, "duty": "-10 kW"}]},
      "no flow to heat or cool"),
+    ({"pumparounds": [{"from_stage": 8, "to_stage": 4, "fraction": 0, "duty": "-10 kW"}]},
+     "no flow to heat or cool"),
 ])
 def test_more_bad_side_streams_explain_themselves(params, message):
     r = column({**BASE, **params})
     assert not r.ok
     assert message in r.error["message"] and r.error["hint"]
+
+
+@pytest.mark.parametrize("draw", [{"rate": 0.0}, {"fraction": 0.0}])
+def test_zero_pumparound_flow_cannot_carry_heat_on_public_solver(btx, draw):
+    from fluxsheet.errors import SimulationError
+
+    pkg, setup, _ = btx
+    pa = Pumparound(5, 3, duty=-1e4, **draw)
+    with pytest.raises(SimulationError, match="no flow"):
+        solve_column(pkg, replace(setup, pumparounds=[pa]))
+
+
+@pytest.mark.parametrize("draw", [{"rate": 0.0}, {"fraction": 0.0}])
+def test_zero_pumparound_without_heat_matches_plain_column(btx, draw):
+    pkg, setup, plain = btx
+    sol = solve_column(pkg, replace(setup, pumparounds=[Pumparound(5, 3, **draw)]))
+    assert np.allclose(sol.distillate, plain.distillate, rtol=1e-8, atol=1e-10)
+    assert sol.reboiler_duty == pytest.approx(plain.reboiler_duty, rel=1e-8)

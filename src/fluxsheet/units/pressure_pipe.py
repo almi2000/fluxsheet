@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import math
 
+from scipy.optimize import brentq
+
 from ..errors import SimulationError
 from ..stream import Stream
 from .base import DUTY, IN, OUT, Param, ResultField, UnitOperation, empty_stream, single_inlet
@@ -83,12 +85,28 @@ class Pipe(UnitOperation):
                     f"the pressure is used up after {(k + 1) * dL:.4g} m of the {L:.4g} m "
                     f"pipe (velocity {u:.3g} m/s)", where=self.id,
                     hint="use a larger diameter, a shorter pipe or a lower flow")
+            # Enthalpy after the pressure and elevation change, before heat transfer.
+            base_H = H - m_dot * G * dz / s.total_flow
             q = 0.0
             if self.p["U"]:
-                q = self.p["U"] * math.pi * D * dL * (self.p["T_ambient"] - st.T)
-            Q += q
-            H += (q - m_dot * G * dz) / s.total_flow  # heat in, lifting work out
+                ambient = self.p["T_ambient"]
+                conductance = self.p["U"] * math.pi * D * dL
+                ambient_H = pkg.flash(s.zs, T=ambient, P=P).H
+
+                def residual(h, pressure=P, guess=st.T, base=base_H,
+                             ua=conductance, ambient_T=ambient):
+                    state = pkg.flash_ph_near(s.zs, pressure, h, guess)
+                    return s.total_flow * (h - base) - ua * (ambient_T - state.T)
+
+                low, high = sorted((base_H, ambient_H))
+                H = brentq(residual, low, high) if high > low else low
+            else:
+                H = base_H
             st = pkg.flash_ph_near(s.zs, P, H, st.T)
+            if self.p["U"]:
+                q = s.total_flow * (st.H - base_H)
+            Q += q
+            H = st.H
             x.append((k + 1) * dL)
             P_prof.append(st.P)
             T_prof.append(st.T)

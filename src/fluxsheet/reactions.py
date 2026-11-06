@@ -140,14 +140,35 @@ class Reaction:
         r = kin.forward.rate(T, c)
         if kin.reverse is not None:
             r -= kin.reverse.rate(T, c)
-        elif kin.equilibrium_limited and r != 0.0:
-            ln_p = math.log(P / P_STD) if phase == "gas" else 0.0
-            ln_q = 0.0
-            for i in self.involved:
-                if zs[i] <= 0.0 and self.nu[i] > 0:
-                    return r  # no product yet: Q = 0
-                ln_q += self.nu[i] * (math.log(max(zs[i], 1e-30)) + ln_p)
-            r *= 1.0 - math.exp(min(ln_q - self.ln_keq(pkg, T), 50.0))
+        elif kin.equilibrium_limited:
+            if r != 0.0:
+                ln_p = math.log(P / P_STD) if phase == "gas" else 0.0
+                ln_q = 0.0
+                for i in self.involved:
+                    if zs[i] <= 0.0 and self.nu[i] > 0:
+                        return r
+                    ln_q += self.nu[i] * (math.log(max(zs[i], 1e-300)) + ln_p)
+                delta = ln_q - self.ln_keq(pkg, T)
+                if delta < 40.0:
+                    return r * (1.0 - math.exp(delta))
+            # Evaluate the cancelled reverse monomial at zero or near-zero
+            # reactant concentrations without dividing by the forward rate.
+            exponents = np.asarray(kin.forward.orders) + self.nu
+            for i, exponent in enumerate(exponents):
+                if c[i] <= 0.0 and exponent < 0.0:
+                    raise SimulationError(
+                        f"equilibrium-limited rate has a singular limit for {self.names[i]}",
+                        where=f"reaction {self.id}",
+                        hint="supply an explicit reverse rate law or revise the reaction orders",
+                    )
+            reverse = kin.forward.k(T)
+            for ci, exponent in zip(c, exponents):
+                if exponent != 0.0:
+                    reverse *= max(ci, 0.0) ** exponent
+            basis = 1.0 / Vm if kin.basis == "concentration" else P
+            activity_scale = P / P_STD if phase == "gas" else 1.0
+            reverse *= math.exp(-self.ln_keq(pkg, T)) * (activity_scale / basis) ** sum(self.nu)
+            r -= reverse
         return r
 
 

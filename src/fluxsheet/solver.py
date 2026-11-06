@@ -44,6 +44,7 @@ class SolveResult:
     parameter_sources: list[dict] = field(default_factory=list)
     # Streams re-flashed where they pass from one property method to another.
     property_crossings: list[dict] = field(default_factory=list)
+    balance_checks: list[dict] = field(default_factory=list)
     tear_streams: list[str] = field(default_factory=list)
     iterations: int = 0
     converged: bool = False
@@ -63,6 +64,7 @@ class Solver:
         self.units: dict[str, UnitOperation] = {}
         self.connections: list[_Connection] = []
         self.warnings: list[str] = []
+        self.balance_io: dict[str, tuple[list[Stream], list[Stream]]] = {}
 
     # ---- setup ---------------------------------------------------------------------------
 
@@ -237,6 +239,16 @@ class Solver:
             self.warnings.extend(p.henry_validity(states))
         result.warnings = self.warnings
         self.sections.annotate(result, streams, self.connections)
+        from .balances import check_balances
+
+        result.balance_checks = check_balances(self, pkg, streams, result.property_crossings)
+        for check in result.balance_checks:
+            if check["status"] == "warning":
+                name = f" ({check['component']})" if check["component"] else ""
+                self.warnings.append(
+                    f"{check['scope']}: {check['quantity']}{name} balance residual "
+                    f"{check['residual']:.6g} {check['unit']} exceeds "
+                    f"{check['tolerance']:.6g} {check['unit']}")
         if self.model.costing is not None:
             from .costing import estimate  # sizes and prices the solved equipment
 
@@ -265,6 +277,8 @@ class Solver:
             raise exc.located(unit.id)
         except Exception as exc:  # keep unexpected failures readable too
             raise SimulationError(f"calculation failed: {exc}", where=unit.id) from exc
+        self.balance_io[unit.id] = ([s for group in inlets.values() for s in group],
+                                    list(outputs.values()))
         self._check_unit(unit, inlets)
         return outputs
 
@@ -313,7 +327,7 @@ class Solver:
 
         opts = self.model.solver
         torn = sorted(tears)
-        broyden = _Broyden(pkg.n + 1) if opts.acceleration == "broyden" else None
+        broyden = _Broyden(pkg.n + 2) if opts.acceleration == "broyden" else None
         prev_x: dict[str, list[float]] = {}
         prev_g: dict[str, list[float]] = {}
         for iteration in range(1, opts.max_iterations + 1):
@@ -333,11 +347,18 @@ class Solver:
             elif broyden is not None:
                 flat = broyden.step([v for s in torn for v in x[s]],
                                     [v for s in torn for v in g[s]])
-                size = pkg.n + 1
+                size = pkg.n + 2
                 new = {s: flat[k * size:(k + 1) * size] for k, s in enumerate(torn)}
             for sid, vec in new.items():
-                streams[sid] = Stream.from_flash(src_pkg[sid], [max(f, 0.0) for f in vec[:-1]],
-                                                 T=max(vec[-1], 1.0), P=streams[sid].P)
+                # Keep the physical sweep result when an accelerated guess is invalid.
+                if not all(np.isfinite(v) for v in vec) or min(vec[:-2]) < 0.0 or vec[-1] <= 0:
+                    continue
+                if sum(vec[:-2]) <= 1e-14:
+                    continue
+                try:
+                    streams[sid] = Stream.from_flash(src_pkg[sid], vec[:-2], H=vec[-2], P=vec[-1])
+                except (SimulationError, ValueError, OverflowError):
+                    pass
             prev_x, prev_g = x, g
 
         result.iterations = opts.max_iterations
@@ -364,13 +385,19 @@ class Solver:
 
     @staticmethod
     def _vector(s: Stream) -> list[float]:
-        return [*s.flows, s.T]
+        return [*s.flows, s.state.H, s.P]
 
     @staticmethod
     def _close(a: list[float], b: list[float], tol: float) -> bool:
-        scale = max(sum(abs(v) for v in a[:-1]), 1e-10)
-        flows_ok = all(abs(x - y) <= tol * scale + 1e-12 for x, y in zip(a[:-1], b[:-1]))
-        return flows_ok and abs(a[-1] - b[-1]) <= max(tol * a[-1], 1e-4)
+        scale = max(sum(abs(v) for v in a[:-2]), 1e-10)
+        flows_ok = all(abs(x - y) <= tol * scale + 1e-12 for x, y in zip(a[:-2], b[:-2]))
+        if not flows_ok:
+            return False
+        if max(sum(a[:-2]), sum(b[:-2])) <= 1e-14:
+            return True
+        enthalpy_ok = abs(a[-2] - b[-2]) <= max(tol * max(abs(a[-2]), abs(b[-2]), 1e3), 1e-4)
+        pressure_ok = abs(a[-1] - b[-1]) <= max(tol * max(abs(a[-1]), abs(b[-1])), 1e-3)
+        return enthalpy_ok and pressure_ok
 
     @staticmethod
     def _wegstein(x0, g0, x1, g1) -> list[float]:
@@ -422,8 +449,8 @@ class _Broyden:
     updated by Sherman-Morrison ("good" Broyden). It starts as direct substitution and resets
     to it whenever a step makes the residual grow a lot, so it never does worse for long.
 
-    Each tear stream contributes its component flows and its temperature; the vector is
-    scaled (flows by the total flow, temperature by itself) so both weigh alike.
+    Each tear stream contributes component flows, molar enthalpy and pressure.
+    Scaling keeps the variables comparable.
     """
 
     def __init__(self, block: int) -> None:
@@ -437,8 +464,10 @@ class _Broyden:
         if self.scale is None:
             parts = []
             for k in range(0, len(ga), self.block):
-                flows = ga[k:k + self.block - 1]
-                parts += [max(flows.sum(), 1e-10)] * len(flows) + [ga[k + self.block - 1]]
+                flows = ga[k:k + self.block - 2]
+                parts += [max(abs(flows).sum(), 1e-10)] * len(flows)
+                parts += [max(abs(ga[k + self.block - 2]), 1e3),
+                          max(abs(ga[k + self.block - 1]), 1.0)]
             self.scale = np.asarray(parts)
         xs, fs = xa / self.scale, (ga - xa) / self.scale
         n = len(xs)

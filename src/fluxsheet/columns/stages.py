@@ -215,11 +215,16 @@ class _Model:
                for k, pa in enumerate(self.pas) if pa.source == j and pa.T is not None}
         if j == 0 and self.total:
             # No vapor leaves a total condenser; use the vapor in equilibrium with its liquid.
-            y = x
-            for _ in range(2):
+            y = x.copy()
+            for _ in range(40):
                 vap = pkg.phase_props("vapor", T, P, list(y))
                 K = np.exp(np.asarray(liq.lnphi) - np.asarray(vap.lnphi))
-                y = K * x / np.sum(K * x)
+                next_y = K * x / np.sum(K * x)
+                if np.max(np.abs(next_y - y)) < 1e-12:
+                    break
+                y = next_y
+            else:
+                raise SimulationError("total condenser vapor composition did not converge")
             return K, liq.H, 0.0, gen, ret
         vp = np.maximum(v, 0.0)
         y = vp / vp.sum() if vp.sum() > 0 else x
@@ -673,6 +678,12 @@ def solve_column(pkg: PropertyPackage, setup: ColumnSetup,
     previous pass of a recycle loop), replaces the start estimate: Newton then usually needs
     two or three iterations instead of building the estimate from bubble points. If Newton
     gets nowhere from there, the column is solved again from its own estimate."""
+    for pa in setup.pumparounds:
+        if (pa.rate == 0.0 or pa.fraction == 0.0) and (pa.duty or pa.T is not None):
+            raise SimulationError(
+                "pumparound has no flow to heat or cool",
+                hint="give it a flow, or use a side heater or cooler",
+            )
     m = _Model(pkg, setup)
     if start is not None and start.restart is not None:
         key, x_old, F_old = start.restart
@@ -756,6 +767,8 @@ def _solution(m: _Model, x, props, iterations: int) -> ColumnSolution:
     L, V = l.sum(axis=1), v.sum(axis=1)
     xm = l / L[:, None]
     ym = np.where(V[:, None] > 0, v / np.where(V > 0, V, 1.0)[:, None], K * xm)
+    if m.total:
+        ym[0] = K[0] * xm[0]
     ym /= ym.sum(axis=1, keepdims=True)
     zero = np.zeros(m.C)
     h = np.array([p[1] for p in props])

@@ -205,3 +205,149 @@ def test_extraction_column_balances_and_more_stages_extract_more():
 def test_extraction_needs_a_method_with_two_liquids():
     r = extraction(3, method="peng-robinson")
     assert not r.ok and "two liquid phases" in r.error["message"]
+
+
+@pytest.mark.parametrize("flowing_side", ["hot", "cold"])
+def test_exchanger_with_empty_side_throttles_flowing_side_isenthalpically(flowing_side):
+    empty_side = "cold" if flowing_side == "hot" else "hot"
+    result = solve({
+        "components": ["propane"], "property_method": "peng-robinson",
+        "units": [
+            {"id": "F", "type": "Feed", "params": {
+                "T": 300, "P": "20 bar", "flows": {"propane": 1}}},
+            {"id": "S", "type": "Splitter", "params": {"split": 1}},
+            {"id": "H", "type": "HeatExchanger", "params": {
+                "UA": 0, f"dP_{flowing_side}": "19 bar"}},
+        ],
+        "streams": [
+            {"id": "feed", "from": "F.out", "to": "S.in"},
+            {"id": "in", "from": "S.out1", "to": f"H.{flowing_side}_in"},
+            {"id": "empty", "from": "S.out2", "to": f"H.{empty_side}_in"},
+            {"id": "out", "from": f"H.{flowing_side}_out"},
+            {"id": "empty_out", "from": f"H.{empty_side}_out"},
+        ],
+    })
+    assert result.ok, result.error
+    assert result.units["H"]["duty"] == 0
+    assert result.streams["out"]["enthalpy_flow"] == pytest.approx(
+        result.streams["in"]["enthalpy_flow"], abs=1e-5)
+    reference = flowsheet(
+        ["propane"], {"F": {"T": 300, "P": "20 bar", "flows": {"propane": 1}}},
+        {"type": "Valve", "params": {"P": "1 bar"}}, {"F": "in"}, ("out",),
+    )
+    assert reference.ok, reference.error
+    assert result.streams["out"]["vapor_fraction"] == pytest.approx(
+        reference.streams["OUT"]["vapor_fraction"], abs=1e-8)
+
+
+@pytest.mark.parametrize("temperature, ambient", [(320, 300), (300, 320)])
+def test_pipe_heat_transfer_stays_between_inlet_and_ambient(temperature, ambient):
+    results = []
+    for segments in (1, 20, 100):
+        result = flowsheet(
+            ["nitrogen"], {"F": {"T": temperature, "P": "2 bar", "flows": {"nitrogen": 1}}},
+            {"type": "Pipe", "params": {"length": 3, "diameter": 0.1,
+             "segments": segments, "U": 50, "T_ambient": ambient}},
+            {"F": "in"}, ("out",))
+        assert result.ok, result.error
+        outlet = result.streams["OUT"]
+        assert min(temperature, ambient) <= outlet["T"] <= max(temperature, ambient)
+        assert outlet["enthalpy_flow"] == pytest.approx(
+            result.streams["F"]["enthalpy_flow"] + result.units["U"]["duty"], abs=1e-5)
+        results.append(outlet["T"])
+    assert abs(results[2] - results[1]) < abs(results[1] - results[0])
+
+
+def test_extraction_stages_reconstruct_component_and_phase_equilibria():
+    import numpy as np
+
+    result = extraction(5)
+    assert result.ok, result.error
+    components = ("water", "acetic acid", "ethyl acetate")
+    profile = {s["label"]: s["values"]
+               for s in result.units["U"]["profiles"]["stages"]["series"]}
+    raffinate = np.array([[profile[f"Raffinate x {name}"][j]
+                            * profile["Raffinate flow"][j] for name in components]
+                          for j in range(5)])
+    feed = np.array([result.streams["F"]["component_flows"][name] for name in components])
+    solvent = np.array([result.streams["S"]["component_flows"][name] for name in components])
+    extract = np.array([result.streams["EXTRACT"]["component_flows"][name]
+                        for name in components])
+    pkg = get_package(components, "unifac")
+    previous_raffinate = feed
+    for j in range(5):
+        assert extract.sum() == pytest.approx(profile["Extract flow"][j], rel=1e-8)
+        x_extract = extract / extract.sum()
+        x_raffinate = raffinate[j] / raffinate[j].sum()
+        phi_extract = pkg.phase_props("liquid", 298.15, 101325, list(x_extract)).lnphi
+        phi_raffinate = pkg.phase_props("liquid", 298.15, 101325, list(x_raffinate)).lnphi
+        assert np.allclose(x_extract * np.exp(phi_extract), x_raffinate * np.exp(phi_raffinate),
+                           rtol=1e-5, atol=1e-8)
+        extract = extract + raffinate[j] - previous_raffinate
+        previous_raffinate = raffinate[j]
+    assert np.allclose(extract, solvent, rtol=1e-7, atol=1e-8)
+
+
+@pytest.mark.parametrize("arrangement", ["countercurrent", "cocurrent"])
+def test_gas_exchanger_matches_constant_heat_capacity_solution(arrangement):
+    import math
+
+    pkg = get_package(("nitrogen",), "peng-robinson")
+    cp = (pkg.phase_props("vapor", 311.0, 2e5, [1.0]).H
+          - pkg.phase_props("vapor", 309.0, 2e5, [1.0]).H) / 2
+    ua = 25.0
+    ntu = ua / cp
+    effectiveness = (ntu / (1 + ntu) if arrangement == "countercurrent"
+                     else (1 - math.exp(-2 * ntu)) / 2)
+    expected = effectiveness * cp * 20.0
+    result = flowsheet(
+        ["nitrogen"],
+        {"H": {"T": 320, "P": "2 bar", "flows": {"nitrogen": 1}},
+         "C": {"T": 300, "P": "2 bar", "flows": {"nitrogen": 1}}},
+        {"type": "HeatExchanger", "params": {"UA": ua, "arrangement": arrangement}},
+        {"H": "hot_in", "C": "cold_in"}, ("hot_out", "cold_out"),
+    )
+    assert result.ok, result.error
+    assert result.units["U"]["duty"] == pytest.approx(expected, rel=0.01)
+
+
+def test_pipe_grid_converges_to_constant_heat_capacity_solution():
+    import math
+
+    pkg = get_package(("nitrogen",), "peng-robinson")
+    cp = (pkg.phase_props("vapor", 311.0, 2e5, [1.0]).H
+          - pkg.phase_props("vapor", 309.0, 2e5, [1.0]).H) / 2
+    expected = 300.0 + 20.0 * math.exp(-50 * math.pi * 0.1 * 3 / cp)
+    errors = []
+    for segments in (1, 20, 100):
+        result = flowsheet(
+            ["nitrogen"], {"F": {"T": 320, "P": "2 bar", "flows": {"nitrogen": 1}}},
+            {"type": "Pipe", "params": {"length": 3, "diameter": 0.1,
+             "segments": segments, "U": 50, "T_ambient": 300}},
+            {"F": "in"}, ("out",))
+        assert result.ok, result.error
+        errors.append(abs(result.streams["OUT"]["T"] - expected))
+    assert errors[2] < errors[1] < errors[0]
+    assert errors[2] < 0.1
+
+
+@pytest.mark.parametrize("unit,component,temperature", [
+    ("Valve", "nitrogen", 320),
+    ("Pump", "water", 300),
+    ("Compressor", "nitrogen", 320),
+    ("Turbine", "nitrogen", 320),
+])
+def test_pressure_machine_small_pressure_change_conserves_energy(unit, component, temperature):
+    params = {"dP": 1.0}
+    result = flowsheet(
+        [component], {"F": {"T": temperature, "P": "2 bar", "flows": {component: 1}}},
+        {"type": unit, "params": params}, {"F": "in"}, ("out",))
+    assert result.ok, result.error
+    power = result.units["U"].get("power", 0.0)
+    assert result.streams["OUT"]["enthalpy_flow"] == pytest.approx(
+        result.streams["F"]["enthalpy_flow"] + power, abs=1e-3)
+    assert abs(power) < 0.03
+    if unit in ("Pump", "Compressor"):
+        assert power >= -1e-6
+    elif unit == "Turbine":
+        assert power <= 1e-6

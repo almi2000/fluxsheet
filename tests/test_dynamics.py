@@ -262,3 +262,72 @@ def test_broyden_matches_wegstein():
         b = results["broyden"].streams[sid]
         assert b["molar_flow"] == pytest.approx(s["molar_flow"], rel=1e-6)
         assert b["T"] == pytest.approx(s["T"], abs=1e-4)
+
+
+def test_tank_integrated_component_and_energy_inventories():
+    import numpy as np
+    from scipy.integrate import trapezoid
+
+    model = tank(events=[
+        {"time": 0, "unit": "FEED", "param": "flows", "component": "water",
+         "value": "60 kmol/h"},
+        {"time": 0, "unit": "FEED", "param": "T", "value": "35 degC"},
+    ], t_end="15 min", points=151)
+    out = simulate(model)
+    data = series(out)
+    pkg = get_package(("water", "ethanol"), "nrtl")
+    times = np.array(out["time"])
+    inventory = np.array(data["unit.TANK.holdup"])
+    incoming = np.array(data["stream.S1.molar_flow"])
+    outgoing = np.array(data["stream.S2.molar_flow"])
+    inlet_x = np.array(data["stream.S1.x.ethanol"])
+    outlet_x = np.array(data["stream.S2.x.ethanol"])
+    inventory_ethanol = inventory * outlet_x
+    net_ethanol = incoming * inlet_x - outgoing * outlet_x
+    assert inventory_ethanol[-1] - inventory_ethanol[0] == pytest.approx(
+        trapezoid(net_ethanol, times), abs=0.2)
+    assert inventory[-1] - inventory[0] == pytest.approx(
+        trapezoid(incoming - outgoing, times), abs=0.2)
+
+    inlet_T = data["stream.S1.T"]
+    outlet_T = data["stream.S2.T"]
+    inlet_h = np.array([pkg.phase_props("liquid", T, 1.5e5, [1 - x, x]).H
+                        for T, x in zip(inlet_T, inlet_x)])
+    outlet_h = np.array([pkg.phase_props("liquid", T, 1.2e5, [1 - x, x]).H
+                         for T, x in zip(outlet_T, outlet_x)])
+    enthalpy_inventory = inventory * outlet_h
+    net_energy = incoming * inlet_h - outgoing * outlet_h + np.array(data["unit.TANK.duty"])
+    assert enthalpy_inventory[-1] - enthalpy_inventory[0] == pytest.approx(
+        trapezoid(net_energy, times), rel=2e-4, abs=3000)
+
+
+def test_dynamic_cstr_integrated_mass_and_energy():
+    import numpy as np
+    from scipy.integrate import trapezoid
+
+    model = isomerization()
+    model["dynamics"] = {"t_end": 120, "points": 241, "units": {"R": {}}, "events": [
+        {"time": 0, "unit": "F", "param": "flows", "component": "n-butane", "value": 2.0}]}
+    out = simulate(model)
+    data = series(out)
+    pkg = get_package(("n-butane", "isobutane"), "ideal")
+    times = np.array(out["time"])
+    inventory = np.array(data["unit.R.holdup"])
+    inlet_flow = np.array(data["stream.IN.molar_flow"])
+    outlet_flow = np.array(data["stream.OUT.molar_flow"])
+    assert inventory[-1] - inventory[0] == pytest.approx(
+        trapezoid(inlet_flow - outlet_flow, times), abs=0.05)
+
+    hf = np.asarray(pkg.consts.Hfgs)
+    inlet_h = np.array([
+        pkg.phase_props("vapor", T, 1e5, [1.0, 0.0]).H + hf[0]
+        for T in data["stream.IN.T"]
+    ])
+    outlet_h = np.array([
+        pkg.phase_props("vapor", T, 1e5, [x, 1 - x]).H + x * hf[0] + (1 - x) * hf[1]
+        for T, x in zip(data["stream.OUT.T"], data["stream.OUT.x.n-butane"])
+    ])
+    inventory_H = inventory * outlet_h
+    net_energy = inlet_flow * inlet_h - outlet_flow * outlet_h + np.array(data["unit.R.duty"])
+    assert inventory_H[-1] - inventory_H[0] == pytest.approx(
+        trapezoid(net_energy, times), rel=1e-3, abs=1e4)

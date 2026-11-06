@@ -250,3 +250,44 @@ def test_diagram_endpoint_explains_errors():
         "components": ["methane", "propane"], "fractions": [0.5, 0.5], "method": "unifac",
     }).json()
     assert not body["ok"] and "Peng-Robinson" in body["error"]["hint"]
+
+
+@pytest.mark.parametrize("temperature", [298.15, 308.15])
+def test_unifac_butanol_lle_matches_independent_activity_equality(temperature):
+    import numpy as np
+    from scipy.optimize import least_squares
+    from thermo import UNIFAC, ChemicalConstantsPackage
+    from thermo.unifac import DOUFIP2016, DOUFSG
+
+    constants, _ = ChemicalConstantsPackage.from_IDs(["water", "1-butanol"])
+    model = UNIFAC.from_subgroups(
+        T=temperature, xs=[0.8, 0.2], chemgroups=constants.UNIFAC_Dortmund_groups,
+        version=1, interaction_data=DOUFIP2016, subgroups=DOUFSG,
+    )
+
+    def residual(values):
+        aqueous, organic = values
+        xa = np.array([1 - aqueous, aqueous])
+        xb = np.array([1 - organic, organic])
+        gamma_a = model.to_T_xs(temperature, xa.tolist()).gammas()
+        gamma_b = model.to_T_xs(temperature, xb.tolist()).gammas()
+        return np.log(xa * gamma_a) - np.log(xb * gamma_b)
+
+    independent = least_squares(residual, [0.03, 0.65], bounds=([1e-5, 0.35], [0.15, 0.95]),
+                                xtol=1e-13, ftol=1e-13, gtol=1e-13)
+    assert independent.success
+    assert np.max(np.abs(residual(independent.x))) < 1e-9
+    assert independent.x[1] - independent.x[0] > 0.1
+    for composition in (0.1, 0.2, 0.3):
+        state = get_package(("water", "1-butanol"), "unifac").flash(
+            [1 - composition, composition], T=temperature, P=101000)
+        assert state.liquid_split
+        assert sorted((state.x_light[1], state.x_heavy[1])) == pytest.approx(
+            independent.x, abs=1e-6)
+        assert state.light_fraction * state.x_light[1] + state.heavy_fraction * state.x_heavy[1] \
+            == pytest.approx(composition, abs=1e-8)
+    swapped = get_package(("1-butanol", "water"), "unifac").flash(
+        [0.2, 0.8], T=temperature, P=101000)
+    assert swapped.liquid_split
+    assert sorted((swapped.x_light[0], swapped.x_heavy[0])) == pytest.approx(
+        independent.x, abs=1e-6)

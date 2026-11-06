@@ -209,8 +209,12 @@ class HeatExchanger(UnitOperation):
 
         if hot.total_flow <= 0.0 or cold.total_flow <= 0.0:
             self.results.update(duty=0.0, LMTD=None, UA=0.0, min_approach=hot.T - cold.T)
-            return {"hot_out": Stream.from_flash(pkg, hot.flows, T=hot.T, P=P_hot),
-                    "cold_out": Stream.from_flash(pkg, cold.flows, T=cold.T, P=P_cold)}
+            return {
+                "hot_out": (Stream.from_flash(pkg, hot.flows, H=hot.state.H, P=P_hot)
+                            if hot.total_flow > 0.0 else empty_stream(pkg, hot.T, P_hot)),
+                "cold_out": (Stream.from_flash(pkg, cold.flows, H=cold.state.H, P=P_cold)
+                             if cold.total_flow > 0.0 else empty_stream(pkg, cold.T, P_cold)),
+            }
         if hot.T <= cold.T:
             raise SimulationError(
                 f"the hot inlet ({_degC(hot.T)}) is not hotter than the cold inlet "
