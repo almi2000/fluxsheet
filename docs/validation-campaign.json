@@ -1,0 +1,123 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "id": "btx",
+      "doi": "10.1016/j.fluid.2009.03.012",
+      "sha256": "c343b21482c9693b87a00823b5af2ad5e73eb724d5254f6133ca4c58aaef0dd8",
+      "components": [
+        "benzene",
+        "toluene"
+      ],
+      "selector": "isothermal 333.15 and 353.15 K",
+      "uncertainty": "expanded pressure uncertainty 0.2-0.5 kPa at 95%",
+      "methods": [
+        "ideal"
+      ],
+      "limits": "mean/max pressure 5%/10%",
+      "thresholds": [
+        [
+          5,
+          10
+        ],
+        [
+          5,
+          10
+        ]
+      ]
+    },
+    {
+      "id": "ethanol_vle",
+      "doi": "10.1016/j.jct.2013.08.020",
+      "sha256": "9ade859fa53eb443bb45a75f14e742056f0fb137bbfdf5fdc93dfa05d614a11a",
+      "components": [
+        "ethanol",
+        "water"
+      ],
+      "selector": "dataset 9, 101.3 kPa T-x-y",
+      "uncertainty": "expanded T 0.13-0.45 K; vapor mole fraction 0.005-0.015 at 95%",
+      "methods": [
+        "unifac"
+      ],
+      "limits": "mean/max temperature 2/5 K and vapor mole fraction 0.03/0.08",
+      "thresholds": [
+        [
+          2,
+          5
+        ],
+        [
+          0.03,
+          0.08
+        ]
+      ]
+    },
+    {
+      "id": "ethanol_holdout",
+      "doi": "10.1016/j.fluid.2012.12.014",
+      "sha256": "cb6925095fa52756bbacd13b7a0152e0e7e34df00fcb83a83be46258d555459c",
+      "components": [
+        "water",
+        "ethanol"
+      ],
+      "selector": "dataset 2, 363.3 K pressure-only",
+      "uncertainty": "expanded water mole fraction 0.0027-0.082 at 95%; pressure not reported",
+      "methods": [
+        "nrtl",
+        "uniquac"
+      ],
+      "limits": "mean/max pressure 5%/10%",
+      "thresholds": [
+        [
+          5,
+          10
+        ]
+      ]
+    },
+    {
+      "id": "butanol_2010",
+      "doi": "10.1016/j.fluid.2010.09.013",
+      "sha256": "52c1b2b4d1175ff67bdf3041b8b89639a0d1d893956a956355c2e42aad35eb13",
+      "components": [
+        "water",
+        "1-butanol"
+      ],
+      "selector": "dataset 1, zero-salt rows at 298.15 and 308.15 K",
+      "uncertainty": "expanded aqueous 0.0011-0.0012 and organic 0.0020-0.0021 butanol mass fraction at 95%",
+      "methods": [
+        "unifac",
+        "nrtl",
+        "uniquac"
+      ],
+      "limits": "mean/max absolute butanol mass fraction 0.05/0.10",
+      "thresholds": [
+        [
+          0.05,
+          0.1
+        ]
+      ]
+    },
+    {
+      "id": "butanol_2007",
+      "doi": "10.1016/j.fluid.2007.07.011",
+      "sha256": "9acb0cd3121d8f2d17610955dd10f95b4928c6099a22a81b3741b6cdfd910055",
+      "components": [
+        "water",
+        "1-butanol"
+      ],
+      "selector": "binary datasets 3 and 4, 288.15 and 318.15 K",
+      "uncertainty": "point-specific expanded mole fraction at 95%",
+      "methods": [
+        "unifac",
+        "nrtl",
+        "uniquac"
+      ],
+      "limits": "mean/max absolute butanol mass fraction 0.05/0.10",
+      "thresholds": [
+        [
+          0.05,
+          0.1
+        ]
+      ]
+    }
+  ]
+}

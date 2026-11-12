@@ -294,7 +294,10 @@ def test_stoichiometric_reactor_conserves_mass_and_elements(mode):
     assert r.units["R"]["duty"] < 0  # combustion heat must be removed to hold 900 K
 
 
-def test_yield_reactor_conserves_mass():
+def test_yield_reactor_conserves_mass(expected_balance_exceptions):
+    for scope in ("R", "flowsheet"):
+        expected_balance_exceptions[(scope, "elements", None, "not_checkable")] = (
+            "Yield reactor specifies mass yields rather than element-balanced stoichiometry")
     components = ["n-hexane", "methane", "ethylene", "propylene", "hydrogen"]
     r, inlet, out = run(components, {"n-hexane": 1.0, "hydrogen": 0.1}, {
         "type": "YieldReactor",

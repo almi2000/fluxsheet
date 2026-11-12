@@ -52,11 +52,13 @@ path = "hatch_build.py"
 
 [tool.hatch.build.targets.sdist]
 include = ["src/fluxsheet", "web/dist", "examples", "tests", "hatch_build.py", "README.md",
-           "LICENSE", "CHANGELOG.md"]
+           "LICENSE", "CHANGELOG.md",
+           "scripts", "docs/*.json"]  # the validation scripts and manifests the tests use
 artifacts = ["web/dist"]  # git-ignored build output, but part of the source distribution
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]  # tests import the validation scripts as `scripts.*`
 
 [tool.ruff]
 line-length = 100

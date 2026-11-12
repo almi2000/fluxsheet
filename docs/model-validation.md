@@ -9,8 +9,8 @@ experimental data or validate an entire operating range.
 | Thermodynamic packages and flash | Pure-component phase boundaries, mixture bubble and dew points, binary diagram endpoints, water/ethanol azeotrope and water/butanol phase split in `test_phase_physics.py` and `test_thermo_models.py`. | The azeotrope and liquid-liquid tests use selected literature-derived values. Offline comparisons with three selected ThermoML references are recorded below; broader independent series remain open. |
 | Distillation, absorption and extraction | Fenske and Underwood hand calculations, a single-stage Raoult/Rachford-Rice comparison, total and per-stage balances, feed and side streams, pump-around, reactive stages, Murphree efficiency and phase equilibria in `test_stage_validation.py`, `test_columns.py`, `test_column_side_streams.py` and `test_more_units.py`. | Experimental column data and independent reactive kinetics remain open. |
 | Reactors | First-order CSTR and PFR closed forms, element balances, adiabatic enthalpy and independent integration of illustrative kinetic laws in `test_reactors.py` and `test_validation.py`. | The HDA kinetic constants in `test_validation.py` are illustrative, so the comparison validates the implementation rather than a measured reaction. Experimental kinetics remain open. |
-| Dynamic simulation | Analytical first-order lag and mixed-tank response, integrated tank material and energy inventories, reactor comparison with a new steady state, integrated reactive CSTR mass and energy and controller tests in `test_dynamics.py`. | Additional multiphase inventory tests and experimental transient data remain open. |
-| Heat transfer and pressure changes | Exchanger balances, constant-heat-capacity effectiveness comparisons for co- and countercurrent flow, pipe grid convergence to an exponential thermal profile, friction and elevation, turbine isentropic work and multistage compressor tests in `test_core.py`, `test_utilities.py` and `test_more_units.py`. | Phase-change heat transfer, compressible pressure-drop limits and experimental equipment data remain open. |
+| Dynamic simulation | Analytical first-order lag and mixed-tank response, integrated tank material and energy inventories, reactor comparison with a new steady state, integrated reactive CSTR mass and energy and controller tests in `test_dynamics.py`; a pure-propane boil/cool transient with time-grid refinement in `test_dynamic_phase_boundaries.py`. | Experimental transient data and multicomponent multiphase transients remain open. |
+| Heat transfer and pressure changes | Exchanger balances, constant-heat-capacity effectiveness comparisons for co- and countercurrent flow, pipe grid convergence to an exponential thermal profile, friction and elevation, turbine isentropic work and multistage compressor tests in `test_core.py`, `test_utilities.py` and `test_more_units.py`; pure-propane evaporation and condensation against independent PH quadrature in both flow arrangements in `test_exchanger_phase_boundaries.py`; two-phase pipe grid convergence in `test_pipe_boundaries_audit.py`. | Multicomponent phase-change heat transfer, compressible pressure-drop limits and experimental equipment data remain open. |
 
 ## Automatic balance diagnostics
 
@@ -35,10 +35,23 @@ change in pressure-volume energy over the cycle. If the vessel's initial
 pressure differs from the inlet pressure, the energy balance is marked not
 checkable because the filling work is not provided by the batch model.
 
+The pytest suite records every successful `Solver.solve` return and rejects
+unexpected balance warnings or uncheckable diagnostics. Deliberately injected
+errors and known model limitations are declared by exact scope, quantity,
+component and status; a declared exception must actually occur. This test guard
+does not change the production solver's success or warning behavior.
+
 ## Reference-data campaign
 
 The NIST ThermoML archive provides experimental measurement records. Raw archive
 files are not redistributed in this repository, consistent with `data-sources.md`.
+The registered cases can be run together with `python scripts/validate_models.py
+--manifest docs/validation-campaign.json --offline --cache-dir PATH --output-dir PATH`.
+Use `--download` instead of `--offline` to fetch missing records from NIST. The
+cache must be outside the repository. JSON and Markdown outputs distinguish
+screening failure (exit 1) from missing or invalid data (exit 2). The old
+individual validation scripts remain available. The campaign manifest records
+the limits used by those validators; mismatched registered limits are rejected.
 A candidate reference for benzene/toluene is Lee et al., Fluid Phase Equilibria
 280 (2009), DOI [10.1016/j.fluid.2009.03.012](https://doi.org/10.1016/j.fluid.2009.03.012),
 at 333.15 K and 353.15 K. The ideal method uses no fitted binary parameter.
@@ -168,3 +181,68 @@ XML SHA-256
 Reproduce with `python scripts/validate_butanol_water_reference.py PATH_TO_XML`.
 Use `--method nrtl` or `--method uniquac` for the other models. The script exits
 nonzero when the fixed screening limits fail.
+
+### Additional binary liquid-liquid reference at 288.15 and 318.15 K
+
+Chen and Lin, DOI [10.1016/j.fluid.2007.07.011](https://doi.org/10.1016/j.fluid.2007.07.011),
+report two binary water/1-butanol phase compositions at each temperature. Before
+the calculations the source hash, table selectors and the same 0.05 mean and
+0.10 maximum absolute mass-fraction screening limits were fixed in
+`docs/chen2007-lle-manifest.json`. Each phase has two points. ThermoML assigns
+101 kPa to the aqueous-phase table and 101.325 kPa to the organic-phase table;
+each prediction below uses its table's stated pressure, rather than treating the
+different pressures as a single exactly matched tie line.
+
+| Method | Mean absolute error | Maximum error | Maximum-error point | Screening |
+| --- | --- | --- | --- | --- |
+| UNIFAC Dortmund | 0.059933 | 0.082525 | 318.15 K, organic phase | fail |
+| NRTL, ChemSep | 0.054925 | 0.079318 | 288.15 K, organic phase | fail |
+| UNIQUAC, ChemSep | 0.031141 | 0.049986 | 288.15 K, aqueous phase | pass |
+
+The source reports point-specific expanded uncertainties in mole fraction at
+95% confidence. The script converts them to the mass-fraction basis by linear
+uncertainty propagation; these experimental uncertainties and the broader
+screening limits are different quantities. As for the earlier LLE comparison,
+the underlying ChemSep and UNIFAC parameter sources have not been traced to
+their original fit data, so independence of this source is not established.
+Four phase observations do not validate a continuous operating range.
+
+Reproduce each method from the original XML with
+`python scripts/validate_chen_lle.py PATH_TO_XML --method unifac` (or `nrtl`
+or `uniquac`). The source hash is checked before parsing. The script returns
+1 for an exceeded screening limit and 2 for invalid or unavailable input.
+
+## Equipment-data qualification
+
+The [version-2 equipment campaign](equipment-campaign.md) now generates offline
+qualification reports from `docs/equipment-campaign.json`. It returns code 2 for
+the currently incomplete sources and preserves any legacy comparison results in
+a mixed campaign. Qualified apparatus simulation adapters remain unimplemented.
+
+The expanded [source qualification and data request sheets](equipment-reference-qualification.md)
+record additional candidates and the inputs that remain unverified. The numerical
+comparison helpers in `scripts/equipment_metrics.py` are tested with synthetic data;
+they do not execute a simulator or establish an experimental validation.
+
+The following source assessment is a qualification step, not an experimental
+validation of these equipment models. No parameter was fitted to a test output.
+
+| Family | Candidate examined | Current disposition |
+| --- | --- | --- |
+| Dynamic vessel | [Thornhill et al. CSTH](https://zenodo.org/records/10093059) | The published archive contains Simulink models and measured disturbance/noise sequences. It does not identify the outputs as measured step-response records. Simulation outputs driven by measured noise are not independent experimental step responses; the required two measured input/output steps remain open. |
+| Reaction kinetics | [Zeki et al.](https://iasj.rdd.edu.iq/journals/uploads/2024/12/16/b18ca2d92132373e3a8bcef9c13164f8.pdf) | The paper reports 50–60 °C batch experiments, 95% ethanol and one drop of sulfuric acid; initial pH differs between feed ratios. Conversion trajectories appear as plots and the tabulated rate constants were fitted to the same experiments. Quantitative catalyst loading, measured trajectory tables and independently held-out runs have not been established, so the paper is insufficient for the specified independent comparison. |
+| Stationary column | [Werle et al.](https://doi.org/10.1016/j.cep.2009.10.010) and [continuous distillation dataset](https://zenodo.org/records/17628963) | The Werle abstract reports a 13-tray ethanol/water pilot column; complete stationary boundary conditions and measured efficiencies have not been obtained. The open dataset contains two-column butanol/water operation, but two of the three normal-operation metadata files do not supply numerical feed compositions. A compatible single-column model with independently specified efficiency and heat losses has not been established. |
+
+Fixed-pressure vessel dynamics do not represent column pressure transients. A
+study requiring liquid-liquid column behavior, activity-based kinetics, or
+unknown apparatus parameters must not be silently treated as a compatible case.
+Each family remains experimentally open until its prespecified source and model
+qualification criteria are met.
+
+The preregistered engineering screening limits remain: for a column, mean/max
+composition error of 0.02/0.05 mole fraction, temperature error of 2/5 K, and
+relative duty error of 10/20%; for kinetics, mean/max absolute conversion error
+of 0.03/0.08; and for dynamics, trajectory RMSE and final-value error each no
+more than 10% of the measured step amplitude. A dynamic step must exceed five
+times the baseline noise. These are model-screening limits, not measurement
+uncertainties, and cannot be evaluated until suitable measurements are available.

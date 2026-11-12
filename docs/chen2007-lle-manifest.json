@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "doi": "10.1016/j.fluid.2007.07.011",
+  "url": "https://trc.nist.gov/ThermoML/10.1016/j.fluid.2007.07.011.xml",
+  "sha256": "9acb0cd3121d8f2d17610955dd10f95b4928c6099a22a81b3741b6cdfd910055",
+  "components": {"water": "7732-18-5", "1-butanol": "71-36-3"},
+  "datasets": [3, 4],
+  "phase_property": "1-butanol mole fraction",
+  "temperatures_K": [288.15, 318.15],
+  "reported_pressures_Pa": [101000, 101325],
+  "reported_uncertainty": "95% expanded uncertainty per measurement, mole fraction",
+  "methods": ["unifac", "nrtl", "uniquac"],
+  "screening": {"basis": "1-butanol mass fraction", "mean_absolute": 0.05,
+                "max_absolute": 0.10},
+  "independence": "unconfirmed"
+}

@@ -157,6 +157,9 @@ def test_recycle_example_converges_and_balances():
 def test_examples_solve(path):
     r = solve(FlowsheetModel.load(path))
     assert r.ok, r.error
+    assert r.balance_checks, 'missing balance diagnostics'
+    failures = [check for check in r.balance_checks if check['status'] == 'warning']
+    assert not failures, failures
 
 
 # --- helpful errors ---------------------------------------------------------------------

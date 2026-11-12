@@ -1,0 +1,69 @@
+{
+  "version": 2,
+  "sources": [],
+  "equipment_sources": [
+    {
+      "id": "csth", "family": "dynamics", "admission": "incomplete",
+      "independence": "unconfirmed",
+      "url": "https://zenodo.org/records/10093059",
+      "sha256": "4133f128fbfa2db3776317c572c02f6a9e61cb9e53b242945dfc722560bc2a36",
+      "evidence": "CSTHSimulation.zip; archive introduction describes simulation and measured noise/disturbance sequences.",
+      "reason": "Measured plant input/output step trajectories have not been identified.",
+      "missing_inputs": ["Two measured input/output steps and run identifiers", "Initial inventory, all input histories and sensor uncertainties", "Independent wall capacity and heat loss evidence"]
+    },
+    {
+      "id": "hermawan2011", "family": "dynamics", "admission": "incomplete",
+      "independence": "unconfirmed",
+      "url": "https://www.davidpublisher.com/Public/uploads/Contribute/55fa0fe6b0f06.pdf",
+      "sha256": null,
+      "evidence": "Sections 2–3, table 1 and figures 2–3; details in equipment-reference-qualification.md.",
+      "reason": "Published boundary conditions require energy-balance clarification; measurement uncertainty and thermal losses are unverified.",
+      "missing_inputs": ["Clarification of feed enthalpy rise versus reported heater power", "Measured input histories, baseline noise, pointwise measured trajectories", "Pressure, wall heat capacity and independently determined heat loss"]
+    },
+    {
+      "id": "zeki2010", "family": "kinetics", "admission": "incomplete",
+      "independence": "shared_fit_data",
+      "url": "https://iasj.rdd.edu.iq/journals/uploads/2024/12/16/b18ca2d92132373e3a8bcef9c13164f8.pdf",
+      "sha256": null,
+      "evidence": "Experimental description specifies one drop of sulfuric acid; reported constants fitted to the experimental curves.",
+      "reason": "Quantitative catalyst loading and independent held-out runs are not established.",
+      "missing_inputs": ["Quantitative catalyst loading and complete initial composition", "Three measured trajectories at two temperatures with uncertainties", "Sampling corrections and parameter provenance by whole run"]
+    },
+    {
+      "id": "beula_sai", "family": "kinetics", "admission": "incomplete",
+      "independence": "unconfirmed",
+      "url": "https://doi.org/10.1080/00194506.2014.975761",
+      "sha256": null,
+      "evidence": "Publisher full text unavailable during source audit; bibliographic abstract is insufficient for qualification.",
+      "reason": "Complete experimental inputs and independent parameter provenance have not been verified.",
+      "missing_inputs": ["Accessible full text and verified file hash", "Three complete batch runs at two temperatures", "Initial composition, catalyst, volume and sampling history", "Forward/reverse kinetics with units and fit-run provenance"]
+    },
+    {
+      "id": "misikov2025", "family": "kinetics", "admission": "incomplete",
+      "independence": "unconfirmed",
+      "url": "https://rjsvd.com/0044-4537/article/view/693639",
+      "sha256": null,
+      "evidence": "Available abstract describes experiments at 323.15 K.",
+      "reason": "Required two-temperature coverage has not been established.",
+      "missing_inputs": ["A second temperature and three complete measured batch trajectories", "Complete initial conditions, uncertainties and kinetic parameter provenance"]
+    },
+    {
+      "id": "werle2009", "family": "column", "admission": "incomplete",
+      "independence": "unconfirmed",
+      "url": "https://doi.org/10.1016/j.cep.2009.10.010",
+      "sha256": null,
+      "evidence": "Abstract identifies a 13-tray ethanol/water apparatus; full stationary conditions not established.",
+      "reason": "Three complete stationary cases and independent efficiencies/losses are unavailable in the inspected material.",
+      "missing_inputs": ["Three steady operating windows with all feed/product/reflux conditions", "Stage and measurement mapping, pressure profile", "Independent efficiencies and heat losses", "Measured compositions, temperatures, duties and uncertainties"]
+    },
+    {
+      "id": "continuous_distillation", "family": "column", "admission": "incomplete",
+      "independence": "unconfirmed",
+      "url": "https://zenodo.org/records/17628963",
+      "sha256": "8076e5cec0c1137ab0902c305a2603a4c4ec672308db563ff9749a9b9a7a34ec",
+      "evidence": "ContinuousDistillationData.zip, normal-operation metadata 001, 006, 007; linked preprint was inaccessible.",
+      "reason": "Numerical feed compositions for 006/007 and compatible column boundary conditions remain unverified.",
+      "missing_inputs": ["Numerical feed compositions and complete feed states for all cases", "Independent stage efficiencies and heat losses", "Compatible column boundary and measurement-stage mapping", "Stationary windows, duties and measurement uncertainties"]
+    }
+  ]
+}

@@ -263,7 +263,11 @@ def test_constant_volume_batch_balance_includes_pressure_volume_change():
     assert result.units["B"]["P_final"] > result.streams["IN"]["P"] * 1.1
 
 
-def test_constant_volume_batch_with_different_fill_pressure_is_not_checkable():
+def test_constant_volume_batch_with_different_fill_pressure_is_not_checkable(
+        expected_balance_exceptions):
+    for scope in ("B", "flowsheet"):
+        expected_balance_exceptions[(scope, "energy", None, "not_checkable")] = (
+            "Filling work is unavailable when vessel and feed pressures differ")
     result = run({"phase": "gas", "batch_time": "20 s", "vessel": "constant_volume",
                   "P": "2 bar"}, T="400 K", P="1 bar")
     for scope in ("B", "flowsheet"):

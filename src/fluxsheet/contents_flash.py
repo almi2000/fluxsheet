@@ -14,10 +14,13 @@ from .thermo_package import PropertyPackage
 class ContentsFlash:
     """PH flashes along a trajectory, which change little from one call to the next.
 
-    A full flash (with the phase stability test) costs milliseconds and an integration needs
-    thousands. While the contents stay one phase, near a temperature and composition where a
-    full flash confirmed that phase, the temperature is found on that phase's enthalpy alone
-    by Newton steps; the full flash runs again once they drift further.
+    A PH flash iterates on the temperature with several T-P flashes, and an integration needs
+    thousands of them. While the contents stay one phase, near a temperature and composition
+    where a full flash confirmed that phase, the temperature is found on that phase's enthalpy
+    alone by Newton steps, and a single T-P flash then confirms that the phase is still the
+    stable one. That flash (with its phase stability test) is most of the cost of a call, but
+    without it the shortcut can cross a phase boundary into a metastable state. The full PH
+    flash runs when the phase changes or the state drifts further.
     """
 
     T_WINDOW = 2.0  # K around the last confirmed state
@@ -33,8 +36,10 @@ class ContentsFlash:
         if self.kind is not None and self._near(self.T, zs):
             T = self._single_phase_T(zs, P, H)
             if T is not None and self._near(T, zs):
-                self.T = T
-                return self.pkg.phase_state(self.kind, T, P, list(zs))
+                stable = self.pkg.flash(list(zs), T=T, P=P)
+                if stable.phase == self.kind and not stable.liquid_split:
+                    self.T = T
+                    return stable
         st = self.pkg.flash_ph_near(list(zs), P, H, self.T)
         self.T = st.T
         single = st.phase in ("liquid", "vapor") and not st.liquid_split
@@ -62,11 +67,8 @@ class ContentsFlash:
         return None
 
     def at_temperature(self, zs, P: float, T: float):
-        """T-P flash of the contents, with the same single-phase shortcut: near a state where
-        a full flash confirmed one phase, that phase is evaluated directly."""
+        """TP flash of the contents, including a phase-stability check."""
         zs = np.asarray(zs, dtype=float)
-        if self.kind is not None and self._near(T, zs):
-            return self.pkg.phase_state(self.kind, T, P, list(zs))
         st = self.pkg.flash(list(zs), T=T, P=P)
         self.T = st.T
         single = st.phase in ("liquid", "vapor") and not st.liquid_split

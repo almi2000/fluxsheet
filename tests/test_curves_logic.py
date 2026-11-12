@@ -315,7 +315,12 @@ def test_selector_passes_the_selected_stream_by_id():
     assert not r.ok and "under-specified" in r.error["message"]
 
 
-def test_balance_check_still_catches_a_real_leak(monkeypatch):
+def test_balance_check_still_catches_a_real_leak(monkeypatch, expected_balance_exceptions):
+    for scope in ("SP", "flowsheet"):
+        for quantity, component in (("mass", None), ("energy", None),
+                                    ("component", "water"), ("component", "methanol")):
+            expected_balance_exceptions[(scope, quantity, component, "warning")] = (
+                "Intentional leakage in a splitter downstream of a multiplier")
     def leaky(self, pkg, inlets):
         out = original(self, pkg, inlets)
         out["out2"].flows = [0.9 * f for f in out["out2"].flows]

@@ -34,7 +34,12 @@ def test_balances_report_components_and_energy():
     assert result.to_dict()["balance_checks"] == result.balance_checks
 
 
-def test_balance_error_identifies_unit_component_and_flowsheet(monkeypatch):
+def test_balance_error_identifies_unit_component_and_flowsheet(monkeypatch,
+                                                               expected_balance_exceptions):
+    for scope in ("S", "flowsheet"):
+        for quantity, component in (("mass", None), ("component", "ethane")):
+            expected_balance_exceptions[(scope, quantity, component, "warning")] = (
+                "Intentional loss of ethane in the splitter")
     original = Splitter.calculate
 
     def broken(self, pkg, inlets):
@@ -59,9 +64,12 @@ def test_zero_flow_branch_keeps_balances_valid():
     assert all(c["status"] == "ok" for c in result.balance_checks)
 
 
-def test_energy_error_is_reported_locally_and_globally(monkeypatch):
+def test_energy_error_is_reported_locally_and_globally(monkeypatch, expected_balance_exceptions):
     from fluxsheet.stream import Stream
 
+    for scope in ("S", "flowsheet"):
+        expected_balance_exceptions[(scope, "energy", None, "warning")] = (
+            "Intentional unaccounted temperature increase in the splitter")
     original = Splitter.calculate
 
     def broken(self, pkg, inlets):
