@@ -156,6 +156,8 @@ export function DynamicsView({
   const toggle = (key: string) => setShown((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
   const matches = (result?.series ?? []).filter((s) => `${s.owner} ${s.label}`.toLowerCase().includes(filter.toLowerCase()));
   const groups = ["Controllers", "Units", "Streams"] as const;
+  const dynamicUnitIds = Object.keys(dyn.units ?? {});
+  const hasStirredTank = model.units.some((unit) => unit.type === "MixingTank" && dynamicUnitIds.includes(unit.id));
   return (
     <div className="sensitivity">
       <div className="sens-toolbar">
@@ -169,6 +171,12 @@ export function DynamicsView({
           </span>
         ))}
       </div>
+      {hasStirredTank && (
+        <div className="muted small" role="note">
+          <strong>Stirred tank validation.</strong> Analytical step-response checks passed. Independent
+          measurements of temperature and liquid level in a heated water tank are still needed.
+        </div>
+      )}
       {result && !result.ok && result.error && (
         <div className="banner error">
           <b>{result.error.where ? `${result.error.where}: ` : ""}</b>

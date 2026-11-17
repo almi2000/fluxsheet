@@ -216,13 +216,15 @@ or `uniquac`). The source hash is checked before parsing. The script returns
 
 The [version-2 equipment campaign](equipment-campaign.md) now generates offline
 qualification reports from `docs/equipment-campaign.json`. It returns code 2 for
-the currently incomplete sources and preserves any legacy comparison results in
-a mixed campaign. Qualified apparatus simulation adapters remain unimplemented.
+the currently incomplete sources and preserves completed comparisons in a mixed
+campaign. Qualified single-liquid water vessel cases can now run the transient
+simulator and compare temperature and level against registered measurements.
 
 The expanded [source qualification and data request sheets](equipment-reference-qualification.md)
 record additional candidates and the inputs that remain unverified. The numerical
-comparison helpers in `scripts/equipment_metrics.py` are tested with synthetic data;
-they do not execute a simulator or establish an experimental validation.
+comparison helpers and stirred-vessel adapter are tested with synthetic data.
+The vessel fixtures compare the simulator against independently integrated
+enthalpy balances for heat input and feed temperature steps.
 
 The following source assessment is a qualification step, not an experimental
 validation of these equipment models. No parameter was fitted to a test output.

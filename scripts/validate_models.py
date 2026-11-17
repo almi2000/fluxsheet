@@ -1,6 +1,7 @@
 """Run the registered experimental benchmarks with a verified offline cache."""
 
 import argparse
+import csv
 import hashlib
 import importlib
 import importlib.metadata
@@ -22,6 +23,7 @@ def _sibling(name):
 
 _registry = _sibling("equipment_registry")
 equipment_markdown, qualify = _registry.markdown, _registry.qualify
+_vessel = _sibling("validate_vessel_reference")
 _btx = _sibling("validate_btx_reference")
 _ethanol_vle = _sibling("validate_ethanol_water_reference")
 _ethanol_holdout = _sibling("validate_ethanol_water_holdout")
@@ -154,6 +156,54 @@ def run_case(source, method, path):
             "validator_sha256": digest(ROOT / "scripts" / script)}
 
 
+def run_equipment(equipment, cache):
+    comparisons, errors = [], []
+    for source in equipment:
+        name = source["id"]
+        if source["admission"] != "qualified":
+            errors.append({"source": name, "error": source["reason"], "kind": "equipment_data_gap"})
+            continue
+        completed = []
+        for run in source["runs"]:
+            try:
+                completed.append(_vessel.run_case(run, cache))
+            except (OSError, ValueError, csv.Error) as exc:
+                errors.append({"source": name, "run": run["id"], "error": str(exc),
+                               "kind": "equipment_run_error"})
+        source["run_results"] = completed
+        comparisons.extend(completed)
+        if len(completed) != len(source["runs"]):
+            source["screening"] = "not_checkable"
+        else:
+            source["passed"] = all(run["passed"] for run in completed)
+            source["screening"] = "pass" if source["passed"] else "fail"
+        coverage = {metric["quantity"] for run in completed for metric in run["metrics"]}
+        if (source["passed"] and source["data_kind"] == "measured"
+            and source["independence"] == "separate" and coverage == {"temperature", "level"}):
+            source["experimental_validation"] = "validated_for_registered_runs"
+    return comparisons, errors
+
+
+def vessel_markdown(equipment):
+    rows = []
+    for source in equipment:
+        for run in source.get("run_results", []):
+            rows.extend([f"### {source['id']} / {run['id']} ({source['data_kind']})", "",
+                         f"Flowsheet SHA-256: {run['inputs']['flowsheet']['sha256']}", "",
+                         f"Measurement SHA-256: {run['inputs']['measurements']['sha256']}", "",
+                         "| Channel | Status | Unit | Step | RMSE | End error | Max error | Time (s) |",
+                         "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: |"])
+            for m in run["metrics"]:
+                rows.append(f"| {m['quantity']} | {'pass' if m['passed'] else 'fail'} | {m['unit']} | "
+                            f"{m['step_amplitude']:.6g} | {m['rmse']:.6g} | {m['end_error']:.6g} | "
+                            f"{m['maximum_absolute_error']:.6g} | {m['maximum_error_time_s']:.6g} |")
+            rows.append("")
+    if rows:
+        rows.extend(["RMSE and end error limits are 10% of each measured step amplitude.",
+                     "The two numerical resolutions must agree within 1% of that amplitude.", ""])
+    return rows
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, required=True)
@@ -190,8 +240,7 @@ def main():
         parser.exit(2, f"invalid campaign: {exc}\n")
 
     results = []
-    errors = [{"source": r["id"], "error": r["reason"], "kind": "equipment_data_gap"}
-              for r in equipment]
+    equipment_results, errors = run_equipment(equipment, args.cache_dir)
     for source in manifest["sources"]:
         try:
             path = fetch(source["doi"], args.cache_dir, offline=not args.download, pause=0)
@@ -228,14 +277,18 @@ def main():
     rows.extend(["", "Source details, phase summaries and errors are in validation.json.", ""])
     if equipment:
         rows.extend(equipment_markdown(equipment))
+        rows.extend(vessel_markdown(equipment))
     if errors:
         rows.extend(["## Unavailable or invalid", ""])
-        rows.extend(f"- {error['source']}: {error['error']}" for error in errors)
+        for error in errors:
+            label = error["source"] + (f" / {error['run']}" if "run" in error else "")
+            rows.append(f"- {label}: {error['error']}")
         rows.append("")
     (args.output_dir / "validation.md").write_text("\n".join(rows), encoding="utf-8")
-    print(f"{len(results)} comparisons; {sum(not r['passed'] for r in results)} failed; "
+    comparisons = results + equipment_results
+    print(f"{len(comparisons)} comparisons; {sum(not r['passed'] for r in comparisons)} failed; "
           f"{len(errors)} unavailable or invalid")
-    return 2 if errors else (1 if any(not r["passed"] for r in results) else 0)
+    return 2 if errors else (1 if any(not r["passed"] for r in comparisons) else 0)
 
 
 if __name__ == "__main__":
