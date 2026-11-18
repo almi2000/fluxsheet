@@ -29,7 +29,7 @@ jobs:
         working-directory: web
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.14"
       - name: Check that the tag matches the package version
         run: |
           version=$(python -c "import re; print(re.search(r'__version__ = \"(.+)\"', open('src/fluxsheet/__init__.py').read())[1])")

@@ -35,7 +35,7 @@ interfaces. Fluxsheet aims for both: a modern editor *and* a clean Python core.
 Install it locally:
 
 ```bash
-pip install "fluxsheet[server]"    # Python ≥ 3.10
+pip install "fluxsheet[server]"    # Python ≥ 3.14
 fluxsheet serve                    # open http://127.0.0.1:8000
 ```
 

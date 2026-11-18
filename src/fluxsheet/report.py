@@ -24,7 +24,7 @@ import io
 import math
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -280,7 +280,7 @@ def solve_for_report(model: FlowsheetModel) -> SolveResult:
 
 def build_report(model: FlowsheetModel, result: SolveResult, now: datetime | None = None,
                  runs: ReportRuns | None = None) -> Report:
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     runs = runs or ReportRuns()
     summary: list[tuple[str, Any]] = [
         ("Flowsheet", model.name),

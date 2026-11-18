@@ -8,7 +8,7 @@ dynamic = ["version"]  # from src/fluxsheet/__init__.py
 description = "An open, friendly chemical process simulator: flowsheets, rigorous thermodynamics, readable files."
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.10"
+requires-python = ">=3.14"
 authors = [{ name = "Fluxsheet contributors" }]
 keywords = ["chemical engineering", "process simulation", "flowsheet", "thermodynamics", "VLE"]
 classifiers = [
