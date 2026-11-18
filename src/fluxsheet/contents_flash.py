@@ -34,25 +34,43 @@ class ContentsFlash:
     def __call__(self, zs, P: float, H: float):
         zs = np.asarray(zs, dtype=float)
         if self.kind is not None and self._near(self.T, zs):
-            T = self._single_phase_T(zs, P, H)
-            if T is not None and self._near(T, zs):
-                stable = self.pkg.flash(list(zs), T=T, P=P)
-                if stable.phase == self.kind and not stable.liquid_split:
-                    self.T = T
-                    return stable
+            st = self._shortcut(zs, P, H)
+            if st is not None:
+                return st
         st = self.pkg.flash_ph_near(list(zs), P, H, self.T)
         self.T = st.T
         single = st.phase in ("liquid", "vapor") and not st.liquid_split
         self.kind = st.phase if single else None
         self.checked = (st.T, zs.copy())
+        if single:
+            # The PH flash stops within its enthalpy tolerance (some 1e-5 K), the shortcut is
+            # exact. A single-phase result therefore always comes from the shortcut: the
+            # difference between the two would otherwise sit in the finite-difference
+            # Jacobian of an integrator whose first call re-confirmed the phase.
+            return self._shortcut(zs, P, H) or st
         return st
+
+    def _shortcut(self, zs: np.ndarray, P: float, H: float):
+        """The confirmed single phase at the temperature its enthalpy gives, or None if it
+        is no longer the stable one or has left the window."""
+        T = self._single_phase_T(zs, P, H)
+        if T is not None and self._near(T, zs):
+            stable = self.pkg.flash(list(zs), T=T, P=P)
+            if stable.phase == self.kind and not stable.liquid_split:
+                self.T = T
+                return stable
+        return None
 
     def _near(self, T: float, zs: np.ndarray) -> bool:
         T0, z0 = self.checked
         return abs(T - T0) < self.T_WINDOW and float(np.abs(zs - z0).max()) < self.Z_WINDOW
 
     def _single_phase_T(self, zs: np.ndarray, P: float, H: float) -> float | None:
-        pkg, kind, T = self.pkg, self.kind, self.T
+        # Start from the confirmed state, not from the last call's temperature: the result
+        # is then a function of (zs, P, H) alone. Started from wherever the last call ended,
+        # it differs in the last bits from call to call, and that noise stalls a stiff
+        # integrator's Newton iteration at an exact steady state.
+        pkg, kind, T = self.pkg, self.kind, self.checked[0]
         z = list(zs)
         h0 = pkg.phase_props(kind, T, P, z).H
         cp = (pkg.phase_props(kind, T + 0.01, P, z).H - h0) / 0.01

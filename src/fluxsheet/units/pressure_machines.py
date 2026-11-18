@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+from scipy.optimize import brentq
 
 from ..errors import SimulationError
 from ..stream import Stream
@@ -115,8 +116,20 @@ class MultistageCompressor(UnitOperation):
         cooled = [k for k in range(1, n + 1)
                   if self.p["T_cooler"] and (k < n or self.p["aftercooler"] == "yes")]
         dP_c = self.p["dP_cooler"] or 0.0
-        # Equal pressure ratios; the stages also make up the coolers' pressure drops.
-        ratio = ((P_out + dP_c * len(cooled)) / s.P) ** (1.0 / n)
+        # Equal pressure ratios; the stages also make up the coolers' pressure drops, so
+        # that the last one (after its aftercooler, if any) ends at the outlet pressure.
+        def discharge(r: float) -> float:
+            P = s.P
+            for k in range(1, n + 1):
+                P = P * r - (dP_c if k in cooled else 0.0)
+            return P
+
+        ratio = (P_out / s.P) ** (1.0 / n)
+        if dP_c > 0.0 and cooled:
+            hi = ((P_out + dP_c * len(cooled)) / s.P) ** (1.0 / n)
+            while discharge(hi) < P_out:
+                hi *= 1.5
+            ratio = brentq(lambda r: discharge(r) - P_out, ratio, hi, xtol=1e-14, rtol=1e-14)
         gas, P = s, s.P
         drained, H_drained = np.zeros(pkg.n), 0.0
         power = cooler = 0.0

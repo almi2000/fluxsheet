@@ -53,6 +53,10 @@ from .reactors import DUTY_SPEC, KEY, REACTIONS, KineticReactor
 
 N_POINTS = 101  # profile points
 N_REF = 1.0  # mol, reference charge of the integration
+# K above the bubble point before a vented liquid counts as boiling. A charge that has
+# flashed down to saturation and neither reacts nor is heated sits on the bubble point to
+# within the solvers' tolerances; without this margin it would switch regimes endlessly.
+_SUPERHEAT = 1e-5
 
 
 @dataclass
@@ -578,7 +582,7 @@ class BatchReactor(KineticReactor):
             self._boiling = self._snap(t, y).fv > 0.0
             return y
         snap = self._snap(t, y)
-        if snap.T < self._bubble(snap.z, snap.T)[0]:
+        if snap.T < self._bubble(snap.z, snap.T)[0] + _SUPERHEAT:
             return y
         n, pkg, P, hf = self._n, self._pkg, self._P, self._hf
         y = y.copy()
@@ -629,7 +633,7 @@ class BatchReactor(KineticReactor):
         else:
             def g(t, y):
                 snap = self._snap(t, y)
-                return snap.T - self._bubble(snap.z, snap.T)[0]
+                return snap.T - self._bubble(snap.z, snap.T)[0] - _SUPERHEAT
 
             g.direction = 1.0
         g.terminal = True

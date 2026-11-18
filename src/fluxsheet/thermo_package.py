@@ -15,7 +15,9 @@ from fluids.numerics import OscillationError, UnconvergedError
 from scipy.optimize import brentq, least_squares
 from thermo import (
     NRTL,
+    PR,
     PRMIX,
+    SRK,
     SRKMIX,
     UNIFAC,
     UNIQUAC,
@@ -25,7 +27,6 @@ from thermo import (
     FlashPureVLS,
     FlashVL,
     FlashVLN,
-    GibbsExcessLiquid,
     IdealGas,
     Wilson,
 )
@@ -34,6 +35,15 @@ from thermo.interaction_parameters import IPDB
 from thermo.unifac import DOUFIP2016, DOUFSG
 
 from . import custom_compounds
+from .activity_liquid import ActivityLiquid, ClausiusClapeyron
+from .association import (
+    DIMERIZATION,
+    AssociatedLatentHeat,
+    AssociatingGas,
+    FlashPureAssociating,
+    MonomerVaporPressure,
+    vapor_from_monomers,
+)
 from .compounds import Compound, lookup
 from .custom_compounds import CustomCompound
 from .errors import SimulationError
@@ -105,6 +115,10 @@ METHODS: dict[str, Method] = {
         ),
     )
 }
+
+
+# UNIFAC subgroups (original and Dortmund numbering agree) of carboxylic acids: COOH, HCOOH.
+_CARBOXYL = {42, 43}
 
 
 @dataclass(frozen=True)
@@ -426,17 +440,68 @@ class PropertyPackage:
         self.parameter_sources: list[dict] = []
         self.warnings: list[str] = []
         self._ge = None  # activity-coefficient model, if the method has one
+        self._shifts: list[float] | None = None  # volume translations (equations of state)
+        self._assoc: dict[int, tuple[float, float]] = {}  # dimerizing acids (activity methods)
+        self._liquid_vps = list(self.props.VaporPressures)  # liquid reference fugacities
         self._report_estimates()
         self._check_data()
         # Henry components (dissolved gases) of activity methods: flags and names.
         self._henry_request = henry_components
         self.henry = [False] * self.n
         self._flasher = self._build()
+        self._warn_association()
         if henry_components and not (self.method in HENRY_METHODS and self.n > 1):
             self.warnings.append(
                 f"henry_components is ignored by {METHODS[method].label}: "
                 + ("equations of state describe dissolved gases directly."
                    if self.method not in HENRY_METHODS else "a single compound has no solvent."))
+
+    def _carboxylic(self) -> list[bool]:
+        """Which components are carboxylic acids (by their UNIFAC groups)."""
+        return [bool(_CARBOXYL & set(groups or dortmund or ()))
+                for groups, dortmund in zip(self.consts.UNIFAC_groups,
+                                            self.consts.UNIFAC_Dortmund_groups)]
+
+    def _warn_association(self) -> None:
+        """Carboxylic acids dimerize in the vapor.
+
+        The activity methods describe it for the acids in ``association.DIMERIZATION``
+        (chemical theory). An acid without dimerization constants keeps an ideal monomer
+        vapor and the liquid enthalpy of Clausius-Clapeyron: half of the enthalpy between
+        the liquid and the monomer vapor (51 kJ/mol for acetic acid at 25 °C) is the dimers'
+        bond, so with an ideal monomer vapor a liquid enthalpy can match either the measured
+        heat of vaporization (23 kJ/mol) or the formation enthalpies, not both, and
+        Clausius-Clapeyron (about 40 kJ/mol) lies between them.
+        """
+        acids = [name for name, acid in zip(self.names, self._carboxylic()) if acid]
+        if self.method not in ("peng-robinson", "srk"):
+            described = set(self._associating())
+            acids = [name for name in acids if self.names.index(name) not in described]
+        if not acids:
+            return
+        label = METHODS[self.method].label
+        names = ", ".join(acids)
+        if self.method in ("peng-robinson", "srk"):
+            self.warnings.append(
+                f"{label}: {names} associate{'s' if len(acids) == 1 else ''} in the vapor "
+                "(carboxylic acid dimers), which an equation of state without association "
+                "cannot describe: the heat of vaporization comes out 20 to 60 % too high, and "
+                "with it condenser and reboiler duties. Use NRTL, UNIQUAC or UNIFAC, which "
+                "describe the dimers of acetic, formic and propionic acid.")
+        else:
+            self.warnings.append(
+                f"{label}: {names} associate{'s' if len(acids) == 1 else ''} in the vapor "
+                "(carboxylic acid dimers), but no dimerization constants are known for "
+                + ("it" if len(acids) == 1 else "them")
+                + ", so the vapor is treated as an ideal gas of monomers: the heat of "
+                "vaporization comes out 40 to 65 % too high, liquid-phase heats of reaction "
+                "about 10 kJ per mole of acid off, and vapor densities too low.")
+
+    def _associating(self) -> dict[int, tuple[float, float]]:
+        """Acids whose vapor dimerization is described: index -> constants."""
+        return {i: DIMERIZATION[cas] for i, (cas, acid) in
+                enumerate(zip(self.consts.CASs, self._carboxylic()))
+                if acid and cas in DIMERIZATION}
 
     @property
     def henry_components(self) -> list[str]:
@@ -513,17 +578,20 @@ class PropertyPackage:
         c, p = self.consts, self.props
         cp_gas = p.HeatCapacityGases
         if self.method in ("peng-robinson", "srk"):
-            eos = PRMIX if self.method == "peng-robinson" else SRKMIX
+            pr = self.method == "peng-robinson"
+            eos = PRMIX if pr else SRKMIX
             kijs = (
-                ip_matrix("ChemSep PR", c.CASs, "kij")
-                if self.method == "peng-robinson"
+                ip_matrix("ChemSep PR", c.CASs, "kij") if pr
                 else [[0.0] * self.n for _ in range(self.n)]
             )
             kwargs = {"Tcs": c.Tcs, "Pcs": c.Pcs, "omegas": c.omegas, "kijs": kijs}
+            self._shifts = self._volume_translations(PR if pr else SRK)
             gas = CEOSGas(eos, kwargs, HeatCapacityGases=cp_gas)
             liquid = CEOSLiquid(eos, kwargs, HeatCapacityGases=cp_gas)
         else:
-            gas = IdealGas(HeatCapacityGases=cp_gas)
+            self._assoc = self._associating()
+            gas = (AssociatingGas(self._assoc, HeatCapacityGases=cp_gas) if self._assoc
+                   else IdealGas(HeatCapacityGases=cp_gas))
             henry_kwargs: dict = {}
             if self.method in HENRY_METHODS and self.n > 1:
                 self.henry, henry_kwargs = self._henry_setup()
@@ -545,20 +613,75 @@ class PropertyPackage:
                 ge_model = HenryDilutedModel(ge_model or ideal_solvent_model(len(solvents)),
                                              solvents, self.n)
             self._ge = ge_model
-            liquid = (HenryLiquid if henry_kwargs else GibbsExcessLiquid)(
-                VaporPressures=p.VaporPressures,
+            # Fugacities from vapor pressures and activity coefficients; the liquid enthalpy
+            # from the heat of vaporization correlations (see activity_liquid.py).
+            # A dimerizing acid's liquid is in equilibrium with the monomer pressure of its
+            # saturated vapor, and its enthalpy lies below the monomer gas by the heat of
+            # vaporization plus the dimers' bond enthalpy (association.py). Acids without
+            # dimerization constants keep Clausius-Clapeyron: see _warn_association.
+            self._liquid_vps = [MonomerVaporPressure(vp, self._assoc[i]) if i in self._assoc
+                                else vp for i, vp in enumerate(p.VaporPressures)]
+            latent = []
+            for i, (acid, correlation) in enumerate(zip(self._carboxylic(),
+                                                        p.EnthalpyVaporizations)):
+                if i in self._assoc:
+                    latent.append(AssociatedLatentHeat(correlation, p.VaporPressures[i],
+                                                       self._assoc[i]))
+                else:
+                    latent.append(ClausiusClapeyron() if acid else correlation)
+            liquid = (HenryLiquid if henry_kwargs else ActivityLiquid)(
+                VaporPressures=self._liquid_vps,
                 HeatCapacityGases=cp_gas,
                 VolumeLiquids=p.VolumeLiquids,
+                EnthalpyVaporizations=latent,
                 GibbsExcessModel=ge_model,
                 equilibrium_basis="Psat",
-                caloric_basis="Psat",
+                caloric_basis="Hvap",
                 **henry_kwargs,
             )
         if self.n == 1:
-            return FlashPureVLS(c, p, gas=gas, liquids=[liquid], solids=[], settings=_SETTINGS)
+            flasher = FlashPureAssociating if self._assoc else FlashPureVLS
+            return flasher(c, p, gas=gas, liquids=[liquid], solids=[], settings=_SETTINGS)
         if self.supports_lle:
             return _FlashVLLE(c, p, liquids=[liquid, liquid], gas=gas, settings=_SETTINGS)
         return FlashVL(c, p, liquid=liquid, gas=gas, settings=_SETTINGS)
+
+    def _volume_translations(self, pure_eos) -> list[float]:
+        """Volume translation c_i (m3/mol) of each component for the cubic equation of state.
+
+        Cubic equations give poor liquid volumes: Peng-Robinson is 15 % too large for water
+        and 13 % for methanol, Soave-Redlich-Kwong 8 to 24 % for everything. Pump power,
+        velocities, levels, residence times and liquid concentrations (kinetics) inherit
+        that. Peneloux's constant shift V = V_eos - sum(x_i c_i) corrects it without changing
+        any phase equilibrium: every fugacity gets the same factor exp(-c_i P / R T). So the
+        equation is solved as it is and the shift is taken off the volumes it reports (see
+        ``_volume``); enthalpies stay those of the plain equation.
+
+        c_i makes the saturated liquid volume right at 25 °C, or at Tr = 0.7 for compounds
+        whose critical temperature lies below 426 K (the classical Peneloux reference). A
+        compound without a liquid volume correlation keeps the plain equation (c_i = 0).
+        """
+        c = self.consts
+        shifts = []
+        for i in range(self.n):
+            shift = 0.0
+            try:
+                T_ref = min(298.15, 0.7 * c.Tcs[i])
+                measured = self.props.VolumeLiquids[i].T_dependent_property(T_ref)
+                if measured:
+                    eos = pure_eos(Tc=c.Tcs[i], Pc=c.Pcs[i], omega=c.omegas[i], T=T_ref, P=1e5)
+                    shift = float(eos.V_l_sat(T_ref)) - float(measured)
+            except Exception:  # noqa: BLE001 - no data or no liquid root: plain equation
+                shift = 0.0
+            shifts.append(shift if math.isfinite(shift) else 0.0)
+        return shifts
+
+    def _volume(self, V: float, zs) -> float:
+        """Molar volume with the equation of state's volume translation taken off. For a
+        mixture of phases the overall composition gives the same as phase by phase."""
+        if self._shifts is None:
+            return float(V)
+        return float(V) - sum(z * c for z, c in zip(zs, self._shifts))
 
     def _henry_setup(self) -> tuple[list[bool], dict]:
         """Which components follow Henry's law, and their constants for the liquid.
@@ -703,9 +826,11 @@ class PropertyPackage:
         return _ge_model(self.method, c, a, b, alpha, idx)
 
     def psats(self, T: float, zs: list[float]) -> list[float]:
-        """Vapor pressures, with the Henry constant in this liquid for Henry components."""
+        """Reference fugacities of the liquid: vapor pressures, the Henry constant in this
+        liquid for Henry components, and for a dimerizing acid the monomer pressure of its
+        saturated vapor."""
         if not any(self.henry):
-            return [vp(T) for vp in self.props.VaporPressures]
+            return [vp(T) for vp in self._liquid_vps]
         return list(self._liquid_template().to(T=T, P=101325.0, zs=list(zs)).Psats())
 
     def _liquid_template(self):
@@ -734,7 +859,7 @@ class PropertyPackage:
         def props(ph):
             H = float(ph.H())
             return PhaseProps(tuple(float(v) for v in ph.lnphis()), H, self._h_reactive(H, zs),
-                              float(ph.V()))
+                              self._volume(ph.V(), zs))
 
         return self._single_phase(kind, T, P, zs, props)
 
@@ -751,7 +876,7 @@ class PropertyPackage:
             return PhaseState(
                 T=T, P=P, VF=1.0 if vapor else 0.0, H=H, S=float(ph.S()),
                 phase="vapor" if vapor else "liquid", x=None if vapor else tuple(zs),
-                y=tuple(zs) if vapor else None, V=float(ph.V()),
+                y=tuple(zs) if vapor else None, V=self._volume(ph.V(), zs),
                 H_reactive=self._h_reactive(H, zs),
             )
 
@@ -806,9 +931,10 @@ class PropertyPackage:
                 try:
                     res = self._flasher.flash(zs=zs, **spec)
                 except Exception:
-                    if set(spec) != {"P", "H"}:
+                    if set(spec) not in ({"P", "H"}, {"P", "S"}):
                         raise
-                    res = self._ph_by_temperature(zs, spec["P"], spec["H"])
+                    by = "H" if "H" in spec else "S"
+                    res = self._by_temperature(zs, spec["P"], spec[by], by)
                 incipient = _incipient(res, spec.get("VF"), self.n)
         except Exception as exc:
             spec_text = ", ".join(f"{k}={v:.6g}" for k, v in spec.items())
@@ -884,16 +1010,18 @@ class PropertyPackage:
             pass
         return self.flash(zs, P=P, H=H)
 
-    def _ph_by_temperature(self, zs: list[float], P: float, H: float):
-        """Pressure-enthalpy flash by solving for T with T-P flashes.
+    def _by_temperature(self, zs: list[float], P: float, value: float, by: str = "H"):
+        """Pressure-enthalpy (or pressure-entropy, ``by="S"``) flash by solving for T with
+        T-P flashes.
 
-        The fallback when thermo's PH flash fails, e.g. for an almost pure component in a
-        mixture model (the residue at the end of an evaporator). H rises monotonically with
-        T at fixed P, and T-P flashes stay robust there.
+        The fallback when thermo's own flash fails, e.g. for an almost pure component in a
+        mixture model (the residue at the end of an evaporator), or an isentropic expansion
+        of a mixture into the two-phase region with an activity-coefficient method. H and S
+        rise monotonically with T at fixed P, and T-P flashes stay robust there.
         """
         def h(T: float):
             res = self._flasher.flash(zs=zs, T=T, P=P)
-            return float(res.H()) - H, res
+            return float(res.H() if by == "H" else res.S()) - value, res
 
         lo = hi = sum(z * tb for z, tb in zip(zs, self.consts.Tbs) if tb) or 300.0
         f_lo = f_hi = h(lo)[0]
@@ -903,14 +1031,14 @@ class PropertyPackage:
             f_lo = h(lo)[0]
             step *= 1.6
             if lo <= 20.0 and f_lo > 0.0:
-                raise ValueError("enthalpy below the range of T-P flashes")
+                raise ValueError("specification below the range of T-P flashes")
         step = 20.0
         while f_hi < 0.0:
             hi += step
             f_hi = h(hi)[0]
             step *= 1.6
             if hi > 5000.0:
-                raise ValueError("enthalpy above the range of T-P flashes")
+                raise ValueError("specification above the range of T-P flashes")
         T = brentq(lambda T: h(T)[0], lo, hi, xtol=1e-7, rtol=1e-12)
         return h(T)[1]
 
@@ -985,16 +1113,22 @@ class PropertyPackage:
     def _homogeneous_bubble(self, zs: list[float], spec: dict):
         """Bubble point of the unsplit liquid by modified Raoult's law: (T or -ln P, vapor y).
 
-        Exact for the activity models here (ideal vapor, no Poynting correction) as long as
-        the liquid does not split, and far cheaper than a flash.
+        Exact for the activity models here (ideal vapor of monomers and acid dimers, no
+        Poynting correction) as long as the liquid does not split, and far cheaper than a
+        flash.
         """
         ge, vps = self._ge, self.props.VaporPressures
         if ge is None:
             return None
 
-        def partial_pressures(T):
+        def vapor(T):
+            """Total pressure and vapor composition over the liquid."""
             gammas = ge.to_T_xs(T, list(zs)).gammas()
-            return [z * g * p for z, g, p in zip(zs, gammas, self.psats(T, zs))]
+            pp = [z * g * p for z, g, p in zip(zs, gammas, self.psats(T, zs))]
+            if self._assoc:  # the acids' monomers, plus their dimers
+                return vapor_from_monomers(self._assoc, T, pp)
+            total = sum(pp)
+            return total, [p / total for p in pp]
 
         try:
             if "T" in spec:
@@ -1002,11 +1136,9 @@ class PropertyPackage:
             else:
                 P = spec["P"]
                 tsat = [vp.solve_property(P) for vp, h in zip(vps, self.henry) if not h]
-                T = brentq(lambda T: math.log(sum(partial_pressures(T)) / P),
-                           min(tsat) - 80, max(tsat) + 80)
-            pp = partial_pressures(T)
-            total = sum(pp)
-            return (T if "P" in spec else -math.log(total)), tuple(p / total for p in pp)
+                T = brentq(lambda T: math.log(vapor(T)[0] / P), min(tsat) - 80, max(tsat) + 80)
+            total, y = vapor(T)
+            return (T if "P" in spec else -math.log(total)), tuple(y)
         except (ValueError, ArithmeticError):
             return None
 
@@ -1033,7 +1165,7 @@ class PropertyPackage:
             phase=phase,
             x=liquid_x if liquid_x is not None and vf < 1.0 else None,
             y=tuple(gas.zs) if gas is not None and vf > 0.0 else None,
-            V=float(res.V()),
+            V=self._volume(res.V(), zs),
             H_reactive=self._h_reactive(float(res.H()), zs),
             **split,
         )

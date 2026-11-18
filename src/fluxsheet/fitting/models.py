@@ -2,8 +2,11 @@
 
 The phase-equilibrium model is the one Fluxsheet's activity-coefficient property packages
 use: modified Raoult's law, ``y_i P = x_i gamma_i(T, x) Psat_i(T)``, with an ideal vapor
-and the vapor-pressure correlations from ``thermo``. Fitting with the same model keeps the
-regressed parameters consistent with the simulations that use them.
+and the vapor-pressure correlations from ``thermo``. For a carboxylic acid with dimerization
+constants (``fluxsheet.association``) ``x_i gamma_i p_m,i`` is the partial pressure of its
+monomers, ``p_m`` being the monomer pressure of the pure saturated vapor; its dimers add
+``K p^2`` to the pressure and two molecules each to the vapor composition. Fitting with the
+same model keeps the regressed parameters consistent with the simulations that use them.
 
 Parameters are always ``p = (a12, a21, b12, b21)`` for the component order of the pair:
 
@@ -19,6 +22,8 @@ from dataclasses import dataclass
 
 import numpy as np
 from scipy.interpolate import CubicSpline
+
+from ..association import LN10, MMHG, MonomerVaporPressure
 
 MODELS = ("nrtl", "uniquac")
 
@@ -72,16 +77,19 @@ class Pair:
     vapor_pressures: tuple  # thermo VaporPressure objects
     rq: tuple[tuple[float, float], tuple[float, float]] | None  # ((r1, r2), (q1, q2))
     Tbs: tuple[float | None, float | None]
+    # Vapor dimerization constants (A, B) of each component (association.py), or None.
+    dimerization: tuple = (None, None)
 
     @classmethod
     def from_cas(cls, cas_a: str, cas_b: str) -> Pair:
+        from ..association import DIMERIZATION
         from ..thermo_package import _constants
 
         consts, props = _constants((cas_a, cas_b))
         rs, qs = consts.UNIFAC_Rs, consts.UNIFAC_Qs
         rq = None if None in (*rs, *qs) else (tuple(rs), tuple(qs))
         return cls(tuple(consts.names), (cas_a, cas_b), tuple(props.VaporPressures), rq,
-                   tuple(consts.Tbs))
+                   tuple(consts.Tbs), tuple(DIMERIZATION.get(c) for c in (cas_a, cas_b)))
 
     def __post_init__(self):
         self._splines: dict[int, tuple[float, float, CubicSpline]] = {}
@@ -100,10 +108,29 @@ class Pair:
             lo = max(lo, 30.0)
             grid = np.arange(lo, hi + 0.5, 0.5)
             vp = self.vapor_pressures[i]
+            if self.dimerization[i] is not None:  # the liquid's reference: monomer pressure
+                vp = MonomerVaporPressure(vp, self.dimerization[i])
             values = np.log([max(vp(t), 1e-30) for t in grid])
             spline = CubicSpline(grid, values)
             self._splines[i] = (lo, hi, spline)
         return spline(T), spline(T, 1)
+
+    def vapor(self, T, p1, p2):
+        """Total pressure and y1 from the monomer partial pressures, and per component the
+        dimer pressure with d ln K / dT (None without dimers)."""
+        units1, units2, total, dimers = p1, p2, p1 + p2, []
+        for k, (p, c) in enumerate(((p1, self.dimerization[0]), (p2, self.dimerization[1]))):
+            if c is None:
+                dimers.append(None)
+                continue
+            dimer = np.exp(LN10 * (c[0] - np.log10(MMHG) + c[1] / T)) * p * p
+            dimers.append((dimer, -LN10 * c[1] / T**2))
+            total = total + dimer
+            if k == 0:
+                units1 = units1 + 2.0 * dimer
+            else:
+                units2 = units2 + 2.0 * dimer
+        return total, units1 / (units1 + units2), dimers
 
 
 class Model:
@@ -129,8 +156,8 @@ class Model:
         ln1, ln2 = self.ln_gammas(p, T, x1)
         p1 = x1 * np.exp(ln1 + self.pair.ln_psat(0, T)[0])
         p2 = (1.0 - x1) * np.exp(ln2 + self.pair.ln_psat(1, T)[0])
-        P = p1 + p2
-        return P, p1 / P
+        P, y1, _ = self.pair.vapor(T, p1, p2)
+        return P, y1
 
     def bubble_T(self, p, P, x1, T0=None, iterations: int = 50):
         """Bubble temperature [K] and y1 at given P [Pa] and x1, by damped Newton steps.
@@ -151,9 +178,13 @@ class Model:
             ln1, ln2 = self.ln_gammas(p, T, x1)
             (s1, d1), (s2, d2) = self.pair.ln_psat(0, T), self.pair.ln_psat(1, T)
             p1, p2 = x1 * np.exp(ln1 + s1), (1.0 - x1) * np.exp(ln2 + s2)
-            total = p1 + p2
+            total, _, dimers = self.pair.vapor(T, p1, p2)
             f = np.log(total) - lnP
-            slope = (p1 * d1 + p2 * d2) / total
+            slope = p1 * d1 + p2 * d2
+            for dimer, dln in zip(dimers, (d1, d2)):
+                if dimer is not None:  # K p^2 grows with K and with the monomer pressure p
+                    slope = slope + dimer[0] * (dimer[1] + 2.0 * dln)
+            slope = slope / total
             step = np.clip(-f / slope, -25.0, 25.0)
             T = np.clip(T + step, 30.0, 2000.0)
             if np.all(np.abs(step) < 1e-7):
@@ -161,7 +192,7 @@ class Model:
         ln1, ln2 = self.ln_gammas(p, T, x1)
         p1 = x1 * np.exp(ln1 + self.pair.ln_psat(0, T)[0])
         p2 = (1.0 - x1) * np.exp(ln2 + self.pair.ln_psat(1, T)[0])
-        return T, p1 / (p1 + p2)
+        return T, self.pair.vapor(T, p1, p2)[1]
 
     def in_miscibility_gap(self, p, T: float, x1, n: int = 401):
         """Whether each liquid composition lies inside the model's liquid-liquid gap at T.

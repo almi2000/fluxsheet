@@ -1,4 +1,20 @@
-"""Pipe: pressure drop from friction and height change, with optional heat loss."""
+"""Pipe: pressure drop from friction, height change and acceleration, with optional heat loss.
+
+One-dimensional homogeneous flow at constant mass flux G (kg/m2/s), with v the specific
+volume, marched in segments:
+
+    momentum   dP = -f dL/D G^2 v / 2 - g dz / v - G^2 dv
+    energy     h + (G v)^2 / 2 + g z changes by the heat taken up
+
+The last momentum term is the pressure the fluid needs to speed up as it expands. It is
+negligible for liquids and for gases well below the speed of sound, and it is what chokes a
+gas or flashing flow: no pressure at the outlet can pass more than the flow at Mach 1.
+
+A stream carries no velocity, so its enthalpy counts as the total (stagnation) enthalpy:
+inside the pipe the static enthalpy is lower by the kinetic energy, and the outlet stream
+gets the kinetic energy back as heat at the outlet pressure, as when the pipe ends in a
+vessel or a wider line. The flowsheet's energy balance therefore closes on enthalpies.
+"""
 
 from __future__ import annotations
 
@@ -11,6 +27,9 @@ from ..stream import Stream
 from .base import DUTY, IN, OUT, Param, ResultField, UnitOperation, empty_stream, single_inlet
 
 G = 9.80665  # m/s2
+_ACCELERATION_TOL = 1e-7  # of the pressure: the acceleration pressure drop has converged
+_KE_TOL = 1e-6  # J/mol: the kinetic energy has converged
+_MAX_ACCELERATION_STEPS = 200  # successive substitution converges like Mach^2
 
 
 def friction_factor(Re: float, rel_roughness: float) -> float:
@@ -25,8 +44,10 @@ class Pipe(UnitOperation):
     label = "Pipe"
     category = "Pressure Changers"
     description = "Pressure drop along a pipe: friction (Darcy-Weisbach; laminar below "\
-        "Re 2300, else the Swamee-Jain friction factor) and the height change, with optional "\
-        "heat loss to the surroundings. Two-phase flow is treated as homogeneous."
+        "Re 2300, else the Swamee-Jain friction factor), the height change and the "\
+        "acceleration of an expanding gas, with optional heat loss to the surroundings. "\
+        "Reports the outlet Mach number and stops when the flow chokes. Two-phase flow is "\
+        "treated as homogeneous."
     inlets = (IN,)
     outlets = (OUT,)
     params = (
@@ -50,6 +71,7 @@ class Pipe(UnitOperation):
         ResultField("velocity_out", "Outlet velocity", "velocity"),
         ResultField("reynolds", "Reynolds number (inlet)"),
         ResultField("friction_factor", "Darcy friction factor (inlet)"),
+        ResultField("mach", "Mach number (outlet)"),
     )
 
     def calculate(self, pkg, inlets):
@@ -67,57 +89,120 @@ class Pipe(UnitOperation):
         area = math.pi * D * D / 4.0
         mw = sum(f * m for f, m in zip(s.flows, pkg.mws)) / 1000.0 / s.total_flow  # kg/mol
         m_dot = s.total_flow * mw  # kg/s
+        flux = m_dot / area  # kg/m2/s, constant along the pipe
         dL, dz = L / n, (self.p["elevation"] or 0.0) / n
         eps = (self.p["roughness"] or 0.0) / D
-        st, H, Q = s.state, s.state.H, 0.0
+
+        def kinetic(v: float) -> float:
+            """Kinetic energy, J/mol, at specific volume v (m3/kg)."""
+            return 0.5 * mw * (flux * v) ** 2
+
+        def choked(at: float, u: float) -> SimulationError:
+            return SimulationError(
+                f"the flow chokes after {at:.4g} m of the {L:.4g} m pipe: it reaches the "
+                f"speed of sound (velocity {u:.3g} m/s), so the pipe cannot pass this flow",
+                where=self.id,
+                hint="use a larger diameter, a shorter pipe, a lower flow or a higher inlet "
+                "pressure")
+
+        # H is the total enthalpy (J/mol), st the static state in the pipe.
+        H, Q = s.state.H, 0.0
+        st = s.state
+        for _ in range(60):  # the static inlet state, lower by the kinetic energy it has
+            ke = kinetic(st.V / mw)
+            st = pkg.flash_ph_near(s.zs, s.P, H - ke, st.T)
+            if abs(kinetic(st.V / mw) - ke) <= _KE_TOL:
+                break
+        else:
+            raise choked(0.0, flux * st.V / mw)
         x, P_prof, T_prof, u_prof = [0.0], [st.P], [st.T], []
+        expansion = 0.0  # change of v over the last segment: the first guess for the next
         for k in range(n):
-            rho = mw / st.V
-            u = m_dot / (rho * area)
-            Re = rho * u * D / self._viscosity(pkg, st, s.zs)
+            v1 = st.V / mw
+            u = flux * v1
+            Re = flux * D / self._viscosity(pkg, st, s.zs)
             f = friction_factor(Re, eps)
             if k == 0:
                 self.results.update(velocity_in=u, reynolds=Re, friction_factor=f)
             u_prof.append(u)
-            P = st.P - f * dL / D * rho * u * u / 2.0 - rho * G * dz
-            if P <= 0.01 * s.P:
+            P_wall = st.P - f * dL / D * flux * u / 2.0 - G * dz / v1  # friction and height
+            H_adiabatic = H - mw * G * dz
+            if not P_wall > 0.01 * s.P:
                 raise SimulationError(
                     f"the pressure is used up after {(k + 1) * dL:.4g} m of the {L:.4g} m "
                     f"pipe (velocity {u:.3g} m/s)", where=self.id,
                     hint="use a larger diameter, a shorter pipe or a lower flow")
-            # Enthalpy after the pressure and elevation change, before heat transfer.
-            base_H = H - m_dot * G * dz / s.total_flow
-            q = 0.0
-            if self.p["U"]:
-                ambient = self.p["T_ambient"]
-                conductance = self.p["U"] * math.pi * D * dL
-                ambient_H = pkg.flash(s.zs, T=ambient, P=P).H
+            # Successive substitution for the specific volume at the end of the segment. It
+            # starts from the expansion of the segment before, so that a pass accepted
+            # within the tolerances has the acceleration in it already.
+            v2 = max(v1 + expansion, 0.5 * v1)
+            for _ in range(_MAX_ACCELERATION_STEPS):
+                P = P_wall - flux * flux * (v2 - v1)
+                if not P > 0.01 * s.P:
+                    raise choked((k + 1) * dL, flux * v2)
+                # Static enthalpy after the pressure, elevation and velocity change, before
+                # heat transfer.
+                base_H = H_adiabatic - kinetic(v2)
+                if self.p["U"]:
+                    ambient = self.p["T_ambient"]
+                    conductance = self.p["U"] * math.pi * D * dL
+                    ambient_H = pkg.flash(s.zs, T=ambient, P=P).H
 
-                def residual(h, pressure=P, guess=st.T, base=base_H,
-                             ua=conductance, ambient_T=ambient):
-                    state = pkg.flash_ph_near(s.zs, pressure, h, guess)
-                    return s.total_flow * (h - base) - ua * (ambient_T - state.T)
+                    def residual(h, pressure=P, guess=st.T, base=base_H,
+                                 ua=conductance, ambient_T=ambient):
+                        state = pkg.flash_ph_near(s.zs, pressure, h, guess)
+                        return s.total_flow * (h - base) - ua * (ambient_T - state.T)
 
-                low, high = sorted((base_H, ambient_H))
-                H = brentq(residual, low, high) if high > low else low
+                    low, high = sorted((base_H, ambient_H))
+                    h_static = brentq(residual, low, high) if high > low else low
+                else:
+                    h_static = base_H
+                new = pkg.flash_ph_near(s.zs, P, h_static, st.T)
+                v_new = new.V / mw
+                if (flux * flux * abs(v_new - v2) <= _ACCELERATION_TOL * P
+                        and abs(kinetic(v_new) - kinetic(v2)) <= _KE_TOL):
+                    break
+                v2 = v_new
             else:
-                H = base_H
-            st = pkg.flash_ph_near(s.zs, P, H, st.T)
-            if self.p["U"]:
-                q = s.total_flow * (st.H - base_H)
+                raise choked((k + 1) * dL, flux * v2)
+            st, expansion = new, v_new - v1
+            q = s.total_flow * (st.H - base_H) if self.p["U"] else 0.0
             Q += q
-            H = st.H
+            H = H_adiabatic + q / s.total_flow
             x.append((k + 1) * dL)
             P_prof.append(st.P)
             T_prof.append(st.T)
-        u_out = m_dot * st.V / (mw * area)
+        u_out = flux * st.V / mw
         u_prof.append(u_out)
-        self.results.update(dP=s.P - st.P, duty=Q, velocity_out=u_out)
+        mach = self._mach(pkg, s.zs, st, mw, flux)
+        if mach is not None and mach > 0.9:
+            self.notes.append(f"the flow leaves at Mach {mach:.2f}, close to choking: a little "
+                              "more flow or length and the pipe cannot pass it")
+        self.results.update(dP=s.P - st.P, duty=Q, velocity_out=u_out, mach=mach)
         self.add_profile("pipe", "Along the pipe", "Length (m)", x,
                          {"Pressure": ("pressure", P_prof),
                           "Temperature": ("temperature", T_prof),
                           "Velocity": ("velocity", u_prof)})
-        return {"out": Stream(list(s.flows), st)}
+        # The outlet stream at the total enthalpy: its kinetic energy turns into heat.
+        try:
+            out = pkg.flash(s.zs, P=st.P, H=H)
+        except SimulationError:
+            out = pkg.flash_ph_near(s.zs, st.P, H, st.T)
+        return {"out": Stream(list(s.flows), out)}
+
+    @staticmethod
+    def _mach(pkg, zs, st, mw: float, flux: float) -> float | None:
+        """Mach number of the homogeneous flow: G sqrt(-dv/dP) at constant entropy, with
+        (dV/dP)_S = (dV/dP)_H + V (dV/dH)_P from two enthalpy flashes. None for a liquid
+        the property method treats as incompressible."""
+        dP, dH = 1e-3 * st.P, 1e-3 * 8.314462618 * st.T
+        try:
+            lower = pkg.flash_ph_near(zs, st.P - dP, st.H, st.T)
+            hotter = pkg.flash_ph_near(zs, st.P, st.H + dH, st.T)
+        except SimulationError:
+            return None
+        dV_dP = (st.V - lower.V) / dP + st.V * (hotter.V - st.V) / (hotter.H - st.H)
+        return flux * math.sqrt(-dV_dP / mw) if dV_dP < 0.0 else None
 
     @staticmethod
     def _viscosity(pkg, st, zs) -> float:

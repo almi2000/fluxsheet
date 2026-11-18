@@ -472,9 +472,9 @@ Multiplier, Duplicator and Selector.
 | Multiplier, Duplicator, Selector | Scale a stream's flows, copy it to up to four outlets, or pass one of several inlets through; the mass balance treats them as boundaries |
 | Mixing tank | Blends any number of feeds, vents vapor; jacket heating or cooling; residence time from the liquid volume |
 | Thin-film evaporator | Wiped or falling film in plug flow along the heated wall: sensible heating, then evaporation with the vapor drawn off as it forms (differential evaporation), so it separates better than one flash; usual under vacuum |
-| Multistage compressor | Stages of equal pressure ratio, intercoolers with condensate drain, optional aftercooler |
+| Multistage compressor | Stages of equal pressure ratio that make up the coolers' pressure drops, intercoolers with condensate drain, optional aftercooler |
 | Turbine / expander | Isentropic expansion with efficiency; gas, steam (wet outlet allowed) or liquid |
-| Pipe | Darcy-Weisbach with laminar or Swamee-Jain friction factor, height change, heat loss; homogeneous two-phase flow; viscosities from `thermo` |
+| Pipe | Darcy-Weisbach with laminar or Swamee-Jain friction factor, height change, acceleration of an expanding gas (outlet Mach number, error when the flow chokes), heat loss; homogeneous two-phase flow; viscosities from `thermo` |
 | Extraction column | Countercurrent liquid-liquid stages at constant temperature (VLLE flash per stage), feed at stage 1, solvent at the last stage |
 
 Most units take several feeds on one inlet; they are mixed adiabatically before they enter.
@@ -522,6 +522,26 @@ refits a pair), then ChemSep's; pairs without data are estimated by fitting to U
 solve lists the source of each binary pair, and says so in its warnings when one is estimated. The **Phase diagram** view in the
 results panel plots T-xy and P-xy diagrams of any two components (with azeotropes and
 liquid-liquid regions) and phase envelopes of mixtures with an equation of state.
+
+Enthalpies and volumes: the activity-coefficient methods take the liquid enthalpy from each
+compound's heat of vaporization correlation (ideal-gas enthalpy minus the heat of
+vaporization, plus the excess enthalpy) and the liquid volume from its density correlation;
+their vapor is an ideal gas. The volumes of the equations of state carry a Peneloux volume
+translation fitted to each compound's liquid density, which corrects liquid volumes without
+changing any phase equilibrium.
+
+Carboxylic acids dimerize in the vapor (about 75 % of the acetic acid molecules in its
+saturated vapor at 1 atm). The activity-coefficient methods describe this for acetic, formic
+and propionic acid by chemical theory: the vapor is an ideal gas of monomers and acid
+dimers in equilibrium, an acid's fugacity is that of its monomer, and the liquid lies below
+the monomer gas by the heat of vaporization plus the dimers' bond enthalpy. Boiling points,
+heats of vaporization, vapor densities and liquid-phase heats of reaction (from the
+formation enthalpies) then agree with the data at once, and acid/water mixtures behave as
+measured: acetic acid/water boils without the spurious azeotrope an ideal monomer vapor
+gives, and formic acid/water has its maximum-boiling azeotrope near 107 °C. Cross dimers
+between different acids and acid-water complexes are not described. Other carboxylic acids,
+and every acid with an equation of state, keep a monomer vapor and are flagged with a
+warning.
 
 Thermodynamics and compound data come from the excellent MIT-licensed
 [`thermo`](https://github.com/CalebBell/thermo) and

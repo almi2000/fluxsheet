@@ -91,6 +91,47 @@ format or API).
 - A pressure-enthalpy flash that thermo cannot converge (e.g. an almost pure component in a
   mixture model) is solved by temperature with T-P flashes instead of failing.
 - A long flowsheet name no longer pushes the editor wider than the window.
+- **Heat of vaporization of the activity-coefficient methods** (NRTL, UNIQUAC, UNIFAC,
+  Wilson, ideal): the liquid enthalpy now uses the compounds' heat of vaporization
+  correlations. It came from the vapor pressure curve with an ideal vapor
+  (Clausius-Clapeyron), which is 4 to 6 % too high at 1 atm, 11 to 20 % at 5 bar and 20 to
+  40 % at 10 bar. Condenser, reboiler and vaporizer duties of these methods change
+  accordingly; phase equilibria do not. Dissolved gases keep their heat of solution from the
+  Henry constant.
+- **Liquid density of Peng-Robinson and Soave-Redlich-Kwong:** the volumes they report
+  carry a Peneloux volume translation that matches each compound's liquid volume at 25 °C
+  (or Tr = 0.7 for light compounds). The plain equations were 15 % (water, Peng-Robinson)
+  and 8 to 24 % (Soave) off, and with them pump power, velocities, residence times and
+  liquid concentrations in rate laws. Phase equilibria and enthalpies are unchanged.
+- **Pipe:** gas and flashing flow include the pressure drop of acceleration and the kinetic
+  energy; the outlet Mach number is reported and a flow that would exceed the speed of
+  sound stops with a choking error instead of a too small pressure drop. Liquid results
+  are unchanged.
+- **Multistage compressor:** with a pressure drop per cooler the last stage now ends at the
+  specified outlet pressure (it ended lower by the drops times the stage ratio).
+- **Carboxylic acid dimers:** the activity-coefficient methods describe the vapor-phase
+  dimerization of acetic, formic and propionic acid (chemical theory, published
+  dimerization constants). The acids' heats of vaporization now equal the measured ones
+  (they were 40 to 65 % too high), vapor densities include the dimers, and liquid-phase
+  heats of reaction follow the formation enthalpies: the esterification of acetic acid with
+  ethanol comes out at -5.2 instead of -13.8 kJ/mol (formation data: -4.5). Acetic
+  acid/water no longer shows a minimum-boiling azeotrope near pure water, and the formic
+  acid/water azeotrope lies at 382.3 K instead of 377.5 K (measured 380.5 K). The binary
+  regression uses the same vapor, so fitted acid parameters stay consistent. The
+  esterification examples change accordingly: their reaction is now almost thermoneutral,
+  so the batch example cools to 300 K and needs 81 instead of 19 minutes to 60 %
+  conversion. Other carboxylic acids, and acids with an equation of state, are flagged with a
+  warning.
+- An isentropic flash of a pure liquid with an activity-coefficient method no longer fails.
+- An isentropic flash of a mixture into the two-phase region with an activity-coefficient
+  method is solved by temperature instead of failing.
+- Dynamic runs build their own finite-difference Jacobian with one step for the scaled
+  states. The integrator's differences shrank to 1e-17 for states at zero (a controller's
+  integral), where rounding noise became spurious couplings: a run could stall at an exact
+  steady state or fail at an event. Vessel and reactor temperatures no longer depend on
+  the calls before.
+- A vented batch that sits on its bubble point without heat no longer switches between
+  boiling and subcooled.
 
 ## [0.2.0] - 2026-10-30
 

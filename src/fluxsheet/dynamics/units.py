@@ -286,6 +286,7 @@ class StirredReactor(DynamicModel):
         Vm = pkg.phase_props(u._kind, out.T, self.P, list(z)).V
         N = z * self.V / Vm
         self.T = out.T
+        self._memo = None  # (contents, temperature) of the last _temperature call
         H = N.sum() * self._h(out.T, z)
         tau = self.V / max(out.total_flow * Vm, 1e-300)
         self.relax = max(1e-2 * tau, 1e-3)  # time constant that holds the volume
@@ -305,19 +306,27 @@ class StirredReactor(DynamicModel):
         return self.pkg.phase_props(self.unit._kind, T, self.P, list(z)).H + float(z @ self.hf)
 
     def _temperature(self, z: np.ndarray, h: float) -> float:
+        # The same contents give the same temperature to the last bit, and others one that
+        # does not depend on where the iteration started: the integrator's finite-difference
+        # Jacobian divides by perturbations of 1e-11 and smaller, so noise of that size in
+        # the temperature becomes spurious couplings that wreck its Newton iteration.
+        key = (z.tobytes(), float(h))
+        if self._memo is not None and self._memo[0] == key:
+            return self._memo[1]
         T = self.T
         for _ in range(50):
-            f = self._h(T, z) - h
+            h0 = self._h(T, z)
             dT = 0.01
-            slope = (self._h(T + dT, z) - self._h(T, z)) / dT
-            step = -f / slope
+            slope = (self._h(T + dT, z) - h0) / dT
+            step = -(h0 - h) / slope
             step = max(min(step, 50.0), -50.0)
             T = max(T + step, 20.0)
-            if abs(step) < 1e-7 * T:
+            if abs(step) < 1e-12 * T:
                 break
         else:
             raise SimulationError("could not find the reactor temperature", where=self.unit.id)
         self.T = T
+        self._memo = (key, T)
         return T
 
     def outlets(self, x, inlets=None):

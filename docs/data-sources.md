@@ -41,6 +41,33 @@ and solvent the first available source is used:
 Literature checks in `tests/test_henry_custom.py`: solubilities of O2, N2, CO2, H2, CH4 and Ar
 in water at 25 °C within 5 % of Wilhelm, Battino and Wilcock (1977) and Carroll et al. (1991).
 
+## Vapor dimerization of carboxylic acids
+
+The activity-coefficient methods treat acetic, formic and propionic acid vapor as monomers
+and dimers in equilibrium (`src/fluxsheet/association.py`), with
+`log10 K = A + B/T`, K = p_dimer / p_monomer^2 in 1/mmHg:
+
+| Acid | A | B (K) | dH (kJ/mol of dimer) | Source |
+|---|---|---|---|---|
+| Acetic acid | -10.4205 | 3166 | -60.6 | Marek and Standart, Collect. Czech. Chem. Commun. 19 (1954) 1074, after vapor densities of Ritter and Simons (1945) |
+| Formic acid | -10.743 | 3083 | -59.0 | Coolidge, J. Am. Chem. Soc. 50 (1928) 2166, vapor densities |
+| Propionic acid | -10.834 | 3316 | -63.5 | Vapor-density fit over 50 to 150 °C, published as the dissociation constant (inverted here) |
+
+The coefficients are facts from the literature, not copied tables. They have not been
+traced here to the original papers; the dimerization enthalpies agree with the 60 to 65
+kJ/mol usually reported, and the acetic acid constant gives 74.5 % of the molecules
+dimerized in the saturated vapor at 1 atm. Cross dimers between different acids are not
+included.
+
+Binary parameters for acid pairs and the vapor model: Fluxsheet's own ThermoML fits use the
+same associating vapor (`fitting/models.py`). The pairs estimated from UNIFAC fit activity
+coefficients, which do not depend on the vapor model; whether the UNIFAC (Dortmund) group
+parameters of the acids were regressed with an associating vapor has not been checked
+here. Fluxsheet ships no fitted parameters for acid pairs, so acetic acid/water uses the
+UNIFAC estimate with NRTL and the ChemSep set with UNIQUAC. Which vapor model ChemSep's
+regression assumed is not documented in the tables `thermo` ships; if it was an ideal vapor,
+its UNIQUAC parameters for acid pairs mix conventions with the associating vapor used now.
+
 ## Estimated properties of user-defined compounds
 
 | Property | Method |

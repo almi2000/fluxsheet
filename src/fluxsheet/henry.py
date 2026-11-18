@@ -18,10 +18,11 @@ from functools import cache
 
 import numpy as np
 from chemicals.iapws import iapws95_Psat
-from thermo import GibbsExcessLiquid
 from thermo.activity import GibbsExcess, IdealSolution
 from thermo.interaction_parameters import IPDB
 from thermo.phases import gibbs_excess as _ge
+
+from .activity_liquid import ActivityLiquid
 
 # Components whose critical temperature lies below this are Henry components by default in
 # activity-coefficient methods: H2, He, N2, O2, Ar, CO, CH4, ethylene, CO2 (304 K) and ethane
@@ -120,8 +121,8 @@ def henry_constant(solute_cas: str, solvent_cas: str) -> HenryConstant | None:
     return found[0] if found else None
 
 
-class HenryLiquid(GibbsExcessLiquid):
-    """GibbsExcessLiquid whose Henry constants survive a liquid without solvent.
+class HenryLiquid(ActivityLiquid):
+    """ActivityLiquid whose Henry constants survive a liquid without solvent.
 
     thermo weights the solvents' constants by their mole fractions and divides by their sum,
     which fails for a liquid of dissolved gases only (a trial phase in a stability test, a

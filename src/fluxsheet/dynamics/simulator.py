@@ -26,7 +26,7 @@ from dataclasses import dataclass
 
 import numpy as np
 from scipy.integrate import solve_ivp
-from scipy.sparse import lil_matrix
+from scipy.sparse import csc_matrix, lil_matrix
 
 from ..calculator import _param_quantity
 from ..errors import SimulationError
@@ -42,6 +42,8 @@ from .models import ControllerModel, EventModel, ManipulatedParam
 from .units import DYNAMIC_MODELS, DynamicModel
 
 CACHE_SIZE = 64
+
+_JAC_STEP = 1e-7  # step of the finite-difference Jacobian, in scaled states
 
 
 def simulate(model: FlowsheetModel | dict) -> dict:
@@ -494,8 +496,52 @@ class Simulator(Solver):
                 S[rows, cols] = 1
         return S.tocsr()
 
+    def _column_groups(self) -> list[np.ndarray]:
+        """States that may be perturbed together for the Jacobian: no derivative depends
+        on two of a group (greedy coloring of the sparsity pattern)."""
+        S = csc_matrix(self.sparsity)
+        self._jac_rows = [S.indices[S.indptr[j]:S.indptr[j + 1]] for j in range(S.shape[1])]
+        group = -np.ones(S.shape[1], dtype=int)
+        count = 0
+        for j in range(S.shape[1]):
+            if group[j] >= 0:
+                continue
+            taken = set(self._jac_rows[j].tolist())
+            group[j] = count
+            for k in range(j + 1, S.shape[1]):
+                rows = self._jac_rows[k].tolist()
+                if group[k] < 0 and taken.isdisjoint(rows):
+                    group[k] = count
+                    taken.update(rows)
+            count += 1
+        return [np.flatnonzero(group == g) for g in range(count)]
+
+    def _jacobian(self, t: float, z: np.ndarray):
+        """Finite-difference Jacobian of the scaled right-hand side.
+
+        The states are scaled to order one, so one absolute step suits them all. The
+        integrator's own differences scale the step with each state's value and shrink it
+        further as it goes: for a state at zero (a controller's integral at the start) the
+        step falls to 1e-17, and noise in the last bit of the right-hand side then turns
+        into couplings of several hundred that derail its Newton iteration.
+        """
+        f0 = self._rhs(t, z)
+        rows, cols, values = [], [], []
+        for group in self._jac_groups:
+            zp = z.copy()
+            zp[group] += _JAC_STEP
+            df = (self._rhs(t, zp) - f0) / _JAC_STEP
+            for j in group:
+                r = self._jac_rows[j]
+                rows.extend(r.tolist())
+                cols.extend([int(j)] * len(r))
+                values.extend(df[r].tolist())
+        n = len(z)
+        return csc_matrix((values, (rows, cols)), shape=(n, n))
+
     def _integrate(self, out: dict) -> None:
         dyn = self.model.dynamics
+        self._jac_groups = self._column_groups()
         grid = np.linspace(0.0, self.t_end, dyn.points)
         breaks = {0.0, self.t_end}
         for ev in self.events:
@@ -511,7 +557,7 @@ class Simulator(Solver):
                 pts = [t for t in grid if a <= t <= b and (not times or t > times[-1])]
                 sol = solve_ivp(self._rhs, (a, b), z, method="BDF",
                                 t_eval=np.unique(np.r_[pts, b]), rtol=dyn.rtol,
-                                atol=dyn.rtol * 1e-2, jac_sparsity=self.sparsity,
+                                atol=dyn.rtol * 1e-2, jac=self._jacobian,
                                 first_step=min(1.0, (b - a) / 100))
                 wanted = set(pts)
                 for t, y in zip(sol.t, sol.y.T):
