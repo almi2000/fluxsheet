@@ -80,6 +80,10 @@ format or API).
 
 ### Fixed
 
+- **Controllers on bounded parameters:** a PI on a pump's speed no longer fails with a
+  division by zero when it saturates at an output range starting at 0. Controller output
+  ranges are narrowed to the manipulated parameter's own bounds (with a warning when that
+  matters), and controller and event values are clamped to them.
 - A compressed supercritical gas (hydrogen at 70 bar or more, nitrogen at 340 bar) is
   identified as vapor, not liquid, while superheated vapors stay vapor.
 - A bubble or dew point that thermo converges to the other boundary is refused with an

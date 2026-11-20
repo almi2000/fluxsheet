@@ -383,6 +383,64 @@ def test_curve_pump_and_logic_blocks_stay_algebraic_in_dynamics():
     assert not math.isnan(ratio)
 
 
+def pump_speed_loop(setpoint, gain=5, integral_time="0.2 min", op_range=(0, 3000),
+                    events=None):
+    return {
+        "components": ["water"], "property_method": "nrtl",
+        "units": [
+            {"id": "F", "type": "Feed", "params": {"T": "25 degC", "P": "1 bar",
+                                                   "flows": {"water": "1000 kmol/h"}}},
+            {"id": "PU", "type": "Pump", "params": {"curve": PUMP_CURVE, "speed": 1450,
+                                                    "rated_speed": 1450}},
+            {"id": "TANK", "type": "MixingTank", "params": {"P": "1.2 bar"}},
+            {"id": "PROD", "type": "Product"}],
+        "streams": [{"id": "S1", "from": "F.out", "to": "PU.in"},
+                    {"id": "S2", "from": "PU.out", "to": "TANK.in"},
+                    {"id": "S3", "from": "TANK.liquid", "to": "PROD.in"}],
+        "dynamics": {
+            "t_end": "20 min", "points": 21,
+            "units": {"TANK": {"diameter": "2 m", "height": "3 m"}},
+            "controllers": [{
+                "id": "PC", "measure": {"stream": "S2", "property": "P"},
+                "manipulate": {"unit": "PU", "param": "speed"}, "action": "reverse",
+                "gain": gain, "integral_time": integral_time,
+                "pv_range": ["1 bar", "9 bar"], "op_range": list(op_range)}],
+            "events": events if events is not None else [
+                {"time": "1 min", "controller": "PC", "value": setpoint}]},
+    }
+
+
+@pytest.mark.parametrize("setpoint", ["1.5 bar", "2 bar", "5 bar", "8.9 bar"])
+def test_pi_on_pump_speed_survives_a_hard_setpoint_step(setpoint):
+    # An aggressive PI saturates at the bottom of its output range (speed 0). The pump used
+    # to divide by the zero speed ratio; the output is now held at the speed's own bound.
+    out = simulate(pump_speed_loop(setpoint))
+    assert out["ok"], out.get("error")
+    assert not any("narrowed" in w for w in out["warnings"])
+    s = {x["key"]: x["values"] for x in out["series"]}
+    assert s["controller.PC.pv"][-1] == pytest.approx(float(setpoint.split()[0]) * 1e5,
+                                                      rel=2e-3)
+    assert all(v > 0.0 for v in s["controller.PC.op"])
+
+
+def test_output_range_beyond_the_parameter_bounds_is_narrowed_with_a_warning():
+    out = simulate(pump_speed_loop("3 bar", op_range=(-500, 3000)))
+    assert out["ok"], out.get("error")
+    assert any("narrowed to the allowed values of speed of PU" in w for w in out["warnings"])
+
+
+def test_an_event_cannot_set_a_parameter_below_its_bound():
+    # Without a controller: an event stops the pump. The speed is held at its bound, so the
+    # pump delivers no head instead of dividing by a zero speed ratio.
+    model = pump_speed_loop(None, events=[
+        {"time": "1 min", "unit": "PU", "param": "speed", "value": 0}])
+    model["dynamics"]["controllers"] = []
+    out = simulate(model)
+    assert out["ok"], out.get("error")
+    s = {x["key"]: x["values"] for x in out["series"]}
+    assert s["stream.S2.molar_flow"][-1] == pytest.approx(s["stream.S1.molar_flow"][-1])
+
+
 # --- review follow-ups -------------------------------------------------------------------
 
 def recycle_pump(params):
