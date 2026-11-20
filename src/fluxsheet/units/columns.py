@@ -71,14 +71,20 @@ STAGE_DUTIES = Param(
 )
 COLUMN_REACTIONS = Param(
     "reactions", "Reactions", "string_list",
-    help="Ids of flowsheet reactions with kinetics that run in the liquid on the reactive "
-    "stages.")
+    help="Ids of the flowsheet reactions that run in the liquid on the reactive stages.")
 REACTIVE_STAGES = Param(
     "reactive_stages", "Reactive stages", "records",
-    help="Stages where the reactions run, each with its liquid hold-up (e.g. the catalyst "
-    "volume wetted by liquid). Rates are those of the reactions at the stage's temperature "
-    "and liquid composition.",
-    fields=(_STAGE, Param("holdup", "Liquid hold-up", "volume", min=0.0)),
+    help="Choose kinetic with a liquid hold-up, or equilibrium with a liquid keq correlation. "
+    "Each stage uses its own temperature and liquid composition.",
+    fields=(_STAGE, Param("holdup", "Liquid hold-up", "volume", min=0.0),
+            Param("mode", "Reaction model", "choice", default="kinetic",
+                  options=("kinetic", "equilibrium"))),
+)
+EQUILIBRIUM_BASIS = Param(
+    "equilibrium_basis", "Liquid equilibrium basis", "choice", default="mole_fraction",
+    options=("mole_fraction", "activity"), requires="reactive_stages",
+    help="Basis of keq on chemical equilibrium stages. Use mole_fraction for K on x, "
+    "or activity for K on x times the liquid activity coefficient.",
 )
 
 # Product rates given relative to the feed; converted to rates when the feed is known.
@@ -241,7 +247,7 @@ class DistillationColumn(_StageColumn):
         "energy balances of every stage solved together. Stage 1 is the condenser, the last "\
         "stage the reboiler. Give one specification per condenser and reboiler. Takes any "\
         "number of feeds, each on its own stage, side draws, pumparounds, side heaters and "\
-        "kinetic reactive stages."
+        "kinetic or chemical equilibrium reactive stages."
     inlets = (Port("in", "Feeds", multiple=True, separate=True),)
     outlets = (Port("distillate", "Distillate"), Port("bottoms", "Bottoms"),
                Port("vapor_distillate", "Vapor distillate"),
@@ -280,6 +286,7 @@ class DistillationColumn(_StageColumn):
         STAGE_DUTIES,
         COLUMN_REACTIONS,
         REACTIVE_STAGES,
+        EQUILIBRIUM_BASIS,
     )
     exclusive_groups = (("reflux_ratio", "boilup_ratio"),
                         ("distillate_rate", "bottoms_rate", "distillate_to_feed",
@@ -403,16 +410,27 @@ class DistillationColumn(_StageColumn):
                      f"{'condenser' if sd['stage'] == 1 else 'reboiler'}, whose duty the "
                      "specifications already set", "put it on a stage in between")
         reactive = self.p["reactive_stages"] or []
+        modes: dict[int, str] = {}
         for k, rs in enumerate(reactive, 1):
-            if rs["stage"] is None or rs["holdup"] is None:
-                fail(f"reactive stage {k} needs a stage and a liquid hold-up", "fill in both")
-            check_stage(rs["stage"], f"reactive stage {k}")
+            stage, mode = rs["stage"], rs["mode"] or "kinetic"
+            if stage is None:
+                fail(f"reactive stage {k} has no stage", "give the stage where reactions run")
+            check_stage(stage, f"reactive stage {k}")
+            if mode == "kinetic" and rs["holdup"] is None:
+                fail(f"kinetic stage {stage} needs a liquid hold-up", "give the liquid volume")
+            if mode == "equilibrium":
+                if rs["holdup"] is not None:
+                    fail(f"equilibrium stage {stage} has a liquid hold-up", "clear its hold-up")
+                if modes.get(stage) == mode:
+                    fail(f"equilibrium stage {stage} is listed twice", "list it once")
+            if modes.setdefault(stage, mode) != mode:
+                fail(f"reactive stage {stage} has both reaction models", "choose one model")
         if reactive and not self.p["reactions"]:
             fail("reactive stages but no reactions",
                  "list the ids of the reactions that run on them")
         if self.p["reactions"] and not reactive:
             fail("reactions but no reactive stages",
-                 "add the stages where they run, each with its liquid hold-up")
+                 "add the stages where they run")
 
     def _feed_stage(self, stream_id: str | None) -> int:
         """Stage index (from 0) where a feed stream enters."""
@@ -437,11 +455,19 @@ class DistillationColumn(_StageColumn):
         if not self.p["reactions"]:
             return out
         rxns = self.reactions.select(self.p["reactions"], self.id)
-        for r in rxns:
+        holdup: dict[int, float] = {}
+        equilibrium = []
+        for rs in self.p["reactive_stages"]:
+            j = rs["stage"] - 1
+            if rs["mode"] == "equilibrium":
+                equilibrium.append(j)
+            else:
+                holdup[j] = holdup.get(j, 0.0) + rs["holdup"]
+        for r in rxns if holdup else []:
             kin = r.kinetics
             if kin is None:
                 raise SimulationError(
-                    f"reaction {r.id} has no kinetics, which reactive stages need",
+                    f"reaction {r.id} has no kinetics, which kinetic stages need",
                     where=self.id, hint=f"add a rate law to {r.id} in the flowsheet's reactions")
             if kin.basis == "partial_pressure":
                 raise SimulationError(
@@ -460,11 +486,10 @@ class DistillationColumn(_StageColumn):
                 f"no formation enthalpy in the database for {', '.join(missing)}; the heat of "
                 "reaction on the reactive stages needs it", where=self.id,
                 hint="choose compounds that have formation data")
-        holdup: dict[int, float] = {}
-        for rs in self.p["reactive_stages"]:
-            holdup[rs["stage"] - 1] = holdup.get(rs["stage"] - 1, 0.0) + rs["holdup"]
         hf = np.array([pkg.consts.Hfgs[i] if i in involved else 0.0 for i in range(pkg.n)])
-        return {**out, "reactions": rxns, "holdup": holdup, "formation_enthalpies": hf}
+        return {**out, "reactions": rxns, "holdup": holdup, "formation_enthalpies": hf,
+                "equilibrium_stages": tuple(equilibrium),
+                "equilibrium_basis": self.p["equilibrium_basis"] or "mole_fraction"}
 
     def calculate(self, pkg, inlets):
         streams = inlets["in"]
