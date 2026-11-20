@@ -9,6 +9,10 @@ format or API).
 
 ### Added
 
+- **Result overlays in the editor:** a toolbar choice of what stream labels show after a
+  run (id, temperature, T and P, plus molar flow, plus the main component); remembered per
+  browser. Unit notes and unit balance checks that do not close from the last run appear
+  as a warning marker (with a count) on the unit.
 - **Optimization around the flowsheet:** objective and constraints as calculator
   expressions, bounded unit parameters as decision variables, SLSQP on scaled variables
   with a COBYLA fallback when trials fail. CLI `fluxsheet optimize`, `POST /api/optimize`,

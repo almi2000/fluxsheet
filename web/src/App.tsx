@@ -39,7 +39,7 @@ import { OptimizationSettings } from "./OptimizationEditor";
 import type { Costing, CustomCompound, DesignSpec, Dynamics, Example, FlowsheetModel, Method, Optimization, OptimizationResult, Params, Reaction, SensitivityStudy, SolveResult, UnitResult, UnitType, Utility } from "./types";
 import { UtilitiesEditor } from "./UtilitiesEditor";
 import { UnitNode, type UnitFlowNode } from "./UnitNode";
-import { fmt } from "./quantities";
+import { loadOverlay, OVERLAYS, saveOverlay, streamLabel, unitWarnings, type Overlay } from "./overlays";
 
 const nodeTypes = { unit: UnitNode };
 const edgeTypes = { stream: StreamEdge };
@@ -171,6 +171,7 @@ function Editor() {
   const [layoutOffer, setLayoutOffer] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [overlay, setOverlay] = useState<Overlay>(loadOverlay);
   const fileInput = useRef<HTMLInputElement>(null);
   const flow = useReactFlow();
 
@@ -862,13 +863,17 @@ function Editor() {
     const mixed = new Set(nodes.map(unitMethod).filter(Boolean)).size > 1;
     return nodes.map((n) => {
       const idle = idleOutlets(n);
+      const warnings = [
+        ...(idle.length ? [`Side outlet ${idle.map((x) => x.outlet).join(", ")} has no side draw`] : []),
+        ...(stale ? [] : unitWarnings(n.id, result)),
+      ];
       return {
         ...n,
         data: {
           ...n.data, result: result?.units[n.id], hasError: errorAt === n.id, stale,
           method: mixed ? unitMethod(n) : undefined,
           jacket: jacketOf(n.data.params, result?.units[n.id], meta.utilities),
-          warning: idle.length ? `Side outlet ${idle.map((x) => x.outlet).join(", ")} has no side draw` : undefined,
+          warning: warnings.length ? warnings.join("\n") : undefined,
         },
       };
     });
@@ -886,10 +891,10 @@ function Editor() {
           ...e,
           selected: e.selected || (selection?.kind === "stream" && selection.id === e.id),
           className: [s && s.vapor_fraction >= 1 ? "vapor" : s && s.vapor_fraction > 0 ? "twophase" : "", errorAt === e.id ? "error" : ""].join(" "),
-          label: s && !stale ? `${e.id} · ${fmt.T(s.T)} °C` : e.id,
+          label: streamLabel(e.id, stale ? undefined : s, overlay),
         };
       }),
-    [edges, result, selection, errorAt, stale],
+    [edges, result, selection, errorAt, stale, overlay],
   );
 
   const selectedNode = selection?.kind === "unit" ? nodes.find((n) => n.id === selection.id) : undefined;
@@ -950,6 +955,23 @@ function Editor() {
           }}
         />
         <button onClick={save}>Save</button>
+        <select
+          className="overlay"
+          value={overlay}
+          title="What the stream labels show after a run"
+          aria-label="Stream labels"
+          onChange={(e) => {
+            const v = e.target.value as Overlay;
+            setOverlay(v);
+            saveOverlay(v);
+          }}
+        >
+          {OVERLAYS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
         <select
           className="examples"
           value=""

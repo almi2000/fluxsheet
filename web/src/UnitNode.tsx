@@ -15,7 +15,9 @@ export type UnitNodeData = {
   property_method?: string; // the unit's own override, if any
   method?: string; // effective method, shown as a tag when the flowsheet mixes methods
   jacket?: "heat" | "cool"; // heated or cooled by a utility
-  warning?: string; // a setup problem the editor sees before running, e.g. an idle side outlet
+  // Setup problems the editor sees before running (an idle side outlet) and the last run's
+  // warnings about this unit, one per line.
+  warning?: string;
 };
 
 export type UnitFlowNode = Node<UnitNodeData, "unit">;
@@ -80,7 +82,7 @@ ${schema.description}` : schema.description}
         {id}
         {data.warning && (
           <span className="unit-warning" aria-label={data.warning}>
-            {" "}⚠
+            {" "}⚠{data.warning.includes("\n") ? data.warning.split("\n").length : ""}
           </span>
         )}
       </div>
