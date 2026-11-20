@@ -36,21 +36,21 @@ abschließt, ändert nur die Statuszeile **seines** Pakets.
 
 ## Welle 1
 
-### C1 – PI-Regler auf Pumpendrehzahl stabilisieren · **Claude** · Status: offen
+### C1 – PI-Regler auf Pumpendrehzahl stabilisieren · **Claude** · Status: gemergt
 Bekannter Fehler: Ein PI-Regler, der die Pumpendrehzahl stellt, versagt bei einem
 Sollwertsprung. Ursache finden (Kennlinien-Auswertung außerhalb des Bereichs, Anti-Windup,
 Steifigkeit), beheben, Regressionstest mit Sollwertsprung.
 - Dateien: `src/fluxsheet/dynamics/*`, `src/fluxsheet/curves.py`,
   `src/fluxsheet/units/pressure_machines.py`, `tests/test_dynamics.py`, `tests/test_curves_logic.py`
 
-### C3 – Ergebnis-Overlays im Fließbild · **Claude** · Status: offen
+### C3 – Ergebnis-Overlays im Fließbild · **Claude** · Status: gemergt
 Nach dem Lauf T, p, Mengenstrom (und wahlweise Zusammensetzung) direkt an Strömen und
 Units im Editor anzeigen, umschaltbar, mit Einheiten aus `quantities.ts`. Warnungen
 (Bilanz, Phasengrenzen) als Marker an der Unit.
 - Dateien: `web/src/StreamEdge.tsx`, `web/src/UnitNode.tsx`, neue `web/src/overlays.ts`
   (+ Test), `web/src/App.tsx` (nur Schalter), CSS
 
-### G1 – Reaktive Gleichgewichtsstufen in der Kolonne · **ChatGPT** · Status: Review
+### G1 – Reaktive Gleichgewichtsstufen in der Kolonne · **ChatGPT** · Status: gemergt
 Neben den kinetischen reaktiven Stufen: Stufen, auf denen gewählte Reaktionen das chemische
 Gleichgewicht erreichen (K(T) wie im `EquilibriumReactor`), in die MESH-Gleichungen in
 `columns/stages.py` eingebunden. Validierung gegen einen Literaturfall (z. B.
@@ -67,19 +67,31 @@ koeffizienten), wahlweise mehrphasig. Test gegen bekannte Gleichgewichte bei hoh
 - Dateien: `src/fluxsheet/units/reactors.py` (nur `GibbsReactor`),
   `src/fluxsheet/thermo_package.py` (nur neue Hilfsfunktionen), `tests/test_reactors.py`
 
+### G1b – Konvergenz reaktiver Gleichgewichtskolonnen · **ChatGPT** · Status: offen · *vor G2*
+Befund aus dem Review von G1: Das Beispiel `methyl_acetate_equilibrium_column.json`
+konvergiert bei Rücklaufverhältnis 1,9 und 2,5, aber ab 3 nicht mehr (Molenbruch-Basis
+schon ab 2,5); ohne Reaktion konvergiert dieselbe Kolonne bis 4. Robuster machen, z. B.
+Homotopie über die Umsätze (ln K bzw. Umsatz von 0 schrittweise hochfahren) oder
+Fortsetzung aus der Lösung bei kleinerem Rücklauf, wenn der direkte Newton-Lauf scheitert.
+Fertig, wenn das Beispiel bei Rücklauf 2, 3, 4 und 5 auf beiden Basen konvergiert
+(Regressionstest), alle Bilanzen schließen und die bestehenden Kolonnentests grün bleiben.
+- Dateien: `src/fluxsheet/columns/stages.py` (nur `_initial`, `_newton`, `solve_column`
+  und neue Hilfsfunktionen), `tests/test_column_side_streams.py`
+
 > Konfliktpotential Welle 1: keins in Dateien. G1 und G2 nacheinander abarbeiten
-> (erst G1 mergen), da beide `reactions.py` lesen könnten.
+> (erst G1 mergen), da beide `reactions.py` lesen könnten. G1b und C2 laufen parallel:
+> C2 liest `columns/stages.py` nur und ändert die Datei nicht, solange G1b offen ist.
 
 ---
 
 ## Welle 2
 
-### C2 – Dynamische Kolonne · **Claude** · Status: offen · *setzt G1 voraus*
+### C2 – Dynamische Kolonne · **Claude** · Status: offen · *setzt G1 voraus (gemergt); ändert `columns/stages.py` nicht, solange G1b offen ist*
 Bodenhold-ups (Francis-Wehr), Kondensator-/Sumpffüllstand, Rückfluss- und Sumpfregelung
 im bestehenden DAE-Kern; Start aus der stationären MESH-Lösung. Beispiel: Füllstands-
 und Temperaturregelung einer Benzol/Toluol-Kolonne mit Feedsprung.
 - Dateien: `src/fluxsheet/dynamics/*`, `src/fluxsheet/columns/stages.py` (nur Lesen bzw.
-  Hilfsfunktionen herausziehen, Absprache falls G1 noch offen),
+  Hilfsfunktionen herausziehen erst nach G1b),
   `src/fluxsheet/units/columns.py` (nur `dyn_params`), `tests/test_dynamics.py`,
   `web/src/DynamicsEditor.tsx`, `web/src/DynamicsView.tsx`
 
@@ -128,6 +140,6 @@ G1, G2, G3, C2 gegen Referenzdaten in die bestehende Kampagne aufnehmen
 
 | Welle | Claude | ChatGPT |
 |---|---|---|
-| 1 | C1 PI-Pumpenregler, C3 Ergebnis-Overlays | G1 Reaktive Gleichgewichtsstufen, G2 Nicht-idealer Gibbs |
+| 1 | C1 PI-Pumpenregler, C3 Ergebnis-Overlays | G1 Reaktive Gleichgewichtsstufen, G1b Konvergenz reaktiver Kolonnen, G2 Nicht-idealer Gibbs |
 | 2 | C2 Dynamische Kolonne | G3 Batch-Kosten, G4 DWSIM-Import |
 | 3 | C4 Plug-ins | G5 Validierungskampagne |
