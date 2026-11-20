@@ -20,6 +20,10 @@ format or API).
 - **Column side streams:** liquid or vapor side draws, pumparounds (duty or return
   temperature), side heaters and coolers, and kinetic reactive stages on the rigorous
   column. Example `btx_side_draw_pumparound.json`.
+- **Chemical equilibrium on distillation stages.** Selected stages solve liquid reaction
+  equilibrium with a temperature-dependent `keq` on a mole-fraction or activity basis.
+  Reaction extents enter the stage material and energy balances. Example
+  `methyl_acetate_equilibrium_column.json`.
 - **Performance curves:** pump head and efficiency curves with affinity laws and NPSH
   available (warning below NPSH required); compressor curves (polytropic or isentropic)
   with fan laws and surge/stonewall warnings.

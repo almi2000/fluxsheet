@@ -17,8 +17,7 @@ where s_j = s on a total condenser and 0 elsewhere. A total condenser replaces i
 equations by v_i0 = 0 and adds its bubble-point condition sum(K x) = 1 as the first global
 equation (otherwise s = 0).
 
-Side draws, pumparounds, stage duties and reactions extend these equations without new
-unknowns:
+Side draws, pumparounds, stage duties and reactions extend these equations:
 
 - A side draw or a pumparound withdraws a ratio r of the flow continuing from its stage
   (w_ij = r l_ij, or r v_ij for a vapor draw). r is constant for a draw given as a fraction of
@@ -27,9 +26,13 @@ unknowns:
   with the enthalpy of x_a at its return temperature (a TP flash), and so couples stage a to a
   stage that may be far away; its source stage gets its own finite-difference evaluation.
 - A stage duty adds to Q_j.
-- A kinetic reactive stage with liquid hold-up V_j forms g_ij = V_j sum_r nu_ri r_r(T_j, x_j)
-  of component i, and its energy balance gains sum_i g_ij hf_i: the enthalpies exclude the
-  formation enthalpies hf, so this is the heat of reaction at the stage (as in the reactors). Each existing duty pairs with one specification (reflux ratio,
+- A kinetic reactive stage with liquid hold-up forms g_ij = hold-up * sum_r nu_ri r_r(T_j, x_j).
+- A chemical equilibrium stage adds a signed extent rate xi_jr (mol/s) for each reaction r,
+  with g_ij = sum_r nu_ri xi_jr and sum_i nu_ri ln(a_ij) = ln K_r(T_j) in the liquid.
+- A reactive stage's energy residual gains sum_i g_ij hf_i because the phase enthalpies
+  exclude the formation enthalpies hf.
+
+Each existing duty pairs with one specification (reflux ratio,
 distillate rate, bottoms rate or boilup ratio); a missing condenser or reboiler fixes its
 duty at zero. The Jacobian is block-tridiagonal apart from the global rows and columns; it is
 built by finite differences with column coloring, so each Newton step costs about four
@@ -46,6 +49,7 @@ from scipy.linalg import solve_banded
 from scipy.sparse.linalg import spsolve
 
 from ..errors import SimulationError
+from ..reactions import Reaction, equilibrium_extents
 from ..thermo_package import PropertyPackage
 from .saturation import bubble_point, dew_point
 
@@ -101,12 +105,13 @@ class ColumnSetup:
     draws: list[SideDraw] = field(default_factory=list)
     pumparounds: list[Pumparound] = field(default_factory=list)
     stage_duties: dict[int, float] = field(default_factory=dict)  # stage -> W added
-    # Kinetic liquid-phase reactions (reactions.Reaction) on stages with a liquid hold-up.
-    reactions: list = field(default_factory=list)
+    reactions: list[Reaction] = field(default_factory=list)
     holdup: dict[int, float] = field(default_factory=dict)  # stage -> m3 of liquid
     formation_enthalpies: np.ndarray | None = None  # J/mol per component (0 if unknown)
     max_iterations: int = 60
     tolerance: float = 1e-10  # on the scaled residuals
+    equilibrium_stages: tuple[int, ...] = ()  # 0-based liquid reaction equilibrium stages
+    equilibrium_basis: str = "mole_fraction"  # "mole_fraction" or "activity" (x * gamma)
 
 
 @dataclass
@@ -141,7 +146,7 @@ class _Model:
         self.pkg, self.setup = pkg, setup
         self.N, self.C = N, C = setup.stages, pkg.n
         self.nv = 2 * C + 1
-        self.size = N * self.nv + 3
+        self.stage_end = N * self.nv
         self.P = np.asarray(setup.P, dtype=float)
         self.total = setup.condenser == "total"
         self.has_cond = setup.condenser != "none"
@@ -182,10 +187,14 @@ class _Model:
         self.holdup = np.zeros(N)
         for j, vol in setup.holdup.items():
             self.holdup[j] += vol
-        self.reactions = list(setup.reactions) if self.holdup.any() else []
+        self.reactions = list(setup.reactions)
         self.nu = np.array([r.nu for r in self.reactions]) if self.reactions else None
         if not self.reactions:
             self.holdup[:] = 0.0
+        self.equilibrium = self._equilibrium_slices()
+        self.eq_species = np.any(self.nu != 0.0, axis=0) if self.equilibrium else None
+        self.global_start = self.stage_end + len(self.equilibrium) * len(self.reactions)
+        self.size = self.global_start + 3
         self.hf = (np.zeros(C) if setup.formation_enthalpies is None
                    else np.asarray(setup.formation_enthalpies, dtype=float))
         self.spec_rows = []  # (global row index, spec name, value)
@@ -193,10 +202,40 @@ class _Model:
         for row, (name, value) in zip(duty_rows, setup.specs.items()):
             self.spec_rows.append((row, name, value))
 
+    def _equilibrium_slices(self) -> dict[int, slice]:
+        """The extent unknowns and matching chemical equilibrium rows after the MESH blocks."""
+        eq = sorted(self.setup.equilibrium_stages)
+        if not eq:
+            return {}
+        if len(set(eq)) != len(eq) or not all(0 <= j < self.N for j in eq):
+            raise SimulationError("equilibrium stages must be distinct stages within the column")
+        if any(self.holdup[j] for j in eq):
+            raise SimulationError("a stage cannot use kinetic and equilibrium reactions together")
+        if not self.reactions:
+            raise SimulationError("equilibrium stages but no reactions")
+        count = len(self.reactions)
+        if np.linalg.matrix_rank(self.nu) < count:
+            raise SimulationError("equilibrium reactions are stoichiometrically dependent",
+                                  hint="select an independent set of reactions")
+        for r in self.reactions:
+            if r.keq is None:
+                raise SimulationError(
+                    f"reaction {r.id} needs a user equilibrium constant (keq) in the liquid phase",
+                    hint="give ln K = A + B/T + C ln T + D T for the chosen liquid basis",
+                )
+        basis = self.setup.equilibrium_basis
+        if basis not in ("mole_fraction", "activity"):
+            raise SimulationError(f"unknown liquid equilibrium basis {basis!r}")
+        if basis == "activity" and self.pkg.method in ("peng-robinson", "srk"):
+            raise SimulationError("the activity basis needs an activity-coefficient property method",
+                                  hint="use an activity-coefficient method or a mole-fraction K")
+        return {j: slice(self.stage_end + k * count, self.stage_end + (k + 1) * count)
+                for k, j in enumerate(eq)}
+
     # ---- layout --------------------------------------------------------------------------
 
     def unpack(self, x):
-        X = x[: self.N * self.nv].reshape(self.N, self.nv)
+        X = x[:self.stage_end].reshape(self.N, self.nv)
         C = self.C
         return X[:, :C], X[:, C:2 * C], X[:, 2 * C], x[-3], x[-2], x[-1]
 
@@ -205,12 +244,24 @@ class _Model:
     def stage_props(self, j: int, l, v, T: float):
         """K-values, liquid and vapor molar enthalpy of stage j, the components its reactions
         form (mol/s) and the molar enthalpy of each pumparound that returns its liquid at a
-        fixed temperature ({pumparound: J/mol})."""
+        fixed temperature ({pumparound: J/mol}), and the chemical equilibrium residuals."""
         pkg, P = self.pkg, self.P[j]
         lp = np.maximum(l, 0.0)
         x = lp / lp.sum() if lp.sum() > 0 else np.full(self.C, 1.0 / self.C)
         liq = pkg.phase_props("liquid", T, P, list(x))
         gen = self.generation(j, x, T, liq.V)
+        eq = None
+        if j in self.equilibrium:
+            active = self.eq_species
+            ln_a = np.log(np.maximum(x[active], np.finfo(float).tiny))
+            if self.setup.equilibrium_basis == "activity":
+                # f_i = x_i gamma_i f_i^ref in the liquid property methods.
+                ref = np.asarray(pkg.psats(T, list(x)), dtype=float)[active]
+                if not np.all(np.isfinite(ref) & (ref > 0.0)):
+                    raise SimulationError(f"invalid liquid activity reference on stage {j + 1}",
+                                          hint="check the property method and stage temperature")
+                ln_a += np.asarray(liq.lnphi)[active] - np.log(ref / P)
+            eq = self.nu[:, active] @ ln_a - np.array([r.ln_keq(pkg, T) for r in self.reactions])
         ret = {k: pkg.flash(list(x), T=pa.T, P=self.P[pa.target]).H
                for k, pa in enumerate(self.pas) if pa.source == j and pa.T is not None}
         if j == 0 and self.total:
@@ -225,12 +276,12 @@ class _Model:
                 y = next_y
             else:
                 raise SimulationError("total condenser vapor composition did not converge")
-            return K, liq.H, 0.0, gen, ret
+            return K, liq.H, 0.0, gen, ret, eq
         vp = np.maximum(v, 0.0)
         y = vp / vp.sum() if vp.sum() > 0 else x
         vap = pkg.phase_props("vapor", T, P, list(y))
         K = np.exp(np.asarray(liq.lnphi) - np.asarray(vap.lnphi))
-        return K, liq.H, vap.H, gen, ret
+        return K, liq.H, vap.H, gen, ret, eq
 
     def generation(self, j: int, x, T: float, Vm: float) -> np.ndarray:
         """Components formed by the reactions on stage j, mol/s, at liquid mole fractions x
@@ -263,6 +314,12 @@ class _Model:
             props[j] = self.stage_props(j, l[j], v[j], T[j])
         return props
 
+    def all_generation(self, x, props):
+        gen = np.array([p[3] for p in props])
+        for j, idx in self.equilibrium.items():
+            gen[j] += (x[idx] * self.F) @ self.nu
+        return gen
+
     # ---- equations -----------------------------------------------------------------------
 
     def residual(self, x, props, raw_energy: bool = False):
@@ -272,7 +329,7 @@ class _Model:
         K = np.array([p[0] for p in props])
         h = np.array([p[1] for p in props])
         Hv = np.array([p[2] for p in props])
-        gen = np.array([p[3] for p in props])
+        gen = self.all_generation(x, props)
         xm = l / np.where(L > 0, L, 1.0)[:, None]
         ym = v / np.where(V > 0, V, 1.0)[:, None]
         draw = np.zeros(N)
@@ -333,7 +390,8 @@ class _Model:
                 g[row] = (B - value) / self.F
             else:  # boilup_ratio
                 g[row] = (V[-1] - value * B) / self.F
-        return np.concatenate([R.ravel(), g])
+        eq = [props[j][5] for j in self.equilibrium]
+        return np.concatenate([R.ravel(), *eq, g])
 
     # ---- Jacobian ------------------------------------------------------------------------
 
@@ -347,7 +405,6 @@ class _Model:
         src = set(self.pa_sources)
         groups = [[j for j in range(m, N - 1, 3) if j not in src] for m in range(3)]
         groups += [[j] for j in sorted(src | {N - 1})]
-        n_stage_rows = N * nv
         for group in groups:
             if not group:
                 continue
@@ -364,14 +421,27 @@ class _Model:
                     for b in sorted({pa.target for pa in self.pas if pa.source == j}):
                         if not lo <= b * nv < hi:
                             touched += list(range(b * nv, (b + 1) * nv))
+                    if j in self.equilibrium:
+                        idx_eq = self.equilibrium[j]
+                        touched += list(range(idx_eq.start, idx_eq.stop))
                     if j in (0, N - 1):
-                        touched += list(range(n_stage_rows, self.size))
+                        touched += list(range(self.global_start, self.size))
                     d = dr[touched] / steps[col]
                     nz = d != 0.0
                     rows.extend(np.asarray(touched)[nz])
                     cols.extend([col] * int(nz.sum()))
                     vals.extend(d[nz])
-        for col in range(n_stage_rows, self.size):  # s, Qc, Qr: properties are unaffected
+        # Extents are scaled by the feed. Their material and energy derivatives are linear
+        # and local to the reacting stage.
+        eq_energy = self.nu @ self.hf / _H_SCALE if self.equilibrium else ()
+        for j, idx in self.equilibrium.items():
+            for k, col in enumerate(range(idx.start, idx.stop)):
+                rows.extend(range(j * nv, j * nv + self.C))
+                rows.append(j * nv + 2 * self.C)
+                cols.extend([col] * (self.C + 1))
+                vals.extend(-self.nu[k])
+                vals.append(eq_energy[k])
+        for col in range(self.global_start, self.size):  # s, Qc, Qr: properties are unaffected
             xp = x.copy()
             xp[col] += steps[col]
             d = (self.residual(xp, props) - r0) / steps[col]
@@ -383,22 +453,30 @@ class _Model:
 
     def _steps(self, x):
         steps = np.empty_like(x)
-        X = steps[: self.N * self.nv].reshape(self.N, self.nv)
-        Xv = x[: self.N * self.nv].reshape(self.N, self.nv)
+        X = steps[:self.stage_end].reshape(self.N, self.nv)
+        Xv = x[:self.stage_end].reshape(self.N, self.nv)
         C = self.C
         X[:, :2 * C] = 1e-7 * np.maximum(np.abs(Xv[:, :2 * C]), 1e-6 * self.F)
         X[:, 2 * C] = 1e-6 * Xv[:, 2 * C]
+        for j, idx in self.equilibrium.items():
+            # Logarithmic quotients need relative perturbations even for trace components.
+            X[j, :C][self.eq_species] = 1e-7 * np.maximum(Xv[j, :C][self.eq_species], 1e-300)
+            steps[idx] = 1e-7 * np.maximum(np.abs(x[idx]), 1.0)
         steps[-3] = 1e-7 * max(abs(x[-3]), 1e-3)
         steps[-2:] = 1e-7 * np.maximum(np.abs(x[-2:]), self.E)
         return steps
 
     def describe_row(self, i: int) -> str:
-        if i >= self.N * self.nv:
-            g = i - self.N * self.nv
+        if i >= self.global_start:
+            g = i - self.global_start
             if g == 0:
                 return "condenser bubble point"
             spec = next((name for row, name, _ in self.spec_rows if row == g), None)
             return SPECS[spec] + " specification" if spec else "duty"
+        if i >= self.stage_end:
+            j, k = divmod(i - self.stage_end, len(self.reactions))
+            stage = tuple(self.equilibrium)[j] + 1
+            return f"chemical equilibrium of {self.reactions[k].id} on stage {stage}"
         j, k = divmod(i, self.nv)
         kind = ("material balance" if k < self.C else
                 "phase equilibrium" if k < 2 * self.C else "energy balance")
@@ -462,11 +540,25 @@ def _initial(m: _Model) -> np.ndarray:
     component balances: for distillation with bubble-point temperatures and flows from enthalpy
     balances (Wang-Henke), for absorbers at a fixed linear temperature profile (sum-rates),
     because their gas may have no bubble point at all. Side draws given as fractions and
-    pumparounds follow the flows; reactions enter the sweeps with the rates of the previous
-    one."""
+    pumparounds follow the flows. Kinetic reactions enter the sweeps with rates from the
+    previous sweep. Chemical equilibrium stages start from estimated extent rates."""
     N, C, pkg = m.N, m.C, m.pkg
     vap = m.fv.sum(axis=1)
     liq = m.f.sum(axis=1) - vap
+    gen = np.zeros((N, C))
+    xi = None
+    if m.equilibrium:
+        # Seed products even when the feed contains only reactants (or vice versa). A
+        # single ideal liquid equilibrium of the combined feed estimates the amount
+        # redistributed by reaction. Newton finds the actual extents on each stage.
+        T_feed = sum(fd.T * fd.flows.sum() for fd in m.setup.feeds) / m.F
+        ln_k = np.array([r.ln_keq(pkg, T_feed) for r in m.reactions])
+        try:
+            xi = equilibrium_extents(m.f.sum(axis=0), m.nu, ln_k) / len(m.equilibrium)
+        except SimulationError:
+            xi = np.zeros(len(m.reactions))  # the ideal estimate is only a starting point
+        gen[list(m.equilibrium)] = xi @ m.nu
+        liq += gen.sum(axis=1)
     wl, wv, pa = np.zeros(N), np.zeros(N), np.zeros(len(m.pas))
     for _ in range(4):  # withdrawals given as fractions depend on the flows
         L, V, Lr, Vb, D, B = _cmo_flows(m, liq, vap, wl, wv, pa)
@@ -526,7 +618,6 @@ def _initial(m: _Model) -> np.ndarray:
         K = np.array([pkg.k_values(T[j], m.P[j], list(x_ref), list(y_ref)) for j in range(N)])
     draw = D / Lr if m.total else 0.0
     xs = np.tile(z, (N, 1))
-    gen = np.zeros((N, C))
     reactive = np.flatnonzero(m.holdup)
     for _ in range(20 if bubble else 40):
         # Reactions at the previous composition: production on the right-hand side,
@@ -581,10 +672,12 @@ def _initial(m: _Model) -> np.ndarray:
     ys = K * xs
     ys /= ys.sum(axis=1, keepdims=True)
     x0 = np.zeros(m.size)
-    X = x0[: N * m.nv].reshape(N, m.nv)
+    X = x0[:m.stage_end].reshape(N, m.nv)
     X[:, :C] = xs * L[:, None]
     X[:, C:2 * C] = ys * V[:, None]
     X[:, 2 * C] = T
+    for idx in m.equilibrium.values():
+        x0[idx] = xi / m.F
     x0[-3] = draw
     # Duties that close the condenser and reboiler energy balances of the estimate.
     energy = m.residual(x0, m.all_props(x0), raw_energy=True)
@@ -647,8 +740,8 @@ def _step(m: _Model, x, dx, alpha: float):
     would turn negative drops to a tenth instead."""
     xn = x + alpha * dx
     positive = np.zeros(m.size, dtype=bool)
-    positive[: m.N * m.nv] = True
-    positive[2 * m.C:m.N * m.nv:m.nv] = False  # temperatures
+    positive[:m.stage_end] = True
+    positive[2 * m.C:m.stage_end:m.nv] = False  # temperatures
     positive[-3] = m.total
     bad = positive & (xn <= 0.0)
     xn[bad] = 0.1 * x[bad]
@@ -690,7 +783,8 @@ def solve_column(pkg: PropertyPackage, setup: ColumnSetup,
         if key == _restart_key(m):
             x = x_old.copy()
             flows = np.ones(m.size, dtype=bool)
-            flows[2 * m.C:m.N * m.nv:m.nv] = False  # temperatures
+            flows[2 * m.C:m.stage_end:m.nv] = False  # temperatures
+            flows[m.stage_end:m.global_start] = False  # extents already scaled by the feed
             flows[-3] = False  # the distillate draw ratio
             x[flows] *= m.F / F_old  # flows and duties follow the feed
             try:
@@ -703,7 +797,8 @@ def solve_column(pkg: PropertyPackage, setup: ColumnSetup,
 def _restart_key(m: _Model) -> tuple:
     return (m.N, m.C, m.setup.condenser, m.has_reb,
             tuple((d.stage, d.phase) for d in m.draws),
-            tuple((p.source, p.target) for p in m.pas), tuple(np.flatnonzero(m.holdup)))
+            tuple((p.source, p.target) for p in m.pas), tuple(np.flatnonzero(m.holdup)),
+            tuple(m.equilibrium), m.setup.equilibrium_basis, tuple(r.id for r in m.reactions))
 
 
 def _newton(m: _Model, x, max_iterations: int) -> ColumnSolution:
@@ -795,6 +890,6 @@ def _solution(m: _Model, x, props, iterations: int) -> ColumnSolution:
         iterations=iterations,
         side_draws=draws, pumparound_flows=pa_flows, pumparound_duties=pa_duties,
         pumparound_return_H=pa_H,
-        generation=np.array([p[3] for p in props]) if m.reactions else None,
+        generation=m.all_generation(x, props) if m.equilibrium or m.holdup.any() else None,
         restart=(_restart_key(m), x.copy(), m.F),
     )

@@ -1,0 +1,36 @@
+{
+  "format": "fluxsheet/1",
+  "name": "Methyl acetate by equilibrium reactive distillation",
+  "description": "A chemical-equilibrium approximation of the 30-stage methyl acetate column in Mallaiah et al. (2017, doi:10.15255/CABEQ.2016.894) and Mekala (2019, doi:10.1016/j.dib.2019.104262). Acetic acid and methanol enter stages 11 and 20. On stages 11–20 the liquid reaches chemical equilibrium using the activity-based K(T) of Huss et al. (2003, doi:10.1016/S0098-1354(03)00156-X). This example uses Fluxsheet's NRTL parameters, assumes inlet temperatures of 320 K and sets the distillate to half the molar feed. See the temperature, composition and reaction profiles in the column results.",
+  "components": ["acetic acid", "methanol", "methyl acetate", "water"],
+  "property_method": "nrtl",
+  "reactions": [
+    {"id": "EST", "stoichiometry": {"acetic acid": -1, "methanol": -1, "methyl acetate": 1, "water": 1},
+     "keq": {"A": 0.8415671856782185, "B": 782.98}}
+  ],
+  "units": [
+    {"id": "ACID", "type": "Feed", "ui": {"x": 40, "y": 90},
+     "params": {"T": "320 K", "P": "1 atm", "flows": {"acetic acid": "10.2 mol/h"}}},
+    {"id": "ALCOHOL", "type": "Feed", "ui": {"x": 40, "y": 220},
+     "params": {"T": "320 K", "P": "1 atm", "flows": {"methanol": "10.2 mol/h"}}},
+    {"id": "COLUMN", "type": "DistillationColumn", "ui": {"x": 300, "y": 140},
+     "params": {"stages": 30, "P": "1 atm", "feed_stage": 11, "feed_stages": {"MEOH_FEED": 20},
+                "condenser": "total", "reboiler": "kettle", "reflux_ratio": 1.9,
+                "distillate_to_feed": 0.5, "reactions": ["EST"], "equilibrium_basis": "activity",
+                "reactive_stages": [
+                  {"stage": 11, "mode": "equilibrium"}, {"stage": 12, "mode": "equilibrium"},
+                  {"stage": 13, "mode": "equilibrium"}, {"stage": 14, "mode": "equilibrium"},
+                  {"stage": 15, "mode": "equilibrium"}, {"stage": 16, "mode": "equilibrium"},
+                  {"stage": 17, "mode": "equilibrium"}, {"stage": 18, "mode": "equilibrium"},
+                  {"stage": 19, "mode": "equilibrium"}, {"stage": 20, "mode": "equilibrium"}
+                ]}},
+    {"id": "ESTER", "type": "Product", "ui": {"x": 560, "y": 75}},
+    {"id": "WATER", "type": "Product", "ui": {"x": 560, "y": 235}}
+  ],
+  "streams": [
+    {"id": "ACID_FEED", "from": "ACID.out", "to": "COLUMN.in"},
+    {"id": "MEOH_FEED", "from": "ALCOHOL.out", "to": "COLUMN.in"},
+    {"id": "DIST", "from": "COLUMN.distillate", "to": "ESTER.in"},
+    {"id": "BOTT", "from": "COLUMN.bottoms", "to": "WATER.in"}
+  ]
+}

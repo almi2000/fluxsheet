@@ -50,7 +50,7 @@ Units im Editor anzeigen, umschaltbar, mit Einheiten aus `quantities.ts`. Warnun
 - Dateien: `web/src/StreamEdge.tsx`, `web/src/UnitNode.tsx`, neue `web/src/overlays.ts`
   (+ Test), `web/src/App.tsx` (nur Schalter), CSS
 
-### G1 – Reaktive Gleichgewichtsstufen in der Kolonne · **ChatGPT** · Status: offen
+### G1 – Reaktive Gleichgewichtsstufen in der Kolonne · **ChatGPT** · Status: Review
 Neben den kinetischen reaktiven Stufen: Stufen, auf denen gewählte Reaktionen das chemische
 Gleichgewicht erreichen (K(T) wie im `EquilibriumReactor`), in die MESH-Gleichungen in
 `columns/stages.py` eingebunden. Validierung gegen einen Literaturfall (z. B.

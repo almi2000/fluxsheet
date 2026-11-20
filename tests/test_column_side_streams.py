@@ -214,7 +214,8 @@ def test_colored_jacobian_equals_the_dense_one(ester):
                      Pumparound(4, 1, fraction=0.2, duty=-2e4),
                      Pumparound(3, 5, rate=1 * KMOLH, T=320.0)],
         stage_duties={2: 1e4}, reactions=[_ester_reaction(pkg)],
-        holdup={1: 0.05, 2: 0.05, 3: 0.05}, formation_enthalpies=hf)
+        holdup={1: 0.05, 2: 0.05, 3: 0.05}, formation_enthalpies=hf,
+        equilibrium_stages=(0, 5, 6), equilibrium_basis="activity")
     m = stages._Model(pkg, setup)
     x = stages._initial(m)
     props = m.all_props(x)
@@ -306,6 +307,102 @@ def test_single_reactive_stage_is_a_cstr_at_stage_conditions(ester):
     assert H_out - hot.enthalpy_flow == pytest.approx(-formed @ hf, rel=1e-7)
 
 
+def test_two_equilibrium_reactions_on_one_stage_have_signed_extents():
+    names = ("acetic acid", "ethanol", "ethyl acetate", "water", "methanol", "methyl acetate")
+    pkg = get_package(names, "ideal")
+    nu = np.array([[-1, -1, 1, 1, 0, 0], [-1, 0, 0, 1, -1, 1]])
+    rxns = [Reaction("ethyl", nu[0], names, keq=(0.0, 350.0, 0.0, 0.0)),
+            Reaction("methyl", nu[1], names, keq=(0.5, -100.0, 0.0, 0.0))]
+    hot = Stream.from_flash(pkg, [1.0, 0.0, 3.0, 2.0, 3.0, 0.0], P=1.1e5, VF=0.45)
+    hf = np.asarray(pkg.consts.Hfgs, dtype=float)
+    setup = ColumnSetup(stages=1, P=np.array([1.1e5]), feeds=[_feed(0, hot)],
+                        condenser="none", reboiler=False, reactions=rxns,
+                        equilibrium_stages=(0,), formation_enthalpies=hf)
+    cold = solve_column(pkg, setup)
+    sol = solve_column(pkg, setup, start=cold)
+    assert sol.iterations < cold.iterations
+    np.testing.assert_allclose(nu @ np.log(sol.x[0]),
+                               [350.0 / sol.T[0], 0.5 - 100.0 / sol.T[0]], atol=1e-9)
+    formed = sol.bottoms + sol.vapor_distillate - np.asarray(hot.flows)
+    assert formed[2] < 0 < formed[5]  # ethyl acetate hydrolyzes, methyl acetate forms
+    np.testing.assert_allclose(formed, formed[[2, 5]] @ nu, atol=1e-9)
+    np.testing.assert_allclose(sol.generation[0], formed, atol=1e-9)
+    H_out = sol.L[0] * sol.h[0] + sol.V[0] * sol.Hv[0]
+    assert H_out - hot.enthalpy_flow == pytest.approx(-formed @ hf, rel=1e-8)
+
+
+def test_kinetic_and_equilibrium_stages_run_in_one_column():
+    params = {"stages": 7, "feed_stage": 4, "reflux_ratio": 2,
+              "distillate_rate": "10 kmol/h", "reactions": ["EST"],
+              "reactive_stages": [{"stage": 3, "holdup": "0.05 m3"},
+                                  {"stage": 4, "mode": "equilibrium"}]}
+    r = column(params, flows=ESTER, components=ESTER_COMPONENTS, method="wilson",
+               reactions=REACTIONS, T="70 degC")
+    assert r.ok, r.error
+    profiles = r.units["C"]["profiles"]
+    x = np.array([s["values"] for s in profiles["liquid_composition"]["series"]])
+    generation = profiles["reaction"]["series"][2]["values"]
+    assert abs(generation[2]) > 1e-6
+    assert abs(generation[3]) > 1e-6
+    assert generation[:2] + generation[4:] == [0.0] * 5
+    assert x[2:, 3].prod() / x[:2, 3].prod() == pytest.approx(4.0, rel=5e-4)
+    assert all(c["status"] == "ok" for c in r.balance_checks)
+
+
+@pytest.mark.parametrize("problem, message", [
+    ("missing_keq", "needs a user equilibrium constant"),
+    ("dependent", "stoichiometrically dependent"),
+])
+def test_invalid_equilibrium_reactions_are_rejected(problem, message):
+    rxn = {"id": "EST", "stoichiometry": REACTIONS[0]["stoichiometry"]}
+    reactions = [rxn] if problem == "missing_keq" else [
+        {**rxn, "id": rid, "keq": {"A": 1.0}} for rid in ("EST", "EST2")]
+    params = {**BASE, "distillate_rate": "10 kmol/h", "reactions": [r["id"] for r in reactions],
+              "reactive_stages": [{"stage": 5, "mode": "equilibrium"}]}
+    r = column(params, flows=ESTER, components=ESTER_COMPONENTS, method="wilson",
+               reactions=reactions, T="70 degC")
+    assert not r.ok
+    assert message in r.error["message"]
+
+
+def test_methyl_acetate_equilibrium_column_against_literature():
+    # Mallaiah et al. (2017), Table 2 and modelling section: 30 stages at 1 atm;
+    # stages 11 through 20 are reactive, with the feeds at 11 and 20.
+    # https://doi.org/10.15255/CABEQ.2016.894
+    # Mekala (2019), Tables 3 and 4, provides the UNIQUAC kinetic-model comparison
+    # and measured distillate purity. This example uses NRTL, reaction equilibrium,
+    # and the feed and draw assumptions in the example description.
+    # https://doi.org/10.1016/j.dib.2019.104262
+    model = json.loads((EXAMPLES / "methyl_acetate_equilibrium_column.json")
+                       .read_text(encoding="utf-8"))
+    r = solve(model)
+    assert r.ok, r.error
+    u = r.units["COLUMN"]
+    top = r.streams["DIST"]["mole_fractions"]["methyl acetate"]
+    bottom = r.streams["BOTT"]["mole_fractions"]["water"]
+    assert top == pytest.approx(0.991163, abs=0.04)
+    assert bottom == pytest.approx(0.983861, abs=0.04)
+    assert top == pytest.approx(0.95091, abs=0.04)  # measured
+    # Figure 2 and Table 3 show the temperatures increasing along the column.
+    profiles = u["profiles"]
+    T = np.array(profiles["temperature"]["series"][0]["values"])
+    stage_indices = np.array([1, 5, 10, 13, 17, 20, 25, 30]) - 1
+    np.testing.assert_allclose(
+        T[stage_indices], [330.077, 330.159, 333.714, 344.725, 345.186, 344.525, 347.822, 372.593],
+        atol=6.0, rtol=0.0)
+    # Verify every equilibrium stage with gamma obtained directly from the NRTL model.
+    pkg = get_package(tuple(model["components"]), "nrtl")
+    liquid = np.array([s["values"] for s in profiles["liquid_composition"]["series"]]).T
+    for j in range(10, 20):
+        gamma = pkg._ge.to_T_xs(T[j], liquid[j].tolist()).gammas()
+        a = liquid[j] * gamma
+        assert a[2] * a[3] / (a[0] * a[1]) == pytest.approx(2.32 * np.exp(782.98 / T[j]),
+                                                           rel=1e-8)
+    assert {c["scope"] for c in r.balance_checks} == {"COLUMN", "flowsheet"}
+    assert {c["quantity"] for c in r.balance_checks} == {"mass", "element", "energy"}
+    assert all(c["status"] == "ok" for c in r.balance_checks)
+
+
 # --- input checks and schema ------------------------------------------------------------------
 
 @pytest.mark.parametrize("params, message", [
@@ -324,6 +421,13 @@ def test_single_reactive_stage_is_a_cstr_at_stage_conditions(ester):
                        "T": "50 degC"}]}, "at most one of duty or T"),
     ({"reactive_stages": [{"stage": 5, "holdup": "0.1 m3"}]}, "no reactions"),
     ({"reactions": ["R1"]}, "no reactive stages"),
+    ({"reactions": ["R1"], "reactive_stages": [{"stage": 5, "mode": "equilibrium",
+                                              "holdup": "0.1 m3"}]}, "has a liquid hold-up"),
+    ({"reactions": ["R1"], "reactive_stages": [{"stage": 5, "mode": "equilibrium"}] * 2},
+     "listed twice"),
+    ({"reactions": ["R1"], "reactive_stages": [{"stage": 5, "mode": "equilibrium"},
+                                             {"stage": 5, "holdup": "0.1 m3"}]},
+     "both reaction models"),
     ({"side_draws": [{"stage": 6, "rate": "200 kmol/h"}]}, "cannot be met"),
 ])
 def test_bad_side_streams_explain_themselves(params, message):
