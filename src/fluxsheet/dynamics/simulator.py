@@ -207,6 +207,24 @@ class Simulator(Solver):
         if not op_lo < op_hi:
             raise SimulationError("the output range is empty", where=where,
                                   hint="give op_range as [low, high]")
+        # The unit cannot take values outside its parameter's own bounds (a pump speed of
+        # zero, a negative flow): the controller saturates there and its anti-windup holds.
+        p_lo, p_hi = self._param_bounds(_target(cm.manipulate))
+        if (p_lo is not None and op_lo < p_lo) or (p_hi is not None and op_hi > p_hi):
+            span = op_hi - op_lo
+            new_lo = op_lo if p_lo is None else max(op_lo, p_lo)
+            new_hi = op_hi if p_hi is None else min(op_hi, p_hi)
+            if not new_lo < new_hi:
+                raise SimulationError(
+                    f"the output range lies outside the allowed values of "
+                    f"{cm.manipulate.param} of {cm.manipulate.unit}", where=where)
+            # A range from 0 against a "must be positive" bound is not worth a warning.
+            material = (new_lo - op_lo) + (op_hi - new_hi) > 1e-6 * span
+            op_lo, op_hi = new_lo, new_hi
+            if material:
+                self.warnings.append(
+                    f"{where}: the output range is narrowed to the allowed values of "
+                    f"{cm.manipulate.param} of {cm.manipulate.unit}")
         current = self._current(_target(cm.manipulate))
         bias = (current - op_lo) / (op_hi - op_lo) * 100.0
         if not 0.0 <= bias <= 100.0:
@@ -232,6 +250,21 @@ class Simulator(Solver):
                 if p.name == m.param:
                     return p.quantity
         return _param_quantity(self.model, m.unit, m.param, m.component, where)
+
+    def _param_bounds(self, target: tuple) -> tuple[float | None, float | None]:
+        """The declared min and max of a manipulated unit parameter (None: unbounded)."""
+        if target[0] == "controller":
+            return None, None
+        _, uid, param, _comp = target
+        model = self.dynamic.get(uid)
+        if model is not None and param in model.s:
+            params = type(model).params
+        else:
+            params = self.units[uid].params
+        for p in params:
+            if p.name == param:
+                return p.min, p.max
+        return None, None
 
     def _event(self, ev: EventModel) -> _Event:
         where = "dynamics.events"
@@ -272,6 +305,11 @@ class Simulator(Solver):
             self.controllers[target[1]].setpoint = value
             return
         _, uid, param, comp = target
+        lo, hi = self._param_bounds(target)
+        if lo is not None and value < lo:
+            value = lo
+        if hi is not None and value > hi:
+            value = hi
         model = self.dynamic.get(uid)
         if model is not None and model.set(param, value):
             return
