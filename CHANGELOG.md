@@ -88,6 +88,9 @@ format or API).
 
 ### Fixed
 
+- **Convergence of reactive distillation.** If the direct Newton solve fails, columns with
+  chemical equilibrium stages can continue from a converged solution at lower reflux to
+  the specified reflux ratio with adaptive steps.
 - **Controllers on bounded parameters:** a PI on a pump's speed no longer fails with a
   division by zero when it saturates at an output range starting at 0. Controller output
   ranges are narrowed to the manipulated parameter's own bounds (with a warning when that
