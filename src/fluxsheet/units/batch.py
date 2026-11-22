@@ -156,6 +156,8 @@ class BatchReactor(KineticReactor):
         ResultField("vessels_needed", "Vessels needed", None),
         ResultField("duty", "Duty (cycle average)", "power"),
         ResultField("heat_per_batch", "Heat per batch", "energy"),
+        ResultField("heating_per_batch", "Heating per batch", "energy"),
+        ResultField("cooling_per_batch", "Cooling per batch", "energy"),
         ResultField("peak_duty", "Peak duty", "power"),
         ResultField("productivity", "Productivity", "mass_flow"),
         ResultField("vent_amount", "Vented per batch", "amount"),
@@ -163,6 +165,11 @@ class BatchReactor(KineticReactor):
         ResultField("utility_flow", "Medium flow (cycle average)", "mass_flow"),
         ResultField("UA", "UA", "thermal_conductance"),
         ResultField("heat_transfer_area", "Heat transfer area", "area"),
+        # Filled by the costing (costing.py), when the flowsheet has one.
+        ResultField("batches_per_year", "Batches per year", None),
+        ResultField("vessels_costed", "Vessels costed", None),
+        ResultField("utility_cost_per_batch", "Utility cost per batch ($)", None),
+        ResultField("cost_per_batch", "Cost per batch ($, with capital)", None),
     )
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -875,6 +882,7 @@ class BatchReactor(KineticReactor):
             heat = end.U - self._U_charge
         else:
             heat = end.H + Hv - N_REF * h_feed
+        heating, cooling = self._split_heat(float(heat), snaps[0], grid, q_grid, h_feed)
 
         # Outlets: the contents at the end (vented: their liquid; the vapor joins the vent).
         hf, P = self._hf, self._P
@@ -901,7 +909,8 @@ class BatchReactor(KineticReactor):
         r.update(
             T_out=end.T, P_final=end.P, batch_time=t_stop, cycle_time=t_cycle,
             charge=S * N_REF, vessels_needed=vessels, duty=heat * S / t_cycle,
-            heat_per_batch=heat * S, peak_duty=peak * S, productivity=formed * S / t_cycle,
+            heat_per_batch=heat * S, heating_per_batch=heating * S,
+            cooling_per_batch=cooling * S, peak_duty=peak * S, productivity=formed * S / t_cycle,
             vent_amount=float(Nv.sum()) * S,
             max_volume=max(sn.volume for sn in snaps) * S,
         )
@@ -923,6 +932,33 @@ class BatchReactor(KineticReactor):
             r.update(UA=UA, heat_transfer_area=p["area"], utility_flow=mass / t_cycle)
         self._profiles(pkg, grid, snaps, q_grid, Ys, z0, S, key)
         return {"out": out, "vent": vent}
+
+    def _split_heat(self, heat, start: _Snap, grid, q_grid, h_feed) -> tuple[float, float]:
+        """Heat per batch (reference charge) as heating >= 0 and cooling <= 0, for pricing
+        utilities by sign. A set temperature or program first brings the charge to its
+        starting temperature, exactly; the rest of the exact balance follows the sign of
+        the duty over the batch (trapezoids, their small error to the sign it has)."""
+        step = 0.0
+        if not self._energy:
+            step = start.U - self._U_charge if self._const_v else start.H - N_REF * h_feed
+        rest = heat - step
+        q = np.asarray(q_grid)
+        if not (np.any(q < 0.0) and np.any(q > 0.0)):  # one sign: the balance exactly
+            heating, cooling = max(rest, 0.0), min(rest, 0.0)
+        else:
+            dt = np.diff(grid)
+            heating = float(np.sum(0.5 * (np.maximum(q[1:], 0) + np.maximum(q[:-1], 0)) * dt))
+            cooling = float(np.sum(0.5 * (np.minimum(q[1:], 0) + np.minimum(q[:-1], 0)) * dt))
+            error = rest - heating - cooling
+            if error > 0.0:
+                heating += error
+            else:
+                cooling += error
+        if step > 0.0:
+            heating += step
+        else:
+            cooling += step
+        return heating, cooling
 
     def _product_index(self, pkg) -> int:
         if self.p["product"]:
