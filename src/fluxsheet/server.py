@@ -144,6 +144,14 @@ def diagram_envelope(body: EnvelopeRequest) -> dict:
                                            options=package_options(body)))
 
 
+@app.get("/api/plugins")
+def plugin_list() -> list[dict]:
+    """The installed plug-ins, what each added, and why any failed to load."""
+    from . import plugins
+
+    return plugins.report()
+
+
 @app.get("/api/unit-types")
 def unit_types() -> list[dict]:
     out = []

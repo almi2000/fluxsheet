@@ -1,7 +1,7 @@
 import { UnitIcon } from "./icons";
 import type { UnitType } from "./types";
 
-export function Palette({ types }: { types: UnitType[] }) {
+export function Palette({ types, problems = [] }: { types: UnitType[]; problems?: string[] }) {
   const categories = [...new Set(types.map((t) => t.category))];
   return (
     <aside className="palette">
@@ -18,7 +18,9 @@ export function Palette({ types }: { types: UnitType[] }) {
                   key={t.type}
                   className="palette-item"
                   draggable
-                  title={t.description}
+                  title={t.plugin ? `${t.description}
+
+From the plug-in ${t.plugin}.` : t.description}
                   onDragStart={(e) => {
                     e.dataTransfer.setData("application/fluxsheet-unit", t.type);
                     e.dataTransfer.effectAllowed = "move";
@@ -26,11 +28,25 @@ export function Palette({ types }: { types: UnitType[] }) {
                 >
                   <UnitIcon type={t.type} size={38} />
                   <span>{t.label}</span>
+                  {t.plugin && <span className="palette-plugin">plug-in</span>}
                 </div>
               ))}
           </div>
         </section>
       ))}
+      {problems.length > 0 && (
+        <section className="palette-problems">
+          <h3>Plug-ins not loaded</h3>
+          <ul>
+            {problems.map((p) => (
+              <li key={p}>{p}</li>
+            ))}
+          </ul>
+          <p className="muted small">
+            Run <code>fluxsheet plugins</code> for details.
+          </p>
+        </section>
+      )}
     </aside>
   );
 }

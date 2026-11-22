@@ -97,6 +97,12 @@ class UnitOperation:
     # treats them as boundaries. A unit may also drop the outlets that are not connected.
     conserves_mass: ClassVar[bool] = True
     drop_unconnected: ClassVar[bool] = False
+    # Energy balance of a unit Fluxsheet does not know by type (a plug-in): the result fields
+    # that carry energy into the unit, in W (heat or work, positive in). None leaves its
+    # energy balance not checkable; () says it exchanges no energy with its surroundings.
+    energy_results: ClassVar[tuple[str, ...] | None] = None
+    # The plug-in (distribution) a unit comes from; None for Fluxsheet's own units.
+    plugin: ClassVar[str | None] = None
 
     def __post_init__(self) -> None:
         self.p: dict[str, Any] = {}
@@ -276,6 +282,7 @@ class UnitOperation:
             "exclusive_groups": [list(g) for g in cls.exclusive_groups],
             "required_groups": [list(g) for g in cls.required_groups],
             "result_fields": [asdict(f) for f in cls.result_fields],
+            "plugin": cls.plugin,
         }
 
 

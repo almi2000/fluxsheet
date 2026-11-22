@@ -10,9 +10,7 @@ import math
 from itertools import pairwise
 
 from .errors import SimulationError
-from .thermo_package import METHODS, get_package
-
-EOS_METHODS = ("peng-robinson", "srk")
+from .thermo_package import METHODS, get_package, is_eos
 
 
 def binary_diagram(components: list[str], method: str, *, P: float | None = None,
@@ -133,7 +131,7 @@ def phase_envelope(components: list[str], fractions: list[float], method: str,
     The curves are traced by pressure from 0.5 bar towards the critical region, where the
     flash stops converging; the last points are refined by halving the pressure step.
     """
-    if method not in EOS_METHODS:
+    if not is_eos(method):
         raise SimulationError(
             f"a phase envelope needs an equation of state, not {method!r}",
             hint="use Peng-Robinson or SRK; activity models do not describe the critical region",

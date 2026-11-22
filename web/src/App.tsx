@@ -29,6 +29,7 @@ import {
   safeStorage, tabId, writeAutosave, type Autosave, type RecentEntry,
 } from "./persistence";
 import { Palette } from "./Palette";
+import { pluginProblems } from "./plugins";
 import { UnitMethodField } from "./PropertyMethods";
 import { ResultsPanel } from "./ResultsPanel";
 import { ShortcutHelp } from "./Shortcuts";
@@ -158,6 +159,7 @@ const AUTOSAVE_DELAY_MS = 800;
 function Editor() {
   const [unitTypes, setUnitTypes] = useState<UnitType[]>([]);
   const [methods, setMethods] = useState<Method[]>([]);
+  const [pluginErrors, setPluginErrors] = useState<string[]>([]);
   const [examples, setExamples] = useState<Example[]>([]);
   const [backendError, setBackendError] = useState<string | null>(null);
 
@@ -187,6 +189,8 @@ function Editor() {
       .catch(() =>
         setBackendError("Cannot reach the Fluxsheet server. Start it with: fluxsheet serve"),
       );
+    // An older server has no plug-in list; the editor works without it.
+    api.plugins().then((p) => setPluginErrors(pluginProblems(p)), () => undefined);
   }, []);
 
   const touch = useCallback(() => setStale(true), []);
@@ -1055,7 +1059,7 @@ function Editor() {
       </div>
 
       <main className="workspace">
-        <Palette types={unitTypes} />
+        <Palette types={unitTypes} problems={pluginErrors} />
         <div
           className="canvas"
           onDragOver={(e) => e.preventDefault()}

@@ -113,7 +113,7 @@ Warnliste ausgeben. CLI `fluxsheet import-dwsim`, optional `POST /api/import`.
 
 ## Welle 3
 
-### C4 – Plug-ins über Entry-Points · **Claude** · Status: offen · *zuletzt, allein*
+### C4 – Plug-ins über Entry-Points · **Claude** · Status: Review · *zuletzt, allein*
 Fremde Pakete können Units, Property-Methoden und Komponenten über
 `[project.entry-points."fluxsheet.units"]` usw. registrieren; Editor zeigt sie in der
 Palette. Fasst die Registry an, daher als letztes Paket ohne parallele Unit-Arbeit.

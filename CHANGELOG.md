@@ -9,6 +9,14 @@ format or API).
 
 ### Added
 
+- **Plug-ins:** other installed packages can add unit operations, property methods
+  (activity models or cubic equations of state) and compounds through the entry points
+  `fluxsheet.units`, `fluxsheet.property_methods` and `fluxsheet.components`. Plug-ins cannot
+  replace anything built in. One that fails to load is skipped and reported by
+  `fluxsheet plugins`, `GET /api/plugins` and the editor palette, which also marks plug-in
+  units. Plug-in units declare their energy terms for the balance checks. A complete
+  example is in `examples/plugin/`.
+
 - **Feature reference campaign:** `scripts/validate_features.py` compares the Gibbs
   reactor on fugacities with the Larson and Dodge (1923) and Larson (1924) ammonia
   equilibria and the equilibrium methyl acetate column with the measured profile in

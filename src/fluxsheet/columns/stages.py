@@ -50,7 +50,7 @@ from scipy.sparse.linalg import spsolve
 
 from ..errors import SimulationError
 from ..reactions import Reaction, equilibrium_extents
-from ..thermo_package import PropertyPackage
+from ..thermo_package import PropertyPackage, is_eos
 from .saturation import bubble_point, dew_point
 
 SPECS = {
@@ -226,7 +226,7 @@ class _Model:
         basis = self.setup.equilibrium_basis
         if basis not in ("mole_fraction", "activity"):
             raise SimulationError(f"unknown liquid equilibrium basis {basis!r}")
-        if basis == "activity" and self.pkg.method in ("peng-robinson", "srk"):
+        if basis == "activity" and is_eos(self.pkg.method):
             raise SimulationError("the activity basis needs an activity-coefficient property method",
                                   hint="use an activity-coefficient method or a mole-fraction K")
         return {j: slice(self.stage_end + k * count, self.stage_end + (k + 1) * count)

@@ -492,6 +492,30 @@ spec Fluxsheet cannot express (energy-stream or curve modes) is replaced by the 
 state DWSIM computed, with a warning. XML is parsed with `defusedxml`; files are
 size-limited and zip archives checked against zip bombs.
 
+## Plug-ins
+
+Other packages can add unit operations, property methods and compounds. They declare
+entry points in their `pyproject.toml`:
+
+```toml
+[project.entry-points."fluxsheet.units"]
+my_units = "my_package.units"                 # UnitOperation subclasses
+
+[project.entry-points."fluxsheet.property_methods"]
+regular = "my_package.thermo:REGULAR"         # fluxsheet.plugins.ActivityMethod / EquationOfState
+
+[project.entry-points."fluxsheet.components"]
+cuts = "my_package.compounds:COMPOUNDS"       # custom-compound definitions
+```
+
+Once the package is installed, its units appear in the editor's palette and its methods in
+the property-method lists. `fluxsheet plugins` shows what each plug-in added, and why one
+failed to load. A plug-in cannot replace a built-in unit, method or compound; one that
+fails is skipped. Set `FLUXSHEET_DISABLE_PLUGINS=1` to load none. Plug-ins run inside
+Fluxsheet, so install only packages you trust. [`examples/plugin/`](examples/plugin/) is a
+complete plug-in, and [docs/architecture.md](docs/architecture.md#plug-ins-pluginspy)
+describes the interfaces.
+
 ## What's included
 
 **Unit operations:** Feed, Product, Mixer, Splitter, Mixing tank, Heater/Cooler, Heat
@@ -597,10 +621,11 @@ extend it.
 - [x] Calculator blocks; Broyden recycle convergence
 - [x] Dynamic simulation: vessel, CSTR and heater hold-ups, PID controllers, steps and ramps
 - [x] Batch reactor (RBatch-like): stop criteria, vent, jacket, cycle-time averaging
-- [ ] Dynamic columns (tray hold-ups), pressure-driven dynamics
+- [x] Dynamic columns (tray hold-ups)
+- [ ] Pressure-driven dynamics
 - [x] Optimization around the flowsheet (objective and constraints as formulas), equipment costing
-- [ ] Columns with side draws, pumparounds and reactive stages; pump and compressor curves
-- [ ] Reports (Excel, PDF), unit plug-ins
+- [x] Columns with side draws, pumparounds and reactive stages; pump and compressor curves
+- [x] Reports (Excel, HTML); plug-ins for units, property methods and compounds
 - [ ] Cooled plug flow reactor with co-/countercurrent coolant profile; process streams as jacket media
 - [ ] U from film coefficients (geometry, Reynolds/Nusselt, fouling)
 - [ ] CAPE-OPEN interoperability

@@ -8,6 +8,7 @@ flowsheet and cached, because loading the constants takes a moment.
 from __future__ import annotations
 
 import math
+from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import lru_cache
 
@@ -35,7 +36,7 @@ from thermo.bulk import BulkSettings
 from thermo.interaction_parameters import IPDB
 from thermo.unifac import DOUFIP2016, DOUFSG
 
-from . import custom_compounds
+from . import custom_compounds, plugins
 from .activity_liquid import ActivityLiquid, ClausiusClapeyron
 from .association import (
     DIMERIZATION,
@@ -45,7 +46,7 @@ from .association import (
     MonomerVaporPressure,
     vapor_from_monomers,
 )
-from .compounds import Compound, lookup
+from .compounds import Compound, UnknownCompoundError, lookup
 from .custom_compounds import CustomCompound
 from .errors import SimulationError
 from .fitting import store as fitted_store
@@ -63,6 +64,7 @@ class Method:
     key: str
     label: str
     description: str
+    plugin: str | None = None  # the plug-in (distribution) it comes from
 
 
 METHODS: dict[str, Method] = {
@@ -116,6 +118,80 @@ METHODS: dict[str, Method] = {
         ),
     )
 }
+
+
+# Property methods and compounds from plug-ins (fluxsheet.plugins), by key and lower-case name.
+PLUGIN_METHODS: dict[str, plugins.ActivityMethod | plugins.EquationOfState] = {}
+PLUGIN_COMPOUNDS: dict[str, CustomCompound] = {}
+
+
+def is_eos(method: str) -> bool:
+    """Whether a method describes both phases by an equation of state."""
+    return method in ("peng-robinson", "srk") or isinstance(
+        PLUGIN_METHODS.get(method), plugins.EquationOfState)
+
+
+def _register_methods(plugin, value) -> list[str]:
+    found = plugins.objects(value)
+    kinds = (plugins.ActivityMethod, plugins.EquationOfState)
+    if not found or not all(isinstance(m, kinds) for m in found):
+        raise ValueError("expected an ActivityMethod or EquationOfState, or a list of them")
+    keys = [m.key for m in found]
+    taken = [k for k in keys if k in METHODS or k == "auto"]
+    if taken or len(set(keys)) < len(keys) or not all(isinstance(k, str) and k for k in keys):
+        raise ValueError(f"property method already defined: {', '.join(taken) or keys}")
+    for m in found:
+        if not callable(getattr(m, "gibbs_excess", None) or getattr(m, "eos_mix", None)):
+            raise TypeError(f"{m.key}: no gibbs_excess function or eos_mix class")
+    for m in found:
+        PLUGIN_METHODS[m.key] = m
+        METHODS[m.key] = Method(m.key, m.label, m.description,
+                                plugin.distribution or plugin.name)
+    return keys
+
+
+def _register_compounds(plugin, value) -> list[str]:
+    found = [c if isinstance(c, CustomCompound) else CustomCompound.from_dict(c)
+             for c in plugins.objects(value)]
+    if not found:
+        raise ValueError("provides no compounds")
+    names = [c.name.lower() for c in found]
+    taken = [c.name for c in found if c.name.lower() in PLUGIN_COMPOUNDS]
+    if taken or len(set(names)) < len(names):
+        raise ValueError(f"compound already defined by a plug-in: {', '.join(taken) or names}")
+    for c in found:
+        try:
+            lookup(c.name)
+        except UnknownCompoundError:
+            continue
+        raise ValueError(f"{c.name!r} is already in the compound database")
+    for c in found:
+        PLUGIN_COMPOUNDS[c.name.lower()] = c
+    return [c.name for c in found]
+
+
+@contextmanager
+def _plugin_errors(method: str):
+    """A plug-in method's own failure, reported like any other flowsheet error."""
+    try:
+        yield
+    except SimulationError:
+        raise
+    except Exception as exc:
+        raise SimulationError(f"{METHODS[method].label}: {exc}",
+                              hint=f"raised by the plug-in {METHODS[method].plugin!r}") from exc
+
+
+def plugin_compound(name: str) -> Compound | None:
+    """A compound defined by a plug-in, by name."""
+    c = PLUGIN_COMPOUNDS.get(name.strip().lower())
+    return None if c is None else _custom_compound(c)
+
+
+def _custom_compound(c: CustomCompound) -> Compound:
+    est = custom_compounds.estimate(c)
+    return Compound(cas=custom_compounds.register(c), name=c.name, formula=c.formula,
+                    mw=est.values["MW"], smiles=c.smiles, simulation_ready=True)
 
 
 # UNIFAC subgroups (original and Dortmund numbering agree) of carboxylic acids: COOH, HCOOH.
@@ -235,17 +311,13 @@ def suggest_method(components: list[str],
 
 
 def resolve(components: list[str], custom: tuple[CustomCompound, ...] = ()) -> list[Compound]:
-    """The compounds behind component names; a custom definition wins over the database."""
-    defined = {c.name.lower(): c for c in custom}
+    """The compounds behind component names; the flowsheet's own definitions win over a
+    plug-in's, and both over the database."""
+    defined = {**PLUGIN_COMPOUNDS, **{c.name.lower(): c for c in custom}}
     out = []
     for name in components:
         c = defined.get(name.strip().lower())
-        if c is None:
-            out.append(lookup(name))
-            continue
-        est = custom_compounds.estimate(c)
-        out.append(Compound(cas=custom_compounds.register(c), name=c.name, formula=c.formula,
-                            mw=est.values["MW"], smiles=c.smiles, simulation_ready=True))
+        out.append(lookup(name) if c is None else _custom_compound(c))
     return out
 
 
@@ -454,8 +526,9 @@ class PropertyPackage:
         if henry_components and not (self.method in HENRY_METHODS and self.n > 1):
             self.warnings.append(
                 f"henry_components is ignored by {METHODS[method].label}: "
-                + ("equations of state describe dissolved gases directly."
-                   if self.method not in HENRY_METHODS else "a single compound has no solvent."))
+                + ("equations of state describe dissolved gases directly." if is_eos(method)
+                   else "a single compound has no solvent." if self.method in HENRY_METHODS
+                   else "this plug-in method has no Henry components."))
 
     def _carboxylic(self) -> list[bool]:
         """Which components are carboxylic acids (by their UNIFAC groups)."""
@@ -475,14 +548,14 @@ class PropertyPackage:
         Clausius-Clapeyron (about 40 kJ/mol) lies between them.
         """
         acids = [name for name, acid in zip(self.names, self._carboxylic()) if acid]
-        if self.method not in ("peng-robinson", "srk"):
+        if not is_eos(self.method):
             described = set(self._associating())
             acids = [name for name in acids if self.names.index(name) not in described]
         if not acids:
             return
         label = METHODS[self.method].label
         names = ", ".join(acids)
-        if self.method in ("peng-robinson", "srk"):
+        if is_eos(self.method):
             self.warnings.append(
                 f"{label}: {names} associate{'s' if len(acids) == 1 else ''} in the vapor "
                 "(carboxylic acid dimers), which an equation of state without association "
@@ -562,7 +635,10 @@ class PropertyPackage:
     @property
     def supports_lle(self) -> bool:
         """Whether flashes can find two liquid phases (vapor-liquid-liquid equilibrium)."""
-        return self.method in LLE_METHODS and self.n > 1
+        plugin = PLUGIN_METHODS.get(self.method)
+        lle = plugin.liquid_liquid if isinstance(plugin, plugins.ActivityMethod) else (
+            self.method in LLE_METHODS)
+        return lle and self.n > 1
 
     def _check_data(self) -> None:
         for field, label in (("Tcs", "critical temperature"), ("Pcs", "critical pressure"),
@@ -578,7 +654,19 @@ class PropertyPackage:
     def _build(self):
         c, p = self.consts, self.props
         cp_gas = p.HeatCapacityGases
-        if self.method in ("peng-robinson", "srk"):
+        plugin = PLUGIN_METHODS.get(self.method)
+        if isinstance(plugin, plugins.EquationOfState):
+            n = self.n
+            with _plugin_errors(self.method):
+                kijs = [list(map(float, row)) for row in plugin.kijs(c)] if plugin.kijs else (
+                    [[0.0] * n for _ in range(n)])
+                extra = plugin.extra(c) if plugin.extra else {}
+            if len(kijs) != n or any(len(row) != n for row in kijs):
+                raise SimulationError(f"{plugin.label}: kijs must be a {n} x {n} matrix")
+            kwargs = {"Tcs": c.Tcs, "Pcs": c.Pcs, "omegas": c.omegas, "kijs": kijs, **extra}
+            gas = CEOSGas(plugin.eos_mix, kwargs, HeatCapacityGases=cp_gas)
+            liquid = CEOSLiquid(plugin.eos_mix, kwargs, HeatCapacityGases=cp_gas)
+        elif self.method in ("peng-robinson", "srk"):
             pr = self.method == "peng-robinson"
             eos = PRMIX if pr else SRKMIX
             kijs = (
@@ -598,7 +686,10 @@ class PropertyPackage:
                 self.henry, henry_kwargs = self._henry_setup()
             solvents = [i for i in range(self.n) if not self.henry[i]]
             ge_model = None
-            if self.method == "unifac":
+            if isinstance(plugin, plugins.ActivityMethod):
+                with _plugin_errors(self.method):
+                    ge_model = plugin.gibbs_excess(c, list(range(self.n)))
+            elif self.method == "unifac":
                 for i in solvents:
                     if not c.UNIFAC_Dortmund_groups[i]:
                         raise SimulationError(
@@ -1277,3 +1368,7 @@ def package_options(model) -> dict:
     return {"henry_components": tuple(henry) if henry is not None else None,
             "custom": tuple(CustomCompound.from_dict(c.model_dump(exclude_none=True))
                             for c in custom)}
+
+
+plugins.load("property_methods", _register_methods)
+plugins.load("components", _register_compounds)

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { methodLabel } from "./plugins";
 import { api } from "./api";
 import { CustomCompoundForm } from "./CustomCompoundForm";
 import { UnitIcon } from "./icons";
@@ -866,7 +867,7 @@ export function FlowsheetInspector({
         <option value="auto">Automatic{suggestion ? ` (${label(suggestion.method)})` : ""}</option>
         {methods.map((m) => (
           <option key={m.key} value={m.key}>
-            {m.label}
+            {methodLabel(m)}
           </option>
         ))}
       </select>

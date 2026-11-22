@@ -55,7 +55,13 @@ def _from_metadata(meta) -> Compound:
 
 @lru_cache(maxsize=4096)
 def lookup(identifier: str) -> Compound:
-    """Resolve a name, CAS number, formula or SMILES to a single compound."""
+    """Resolve a name, CAS number, formula or SMILES to a single compound; a plug-in's
+    compound (fluxsheet.plugins) by its name."""
+    from .thermo_package import plugin_compound  # the plug-in registry lives there
+
+    found = plugin_compound(identifier)
+    if found is not None:
+        return found
     try:
         meta = search_chemical(identifier.strip())
     except Exception as exc:  # chemicals raises a bare Exception when nothing matches
@@ -92,5 +98,10 @@ def search(query: str, limit: int = 20) -> list[Compound]:
         if meta.CASs not in hits or rank < hits[meta.CASs][0]:
             hits[meta.CASs] = (rank, meta)
 
-    ranked = sorted(hits.values(), key=lambda item: item[0])[:limit]
-    return [_from_metadata(meta) for _, meta in ranked]
+    from .thermo_package import PLUGIN_COMPOUNDS, plugin_compound
+
+    # Plug-in compounds by name prefix, ahead of the database.
+    own = [plugin_compound(name) for name in sorted(PLUGIN_COMPOUNDS, key=len)
+           if name.startswith(query)][:limit]
+    ranked = sorted(hits.values(), key=lambda item: item[0])[:limit - len(own)]
+    return own + [_from_metadata(meta) for _, meta in ranked]

@@ -1,0 +1,20 @@
+{
+  "format": "fluxsheet/1",
+  "name": "Naphtha vapor cooled to its dew point (plug-in)",
+  "description": "Needs the example plug-in (examples/plugin): the dew-point cooler unit and the light-naphtha-cut pseudo-component come from it. A hydrocarbon vapor at 250 °C is cooled to 5 K above its dew point at 2.5 bar.",
+  "components": ["n-hexane", "toluene", "light-naphtha-cut"],
+  "property_method": "peng-robinson",
+  "units": [
+    {"id": "FEED", "type": "Feed", "ui": {"x": 40, "y": 120},
+     "params": {"T": "250 degC", "P": "3 bar",
+                "flows": {"n-hexane": "40 kmol/h", "toluene": "35 kmol/h",
+                          "light-naphtha-cut": "25 kmol/h"}}},
+    {"id": "COOLER", "type": "DewPointCooler", "ui": {"x": 260, "y": 120},
+     "params": {"superheat": "5 K", "P": "2.5 bar"}},
+    {"id": "OUT", "type": "Product", "ui": {"x": 480, "y": 120}}
+  ],
+  "streams": [
+    {"id": "HOT", "from": "FEED.out", "to": "COOLER.in"},
+    {"id": "COOLED", "from": "COOLER.out", "to": "OUT.in"}
+  ]
+}

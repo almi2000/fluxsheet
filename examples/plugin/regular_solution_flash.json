@@ -1,0 +1,22 @@
+{
+  "format": "fluxsheet/1",
+  "name": "Aromatics flash with the regular-solution model (plug-in)",
+  "description": "Needs the example plug-in (examples/plugin), which provides the regular-solution property method. An equimolar hexane, benzene and toluene liquid is flashed at 85 °C and 1 atm.",
+  "components": ["n-hexane", "benzene", "toluene"],
+  "property_method": "regular-solution",
+  "units": [
+    {"id": "FEED", "type": "Feed", "ui": {"x": 40, "y": 120},
+     "params": {"T": "25 degC", "P": "1 atm",
+                "flows": {"n-hexane": "10 kmol/h", "benzene": "10 kmol/h",
+                          "toluene": "10 kmol/h"}}},
+    {"id": "FLASH", "type": "Flash", "ui": {"x": 260, "y": 120},
+     "params": {"T": "85 degC", "P": "1 atm"}},
+    {"id": "VAP", "type": "Product", "ui": {"x": 480, "y": 60}},
+    {"id": "LIQ", "type": "Product", "ui": {"x": 480, "y": 190}}
+  ],
+  "streams": [
+    {"id": "F1", "from": "FEED.out", "to": "FLASH.in"},
+    {"id": "V1", "from": "FLASH.vapor", "to": "VAP.in"},
+    {"id": "L1", "from": "FLASH.liquid", "to": "LIQ.in"}
+  ]
+}

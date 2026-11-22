@@ -1,7 +1,8 @@
 """Command line: ``fluxsheet run file.json``, ``fluxsheet report file.json``,
 ``fluxsheet sensitivity file.json``, ``fluxsheet dynamic file.json``,
 ``fluxsheet optimize file.json``, ``fluxsheet fit-binary`` and ``fluxsheet serve``.
-``fluxsheet import-dwsim file.dwxmz -o file.json`` converts a DWSIM simulation."""
+``fluxsheet import-dwsim file.dwxmz -o file.json`` converts a DWSIM simulation, and
+``fluxsheet plugins`` lists the installed plug-ins."""
 
 from __future__ import annotations
 
@@ -313,6 +314,22 @@ def _import_dwsim(args) -> int:
     return 0
 
 
+def _plugins(args) -> int:
+    from . import plugins
+
+    found = plugins.report()
+    if args.json:
+        print(json.dumps(found, indent=2))
+    elif not found:
+        print("no plug-ins installed" + (f" ({plugins.DISABLE_ENV} is set)"
+                                         if plugins.disabled() else ""))
+    for p in found if not args.json else ():
+        source = f"{p['distribution']} {p['version']}" if p["distribution"] else p["value"]
+        status = f"FAILED: {p['error']}" if p["error"] else ", ".join(p["provides"])
+        print(f"{p['group']:<17} {p['name']:<20} {source:<32} {status}")
+    return 1 if any(p["error"] for p in found) else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="fluxsheet", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -381,6 +398,13 @@ def main(argv: list[str] | None = None) -> int:
     imp.add_argument("-o", "--output", help="write the flowsheet JSON to this file "
                      "(default: print it)")
     imp.set_defaults(func=_import_dwsim)
+    plug = sub.add_parser(
+        "plugins", help="list the installed plug-ins and what they provide",
+        description="List the plug-ins (entry points fluxsheet.units, "
+        "fluxsheet.property_methods and fluxsheet.components) with the unit types, property "
+        "methods and compounds each one added. Exits with 1 if one failed to load.")
+    plug.add_argument("--json", action="store_true", help="print the list as JSON")
+    plug.set_defaults(func=_plugins)
     args = parser.parse_args(argv)
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")

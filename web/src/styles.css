@@ -151,6 +151,9 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent-soft
   background: var(--bg); cursor: grab; font-size: 11px; text-align: center; color: var(--text);
 }
 .palette-item:hover { border-color: var(--accent); color: var(--accent); }
+.palette-plugin { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.palette-problems { margin-top: 12px; color: var(--danger); font-size: 11px; }
+.palette-problems ul { margin: 4px 0; padding-left: 16px; overflow-wrap: anywhere; }
 
 /* ---- canvas ---- */
 .react-flow { --xy-background-color: var(--bg); --xy-edge-stroke: var(--muted); --xy-edge-stroke-selected: var(--accent); }

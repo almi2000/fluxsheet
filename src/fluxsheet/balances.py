@@ -77,6 +77,8 @@ def _utilities(unit, inlets, mws):
             terms.append(-sum(_mass(s, mws) for s in inlets) * 9.80665
                          * (unit.p.get("elevation") or 0.0))
         return terms
+    if unit.energy_results is not None:  # a plug-in that declares its energy terms
+        return [float(r.get(name) or 0.0) for name in unit.energy_results]
     return None
 
 

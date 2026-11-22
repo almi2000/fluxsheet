@@ -55,12 +55,25 @@ export interface UnitType {
   required_groups: string[][];
   result_fields: ResultField[];
   dynamic?: DynamicSchema; // has a dynamic model (hold-up)
+  plugin?: string | null; // the plug-in (distribution) it comes from
 }
 
 export interface Method {
   key: string;
   label: string;
   description: string;
+  plugin?: string | null; // the plug-in (distribution) it comes from
+}
+
+/** An installed plug-in entry point (GET /api/plugins). */
+export interface PluginInfo {
+  group: "units" | "property_methods" | "components";
+  name: string;
+  value: string;
+  distribution: string | null;
+  version: string | null;
+  provides: string[];
+  error: string | null;
 }
 
 export interface Compound {

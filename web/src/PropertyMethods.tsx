@@ -1,6 +1,7 @@
 // Property sections in the editor: a per-unit method override, the method tag on nodes, and
 // the methods summary in the results. See src/fluxsheet/property_sections.py.
 import type { Method, SolveResult, UnitResult } from "./types";
+import { methodLabel } from "./plugins";
 
 const SHORT: Record<string, string> = {
   "peng-robinson": "PR", srk: "SRK", unifac: "UNIFAC", nrtl: "NRTL", uniquac: "UNIQUAC",
@@ -54,7 +55,7 @@ export function UnitMethodField({
         <option value="">{defaultLabel}</option>
         {methods.map((m) => (
           <option key={m.key} value={m.key}>
-            {m.label}
+            {methodLabel(m)}
             {suggestion?.method === m.key ? " (suggested)" : ""}
           </option>
         ))}

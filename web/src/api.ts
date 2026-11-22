@@ -1,4 +1,4 @@
-import type { Compound, CustomCompound, DynamicResult, Example, FlowsheetModel, Method, OptimizationResult, SensitivityResult, SolveResult, UnitType } from "./types";
+import type { Compound, CustomCompound, DynamicResult, Example, FlowsheetModel, Method, OptimizationResult, PluginInfo, SensitivityResult, SolveResult, UnitType } from "./types";
 
 /** The demo server's answer to a request body over its size limit (server.py). */
 export const DEMO_BODY_LIMIT_DETAIL = "request too large for the demo server";
@@ -32,6 +32,7 @@ async function send(path: string, init?: RequestInit): Promise<Response> {
 export const api = {
   unitTypes: () => request<UnitType[]>("/unit-types"),
   methods: () => request<Method[]>("/methods"),
+  plugins: () => request<PluginInfo[]>("/plugins"),
   examples: () => request<Example[]>("/examples"),
   example: (id: string) => request<FlowsheetModel>(`/examples/${id}`),
   searchCompounds: (q: string) =>
