@@ -86,7 +86,7 @@ Fertig, wenn das Beispiel bei Rücklauf 2, 3, 4 und 5 auf beiden Basen konvergie
 
 ## Welle 2
 
-### C2 – Dynamische Kolonne · **Claude** · Status: offen · *setzt G1 voraus (gemergt); ändert `columns/stages.py` nicht, solange G1b offen ist*
+### C2 – Dynamische Kolonne · **Claude** · Status: gemergt
 Bodenhold-ups (Francis-Wehr), Kondensator-/Sumpffüllstand, Rückfluss- und Sumpfregelung
 im bestehenden DAE-Kern; Start aus der stationären MESH-Lösung. Beispiel: Füllstands-
 und Temperaturregelung einer Benzol/Toluol-Kolonne mit Feedsprung.
