@@ -365,7 +365,13 @@ def test_invalid_equilibrium_reactions_are_rejected(problem, message):
     assert message in r.error["message"]
 
 
-def test_methyl_acetate_equilibrium_column_against_literature():
+@pytest.fixture
+def methyl_acetate_model():
+    path = EXAMPLES / "methyl_acetate_equilibrium_column.json"
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def test_methyl_acetate_equilibrium_column_against_literature(methyl_acetate_model):
     # Mallaiah et al. (2017), Table 2 and modelling section: 30 stages at 1 atm;
     # stages 11 through 20 are reactive, with the feeds at 11 and 20.
     # https://doi.org/10.15255/CABEQ.2016.894
@@ -373,9 +379,7 @@ def test_methyl_acetate_equilibrium_column_against_literature():
     # and measured distillate purity. This example uses NRTL, reaction equilibrium,
     # and the feed and draw assumptions in the example description.
     # https://doi.org/10.1016/j.dib.2019.104262
-    model = json.loads((EXAMPLES / "methyl_acetate_equilibrium_column.json")
-                       .read_text(encoding="utf-8"))
-    r = solve(model)
+    r = solve(methyl_acetate_model)
     assert r.ok, r.error
     u = r.units["COLUMN"]
     top = r.streams["DIST"]["mole_fractions"]["methyl acetate"]
@@ -391,13 +395,27 @@ def test_methyl_acetate_equilibrium_column_against_literature():
         T[stage_indices], [330.077, 330.159, 333.714, 344.725, 345.186, 344.525, 347.822, 372.593],
         atol=6.0, rtol=0.0)
     # Verify every equilibrium stage with gamma obtained directly from the NRTL model.
-    pkg = get_package(tuple(model["components"]), "nrtl")
+    pkg = get_package(tuple(methyl_acetate_model["components"]), "nrtl")
     liquid = np.array([s["values"] for s in profiles["liquid_composition"]["series"]]).T
     for j in range(10, 20):
         gamma = pkg._ge.to_T_xs(T[j], liquid[j].tolist()).gammas()
         a = liquid[j] * gamma
         assert a[2] * a[3] / (a[0] * a[1]) == pytest.approx(2.32 * np.exp(782.98 / T[j]),
                                                            rel=1e-8)
+    assert {c["scope"] for c in r.balance_checks} == {"COLUMN", "flowsheet"}
+    assert {c["quantity"] for c in r.balance_checks} == {"mass", "element", "energy"}
+    assert all(c["status"] == "ok" for c in r.balance_checks)
+
+
+@pytest.mark.parametrize("basis", ["activity", "mole_fraction"])
+@pytest.mark.parametrize("reflux", [2, 3, 4, 5])
+def test_methyl_acetate_column_converges_from_scratch(methyl_acetate_model, basis, reflux):
+    column = next(u for u in methyl_acetate_model["units"] if u["id"] == "COLUMN")
+    column["params"].update(reflux_ratio=reflux, equilibrium_basis=basis)
+    r = solve(methyl_acetate_model)
+    assert r.ok, r.error
+    assert r.units["COLUMN"]["reflux_ratio"] == pytest.approx(reflux, rel=1e-8)
+    assert r.streams["DIST"]["molar_flow"] == pytest.approx(10.2 / 3600, rel=1e-8)
     assert {c["scope"] for c in r.balance_checks} == {"COLUMN", "flowsheet"}
     assert {c["quantity"] for c in r.balance_checks} == {"mass", "element", "energy"}
     assert all(c["status"] == "ok" for c in r.balance_checks)

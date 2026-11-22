@@ -41,7 +41,7 @@ property evaluations per stage and unknown.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 import scipy.sparse as sp
@@ -770,7 +770,8 @@ def solve_column(pkg: PropertyPackage, setup: ColumnSetup,
     """Solve the column. ``start``, a solution of the same column for a nearby feed (the
     previous pass of a recycle loop), replaces the start estimate: Newton then usually needs
     two or three iterations instead of building the estimate from bubble points. If Newton
-    gets nowhere from there, the column is solved again from its own estimate."""
+    gets nowhere from there, the column is solved again from its own estimate. Equilibrium
+    reactive columns can also continue from a solution at lower reflux."""
     for pa in setup.pumparounds:
         if (pa.rate == 0.0 or pa.fraction == 0.0) and (pa.duty or pa.T is not None):
             raise SimulationError(
@@ -791,7 +792,51 @@ def solve_column(pkg: PropertyPackage, setup: ColumnSetup,
                 return _newton(m, x, max(setup.max_iterations // 3, 1))
             except SimulationError:
                 pass
-    return _newton(m, _initial(m), setup.max_iterations)
+    x = _initial(m)
+    try:
+        return _newton(m, x, setup.max_iterations)
+    except SimulationError:
+        sol = _continue_reflux(m)
+        if sol is not None:
+            return sol
+        raise
+
+
+def _continue_reflux(target: _Model) -> ColumnSolution | None:
+    """Follow a steady solution to the specified reflux, shrinking failed steps."""
+    setup = target.setup
+    reflux = setup.specs.get("reflux_ratio")
+    if not target.equilibrium or reflux is None or not 0.0 < reflux < np.inf:
+        return None
+
+    def model_at(ratio: float) -> _Model:
+        return _Model(target.pkg, replace(setup, specs={**setup.specs, "reflux_ratio": ratio}))
+
+    iterations = max(setup.max_iterations // 3, 1)
+    # A moderate reflux keeps the cold estimate's internal flows small even for a high target.
+    seed_fraction = min(2.0 / reflux, 2.0 / 3.0)
+    for fraction in (seed_fraction, seed_fraction / 2):
+        seed = model_at(reflux * fraction)
+        try:
+            sol = _newton(seed, _initial(seed), setup.max_iterations)
+        except SimulationError:
+            continue
+
+        step = 1.0 - fraction
+        smallest = step / 16
+        while step >= smallest:
+            next_fraction = min(1.0, fraction + step)
+            trial = target if next_fraction == 1.0 else model_at(reflux * next_fraction)
+            try:
+                next_sol = _newton(trial, sol.restart[1], iterations)
+            except SimulationError:
+                step *= 0.5
+                continue
+            if trial is target:
+                return next_sol
+            fraction, sol = next_fraction, next_sol
+            step *= 2
+    return None
 
 
 def _restart_key(m: _Model) -> tuple:
