@@ -95,14 +95,14 @@ und Temperaturregelung einer Benzol/Toluol-Kolonne mit Feedsprung.
   `src/fluxsheet/units/columns.py` (nur `dyn_params`), `tests/test_dynamics.py`,
   `web/src/DynamicsEditor.tsx`, `web/src/DynamicsView.tsx`
 
-### G3 – Kostenrechnung für den Batch-Reaktor · **ChatGPT** · Status: Review
+### G3 – Kostenrechnung für den Batch-Reaktor · **ChatGPT** (übernommen von Claude) · Status: gemergt
 Turton-Kosten für den `BatchReactor` (Rührkessel, Mantel, Rührer) aus Volumen/Material;
 Betriebskosten pro Charge und pro Jahr (Chargen/Jahr, Rüstzeit), damit `tac` auch für
 Batch-Fließbilder gilt.
 - Dateien: `src/fluxsheet/costing.py`, `src/fluxsheet/units/batch.py` (nur Kostendaten),
   `tests/test_optimization.py` bzw. neue `tests/test_costing_batch.py`
 
-### G4 – DWSIM-Import · **ChatGPT** · Status: Review
+### G4 – DWSIM-Import · **ChatGPT** (übernommen von Claude) · Status: gemergt
 Import von DWSIM-Dateien (`.dwxmz`/`.dwxml`): Komponenten, Property-Methode, Feeds,
 Units, Verbindungen, Layout auf Fluxsheet-JSON abbilden; nicht abbildbare Teile als
 Warnliste ausgeben. CLI `fluxsheet import-dwsim`, optional `POST /api/import`.
