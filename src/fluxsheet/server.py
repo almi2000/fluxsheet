@@ -294,6 +294,30 @@ def report_file(payload: Annotated[Any, Body()],
                                f"filename*=UTF-8''{quote(name)}"})
 
 
+@app.post("/api/import/dwsim")
+async def import_dwsim_file(request: Request) -> dict:
+    """Convert a DWSIM simulation (the raw .dwxml or .dwxmz file as the request body) into
+    a flowsheet: ``{"ok": true, "model": ..., "warnings": [...]}``; see importers/dwsim.py."""
+    from starlette.concurrency import run_in_threadpool
+
+    from .importers import DwsimImportError, dwsim, import_dwsim
+
+    cap = limits.MAX_BODY_BYTES if limits.DEMO else dwsim.MAX_FILE_BYTES
+    body = bytearray()
+    async for chunk in request.stream():  # stop reading at the cap, whatever the headers say
+        body += chunk
+        if len(body) > cap:
+            raise HTTPException(413, f"the file is larger than {cap / 2**20:.2g} MB, the limit"
+                                + (" on the demo server" if limits.DEMO else ""))
+    if not body:
+        raise HTTPException(400, "send the DWSIM file as the request body")
+    try:
+        model, warnings = await run_in_threadpool(import_dwsim, bytes(body))
+    except DwsimImportError as exc:
+        return {"ok": False, "error": exc.to_dict()}
+    return {"ok": True, "model": model, "warnings": warnings}
+
+
 class _EditorFiles(StaticFiles):
     """The editor's files. index.html is revalidated on every load so a new version shows
     up at once; the hashed files under assets/ never change and may be cached for good."""

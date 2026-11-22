@@ -25,6 +25,15 @@ format or API).
   cycle time). Results `batches_per_year`, `vessels_costed`, `utility_cost_per_batch` and
   `cost_per_batch`; the batch reactor counts in `tac`, so studies, design specs and
   optimizations of batch flowsheets see it. Editor field for the turnaround.
+- **DWSIM import:** `fluxsheet import-dwsim FILE [-o OUT.json]`, `POST /api/import/dwsim`
+  and `fluxsheet.importers.import_dwsim` turn a DWSIM simulation (`.dwxml`, zipped
+  `.dwxmz`) into a flowsheet: compounds, property method, feeds, mixers, splitters,
+  heaters and coolers, pumps, compressors, expanders, valves, separators, heat exchangers,
+  shortcut columns, compound separators, conversion and Gibbs reactors with their specs,
+  the connections and the layout. Unsupported parts (energy streams, logical blocks,
+  other units and property packages, DWSIM's interaction parameters) come back as
+  warnings; an unsupported unit is left out and its streams become feeds and products at
+  their stored state. Safe XML parsing (defusedxml), size and zip-bomb limits.
 - **Dynamic distillation column:** the rigorous column under `dynamics.units`, started
   from its steady MESH solution. Trays hold liquid over the weir (Francis), reflux drum and
   sump hold minutes of liquid; reflux, distillate and bottoms flows and the reboiler duty
