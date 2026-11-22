@@ -183,8 +183,9 @@ class Simulator(Solver):
             raise SimulationError(f"a controller cannot measure the costing total {ref.property}",
                                   where=where, hint="measure a stream or unit value")
         if ref.unit is not None and ref.unit in self.model.dynamics.units:
-            dyn_cls = DYNAMIC_MODELS.get(self.units[ref.unit].type)
-            fields = {f.name: f for f in dyn_cls.result_fields} if dyn_cls else {}
+            # The model itself: some report results per instance (a column's stages).
+            dyn = self.dynamic.get(ref.unit) or DYNAMIC_MODELS.get(self.units[ref.unit].type)
+            fields = {f.name: f for f in dyn.result_fields} if dyn else {}
             if ref.property in fields:
                 quantity = fields[ref.property].quantity
             else:
@@ -528,10 +529,24 @@ class Simulator(Solver):
                 deps |= affects(unit)
                 for src in inlet_srcs[unit]:
                     deps |= affects(src)
+                # A result that depends on part of a model's state (one stage of a column)
+                # couples the controller to that part only.
+                measured = self.dynamic.get(ref.unit) if ref.unit is not None else None
+                part = (measured.result_states(ref.property)
+                        if measured is not None and hasattr(measured, "result_states")
+                        else None)
+                if part is not None and measured.source:
+                    deps.discard(ref.unit)
+                    S[self.slices[owner], self.slices[ref.unit].start + part] = 1
             rows = self.slices[owner]
             for d in deps:
                 cols = self.slices[d]
                 S[rows, cols] = 1
+            # A model with internal structure (a column's stages couple to their neighbours
+            # only) narrows its own block, which keeps the Jacobian cheap.
+            model = self.dynamic.get(owner)
+            if model is not None and hasattr(model, "pattern"):
+                S[rows, rows] = model.pattern()
         return S.tocsr()
 
     def _column_groups(self) -> list[np.ndarray]:

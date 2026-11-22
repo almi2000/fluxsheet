@@ -9,6 +9,15 @@ format or API).
 
 ### Added
 
+- **Dynamic distillation column:** the rigorous column under `dynamics.units`, started
+  from its steady MESH solution. Trays hold liquid over the weir (Francis), reflux drum and
+  sump hold minutes of liquid; reflux, distillate and bottoms flows and the reboiler duty
+  are settings controllers move. The condenser condenses all vapor (the default for a
+  total condenser) or runs on its duty and vents what it leaves. Results include drum and
+  sump levels, a control-stage temperature and every stage's temperature. At rest the
+  model ends on the steady column with the same flows. Example
+  `benzene_toluene_column_control.json`. Side draws, pumparounds, stage duties, reactive
+  stages and Murphree efficiencies are not modelled dynamically yet.
 - **Result overlays in the editor:** a toolbar choice of what stream labels show after a
   run (id, temperature, T and P, plus molar flow, plus the main component); remembered per
   browser. Unit notes and unit balance checks that do not close from the last run appear
