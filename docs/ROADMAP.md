@@ -59,7 +59,7 @@ Methylacetat- oder MTBE-Reaktivdestillation), Beispiel in `examples/`.
   `src/fluxsheet/reactions.py` (nur Lesen/Hilfsfunktionen), `tests/test_columns.py`,
   `tests/test_column_side_streams.py`
 
-### G2 – Nicht-idealer Gibbs-Reaktor · **ChatGPT** · Status: offen
+### G2 – Nicht-idealer Gibbs-Reaktor · **ChatGPT** (übernommen von Claude) · Status: Review
 `GibbsReactor` minimiert heute nur für ideales Gas. Erweitern um Fugazitäten aus dem
 gewählten Property-Paket (Zustandsgleichung) und eine flüssige Phase (Aktivitäts-
 koeffizienten), wahlweise mehrphasig. Test gegen bekannte Gleichgewichte bei hohem Druck

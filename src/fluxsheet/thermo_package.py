@@ -11,6 +11,7 @@ import math
 from dataclasses import dataclass
 from functools import lru_cache
 
+import numpy as np
 from fluids.numerics import OscillationError, UnconvergedError
 from scipy.optimize import brentq, least_squares
 from thermo import (
@@ -896,6 +897,34 @@ class PropertyPackage:
                 f"property evaluation failed for the {kind} phase at T={T:.6g} K, P={P:.6g} Pa",
                 hint="check that temperature and pressure are physically reasonable",
             ) from exc
+
+    def ln_mixture_fugacity_coefficients(self, zs: list[float], T: float, P: float
+                                         ) -> tuple[np.ndarray, PhaseState]:
+        """ln Phi_i = ln(f_i / (z_i P)) of a mixture of overall composition ``zs`` at T, P.
+
+        The mixture first settles into its phases (a T-P flash); f_i is then the same in each
+        of them, so one phase gives it: f_i = y_i phi_i P from the vapor if there is vapor,
+        else from the liquid. With an equation of state phi comes from it, with an activity
+        model the liquid's phi is gamma_i Psat_i / P (times its corrections), so
+        sum_i nu_i ln(z_i Phi_i P / P°) is the reaction's ln Q on fugacities. A component
+        absent from the mixture (z_i = 0) gets the fugacity coefficient of that phase at
+        infinite dilution. Also returns the flash.
+        """
+        st = self.flash(list(zs), T=T, P=P)
+        if st.VF > 0.0 and st.y is not None:
+            kind, comp = "vapor", st.y
+        elif st.liquid_split and st.x_light is not None:
+            kind, comp = "liquid", st.x_light
+        else:
+            kind, comp = "liquid", st.x if st.x is not None else tuple(zs)
+        lnphi = np.asarray(self.phase_props(kind, T, P, list(comp)).lnphi, dtype=float)
+        z = np.asarray(zs, dtype=float)
+        c = np.asarray(comp, dtype=float)
+        out = lnphi.copy()
+        present = z > 0.0
+        out[present] = (np.log(np.maximum(c[present], 1e-300)) + lnphi[present]
+                        - np.log(z[present]))
+        return out, st
 
     def k_values(self, T: float, P: float, x: list[float], y: list[float]) -> list[float]:
         """Equilibrium ratios K_i = y_i / x_i = phi_i(liquid) / phi_i(vapor)."""

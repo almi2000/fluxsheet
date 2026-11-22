@@ -419,4 +419,4 @@ DYNAMIC_MODELS: dict[str, type[DynamicModel]] = {
 
 # The column model builds on the classes above and adds itself to DYNAMIC_MODELS. The
 # module (not its class) is imported, so this works whichever of the two is imported first.
-from . import column as _column  # noqa: E402, F401
+from . import column as _column  # noqa: F401

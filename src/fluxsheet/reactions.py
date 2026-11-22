@@ -438,7 +438,18 @@ def equilibrium_extents(n0: np.ndarray, nu: np.ndarray, ln_k: np.ndarray,
         if shrinking.any():
             alpha = min(1.0, 0.99 * float(np.min(-n[free][shrinking] / dn[shrinking])))
         g0, slope = gibbs(eta), float(grad @ step)
-        while alpha > 1e-14 and gibbs(eta + alpha * step) > g0 + 1e-4 * alpha * slope:
+        # Near the minimum the Gibbs energy changes by less than its rounding (a species at
+        # 1e-9 of the feed), so the descent test below cannot see progress. A Newton step
+        # that at least halves the gradient is progress there, whatever the energy shows.
+        n_try = amounts(eta + alpha * step)
+        if np.all(n_try[free] > 0.0):
+            nt_try = n_try[present].sum()
+            g_try = -lnk + nz[:, free] @ (np.log(n_try[free] / nt_try) + ln_p)
+            newton_ok = np.max(np.abs(g_try)) <= 0.5 * np.max(np.abs(grad))
+        else:
+            newton_ok = False
+        while (not newton_ok and alpha > 1e-14
+               and gibbs(eta + alpha * step) > g0 + 1e-4 * alpha * slope):
             alpha *= 0.5
         if np.max(np.abs(alpha * step)) <= 1e-15 * (1.0 + np.max(np.abs(eta))):
             # No further progress in double precision (e.g. a species at ~1e-15 of the
