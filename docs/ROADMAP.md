@@ -67,7 +67,7 @@ koeffizienten), wahlweise mehrphasig. Test gegen bekannte Gleichgewichte bei hoh
 - Dateien: `src/fluxsheet/units/reactors.py` (nur `GibbsReactor`),
   `src/fluxsheet/thermo_package.py` (nur neue Hilfsfunktionen), `tests/test_reactors.py`
 
-### G1b – Konvergenz reaktiver Gleichgewichtskolonnen · **ChatGPT** · Status: Review · *vor G2*
+### G1b – Konvergenz reaktiver Gleichgewichtskolonnen · **ChatGPT** · Status: gemergt
 Befund aus dem Review von G1: Das Beispiel `methyl_acetate_equilibrium_column.json`
 konvergiert bei Rücklaufverhältnis 1,9 und 2,5, aber ab 3 nicht mehr (Molenbruch-Basis
 schon ab 2,5); ohne Reaktion konvergiert dieselbe Kolonne bis 4. Robuster machen, z. B.
