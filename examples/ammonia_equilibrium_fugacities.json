@@ -1,0 +1,27 @@
+{
+  "format": "fluxsheet/1",
+  "name": "Ammonia equilibrium at 300 atm",
+  "description": "Two Gibbs reactors at 450 °C and 300 atm get the same 3:1 hydrogen-nitrogen feed. IDEAL treats the gas as ideal, REAL takes fugacities from Peng-Robinson. Larson and Dodge (1923) measured 35.8 mol-% ammonia at these conditions: the ideal gas gives about 31 %, the fugacities about 34 %. Raise the pressure of both feeds to see the gap grow.",
+  "components": ["nitrogen", "hydrogen", "ammonia"],
+  "property_method": "peng-robinson",
+  "units": [
+    {"id": "FEED-1", "type": "Feed", "ui": {"x": 40, "y": 60},
+     "params": {"T": "450 degC", "P": "300 atm",
+                "flows": {"nitrogen": "25 kmol/h", "hydrogen": "75 kmol/h"}}},
+    {"id": "IDEAL", "type": "GibbsReactor", "ui": {"x": 260, "y": 60},
+     "params": {"T": "450 degC", "fugacities": "ideal_gas"}},
+    {"id": "OUT-IDEAL", "type": "Product", "ui": {"x": 480, "y": 60}},
+    {"id": "FEED-2", "type": "Feed", "ui": {"x": 40, "y": 220},
+     "params": {"T": "450 degC", "P": "300 atm",
+                "flows": {"nitrogen": "25 kmol/h", "hydrogen": "75 kmol/h"}}},
+    {"id": "REAL", "type": "GibbsReactor", "ui": {"x": 260, "y": 220},
+     "params": {"T": "450 degC", "fugacities": "property_method"}},
+    {"id": "OUT-REAL", "type": "Product", "ui": {"x": 480, "y": 220}}
+  ],
+  "streams": [
+    {"id": "S1", "from": "FEED-1.out", "to": "IDEAL.in"},
+    {"id": "S2", "from": "IDEAL.out", "to": "OUT-IDEAL.in"},
+    {"id": "S3", "from": "FEED-2.out", "to": "REAL.in"},
+    {"id": "S4", "from": "REAL.out", "to": "OUT-REAL.in"}
+  ]
+}

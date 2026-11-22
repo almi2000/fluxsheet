@@ -339,12 +339,20 @@ class EquilibriumReactor(Reactor):
 class GibbsReactor(Reactor):
     type = "GibbsReactor"
     label = "Gibbs Reactor"
-    description = ("Minimizes the Gibbs energy of an ideal-gas mixture subject to element "
-                   "balances. Needs no reactions, only which compounds may form.")
+    description = ("Minimizes the Gibbs energy subject to element balances: of an ideal-gas "
+                   "mixture, or on fugacities from the property method, with the vapor and "
+                   "liquid phases the mixture forms. Needs no reactions, only which compounds "
+                   "may form.")
     params = (
         Param("products", "Reacting components", "string_list",
               help="Components that may form or react. Others pass through unchanged. "
               "Default: all components."),
+        Param("fugacities", "Fugacities", "choice", default="ideal_gas",
+              options=("ideal_gas", "property_method"),
+              help="ideal_gas: an ideal-gas mixture (exact at low pressure and high "
+              "temperature). property_method: fugacities from the flowsheet's property "
+              "method, so high pressures (an equation of state) and condensing products "
+              "(vapor and liquid in phase equilibrium) are accounted for."),
         KEY, *ENERGY, P_OUT, DP,
     )
 
@@ -365,16 +373,48 @@ class GibbsReactor(Reactor):
         ln_p = math.log(P / P_STD)
         hf = self.formation_enthalpies(pkg, [n0], species)
 
+        real = self.p["fugacities"] == "property_method"
+
         def flows_at(T: float) -> np.ndarray:
             if not len(nu):
                 return n0
             g = gibbs_over_rt(pkg, T, species, why="the Gibbs reactor")
             ln_k = -nu[:, species] @ g[species]
-            return n0 + equilibrium_extents(n0, nu, ln_k, ln_p) @ nu
+            n = n0 + equilibrium_extents(n0, nu, ln_k, ln_p) @ nu
+            return self._fugacity_equilibrium(pkg, T, P, n0, nu, ln_k, ln_p, n) if real else n
 
         T = self.p["T"] if self.p["T"] is not None else (
             self.temperature_for_energy(pkg, s, P, hf, flows_at))
         return self.finish(pkg, s, flows_at(T), P, hf)
+
+    def _fugacity_equilibrium(self, pkg, T, P, n0, nu, ln_k, ln_p, n):
+        """Equilibrium on fugacities f_i = z_i Phi_i P of the whole mixture (Phi from its
+        phase split, see PropertyPackage.ln_mixture_fugacity_coefficients).
+
+        sum_i nu_i ln(f_i/P°) = ln K reads sum_i nu_i ln(z_i P/P°) = ln K - sum_i nu_i ln Phi_i:
+        the ideal-gas problem with a corrected K. Phi follows the composition, so the two are
+        iterated (successive substitution, damped when it oscillates); the fixed point is the
+        Gibbs minimum with phase and chemical equilibrium together.
+        """
+        lnphi = None
+        weight, last = 1.0, math.inf
+        total0 = n0.sum()
+        for _ in range(200):
+            F = np.maximum(n, 0.0)
+            new, _ = pkg.ln_mixture_fugacity_coefficients(list(F / F.sum()), T, P)
+            change = math.inf if lnphi is None else float(np.max(np.abs(new - lnphi)))
+            if change > last:  # oscillating: take smaller steps
+                weight = max(0.5 * weight, 0.05)
+            last = change
+            lnphi = new if lnphi is None else lnphi + weight * (new - lnphi)
+            n_new = n0 + equilibrium_extents(n0, nu, ln_k - nu @ lnphi, ln_p) @ nu
+            if change < 1e-10 and np.max(np.abs(n_new - n)) <= 1e-12 * total0:
+                return n_new
+            n = n_new
+        raise SimulationError(
+            "the chemical and phase equilibrium did not converge", where=self.id,
+            hint="try the ideal-gas fugacities, or a temperature away from where a phase "
+            "appears")
 
     def key_index(self, pkg):
         return super().key_index(pkg) if self.p.get("key") else None

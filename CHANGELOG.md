@@ -9,6 +9,12 @@ format or API).
 
 ### Added
 
+- **Gibbs reactor on fugacities:** `fugacities: property_method` minimizes the Gibbs
+  energy on fugacities from the property method (equation of state or activity model)
+  with the vapor and liquid phases the mixture forms, instead of an ideal gas. Ammonia at
+  300 atm comes within 0.1-1.5 points of Larson and Dodge's data (the ideal gas is 4-5
+  points low); condensing methanol and water drive the synthesis almost to completion.
+  Example `ammonia_equilibrium_fugacities.json`.
 - **Dynamic distillation column:** the rigorous column under `dynamics.units`, started
   from its steady MESH solution. Trays hold liquid over the weir (Francis), reflux drum and
   sump hold minutes of liquid; reflux, distillate and bottoms flows and the reboiler duty
@@ -97,6 +103,9 @@ format or API).
 
 ### Fixed
 
+- **Chemical equilibrium near complete conversion:** the equilibrium solver no longer
+  stops short when a species falls to around 1e-9 of the feed, where the Gibbs energy
+  changes by less than its rounding; it accepts Newton steps that halve the gradient.
 - **Convergence of reactive distillation.** If the direct Newton solve fails, columns with
   chemical equilibrium stages can continue from a converged solution at lower reflux to
   the specified reflux ratio with adaptive steps.

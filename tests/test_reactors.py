@@ -453,3 +453,95 @@ def test_equilibrium_limited_rate_has_correct_gas_pressure_dependence(basis):
                          volume, "gas") > 0
     assert reaction.rate(None, 300.0, pressure, np.array([0.2, 0.8]),
                          volume, "gas") < 0
+
+
+# --- Gibbs reactor on fugacities (non-ideal) -------------------------------------------------
+
+def gibbs_on_fugacities(components, flows, feed_T, feed_P, fugacities, method="peng-robinson",
+          **params):
+    model = {
+        "components": components, "property_method": method,
+        "units": [{"id": "F", "type": "Feed",
+                   "params": {"T": feed_T, "P": feed_P, "flows": flows}},
+                  {"id": "R", "type": "GibbsReactor",
+                   "params": {"fugacities": fugacities, **params}},
+                  {"id": "P", "type": "Product"}],
+        "streams": [{"id": "S1", "from": "F.out", "to": "R.in"},
+                    {"id": "S2", "from": "R.out", "to": "P.in"}],
+    }
+    r = solve(model)
+    assert r.ok, r.error
+    return r
+
+
+AMMONIA = ["nitrogen", "hydrogen", "ammonia"]
+H2_N2 = {"nitrogen": "25 kmol/h", "hydrogen": "75 kmol/h"}
+
+
+@pytest.mark.parametrize("T, P, measured, within", [
+    # Larson and Dodge (1923), J. Am. Chem. Soc. 45, 2918: equilibrium mol-% NH3 from a 3:1
+    # hydrogen-nitrogen mixture.
+    (400, 300, 47.00, 0.5), (450, 300, 35.82, 2.0), (500, 300, 25.80, 2.0),
+    (450, 100, 16.43, 0.5), (450, 600, 53.71, 4.0),
+])
+def test_ammonia_equilibrium_on_fugacities_matches_larson_dodge(T, P, measured, within):
+    def y_nh3(fugacities):
+        r = gibbs_on_fugacities(AMMONIA, H2_N2, f"{T} degC", f"{P} atm", fugacities, T=f"{T} degC")
+        return 100.0 * r.streams["S2"]["mole_fractions"]["ammonia"]
+
+    real, ideal = y_nh3("property_method"), y_nh3("ideal_gas")
+    assert real == pytest.approx(measured, abs=within)
+    # The ideal gas misses the high-pressure gain: the fugacities do better, by far at 300 atm.
+    assert abs(real - measured) < abs(ideal - measured)
+
+
+def test_ideal_property_method_reproduces_the_ideal_gas():
+    comps = ["carbon monoxide", "hydrogen", "methanol"]
+    flows = {"carbon monoxide": "30 kmol/h", "hydrogen": "70 kmol/h"}
+    a = gibbs_on_fugacities(comps, flows, "300 degC", "5 bar", "ideal_gas", method="ideal",
+                            T="300 degC")
+    b = gibbs_on_fugacities(comps, flows, "300 degC", "5 bar", "property_method", method="ideal",
+              T="300 degC")
+    for c in comps:
+        assert b.streams["S2"]["mole_fractions"][c] == pytest.approx(
+            a.streams["S2"]["mole_fractions"][c], rel=1e-9, abs=1e-12)
+
+
+METHANOL = ["carbon monoxide", "carbon dioxide", "hydrogen", "methanol", "water"]
+SYNGAS_FEED = {"carbon monoxide": "20 kmol/h", "carbon dioxide": "10 kmol/h",
+          "hydrogen": "70 kmol/h"}
+
+
+@pytest.mark.parametrize("T, P", [(250, 100), (150, 100), (60, 50)])
+def test_condensing_products_meet_chemical_and_phase_equilibrium(T, P):
+    feed = (METHANOL, SYNGAS_FEED, f"{T} degC", f"{P} bar")
+    r = gibbs_on_fugacities(*feed, "property_method", T=f"{T} degC")
+    ideal = gibbs_on_fugacities(*feed, "ideal_gas", T=f"{T} degC")
+    s = r.streams["S2"]
+    z = np.array([s["mole_fractions"][c] for c in METHANOL])
+    # Checked independently on the outlet: every reaction at its K on fugacities.
+    pkg = get_package(tuple(METHANOL), "peng-robinson")
+    Tk, Pa = T + 273.15, P * 1e5
+    lnphi, _ = pkg.ln_mixture_fugacity_coefficients(list(z), Tk, Pa)
+    ln_f = np.log(z) + lnphi + math.log(Pa / 1e5)
+    from fluxsheet.reactions import gibbs_over_rt
+    g = gibbs_over_rt(pkg, Tk, range(len(METHANOL)))
+    for nu in ([-1, 0, -2, 1, 0], [1, -1, -1, 0, 1]):  # CO + 2 H2 = MeOH, shift
+        assert np.dot(nu, ln_f) + np.dot(nu, g) == pytest.approx(0.0, abs=1e-7)
+    # Elements are conserved.
+    def atoms(stream):
+        f = np.array([stream["component_flows"][c] for c in METHANOL])
+        return np.array([f @ [1, 1, 0, 1, 0], f @ [1, 2, 0, 1, 1], f @ [0, 0, 2, 4, 2]])
+    np.testing.assert_allclose(atoms(s), atoms(r.streams["S1"]), rtol=1e-9)
+    if T <= 150:
+        # Methanol and water condense; leaving the gas pulls the reaction almost to the end,
+        # which the ideal gas cannot show.
+        assert s["vapor_fraction"] < 0.5
+        assert z[3] > ideal.streams["S2"]["mole_fractions"]["methanol"] + 0.1
+
+
+def test_adiabatic_gibbs_reactor_on_fugacities_closes_the_energy_balance():
+    r = gibbs_on_fugacities(AMMONIA, H2_N2, "400 degC", "300 atm", "property_method")
+    assert r.units["R"]["T_out"] > 673.15 + 50  # exothermic
+    assert r.units["R"]["duty"] == pytest.approx(0.0, abs=1e-3)
+    assert all(c["status"] == "ok" for c in r.balance_checks)
