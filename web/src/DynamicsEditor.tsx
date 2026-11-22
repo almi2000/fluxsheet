@@ -100,6 +100,8 @@ function SettingInput({ param, value, onChange }: { param: ParamSchema; value: u
   if (param.quantity === "choice")
     return (
       <select aria-label={param.label} value={String(value ?? param.default ?? "")} onChange={(e) => onChange(e.target.value)}>
+        {/* No fixed default: the model picks one (a column's condenser by its type). */}
+        {param.default == null && <option value="">(default)</option>}
         {(param.options ?? []).map((o) => (
           <option key={o} value={o}>
             {o}
@@ -130,7 +132,7 @@ function HoldUps({
 }) {
   const eligible = units.filter((u) => u.schema.dynamic);
   if (!eligible.length)
-    return <p className="muted small">No unit in this flowsheet has a dynamic model yet (vessels, CSTRs and heaters do).</p>;
+    return <p className="muted small">No unit in this flowsheet has a dynamic model yet (vessels, CSTRs, heaters and distillation columns do).</p>;
   return (
     <div className="studies">
       {eligible.map((u) => {

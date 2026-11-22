@@ -1,0 +1,49 @@
+{
+  "format": "fluxsheet/1",
+  "name": "Benzene-toluene column control (dynamic)",
+  "description": "The 24-stage benzene-toluene column of the distillation example, run over time. The reflux drum level sets the distillate, the sump level the bottoms, and a temperature controller on the stage with the steepest temperature change moves the reboiler duty. After 10 minutes the feed turns richer in benzene (55/45 instead of 50/50 kmol/h). Open the Dynamics tab and run it: the control temperature dips by a quarter of a degree and returns, the reboiler duty settles some 3 % higher and both products stay above 99 % purity. Switch the temperature controller off to see the toluene purity of the bottoms fall to about 92 % instead.",
+  "components": ["benzene", "toluene"],
+  "property_method": "peng-robinson",
+  "units": [
+    {"id": "FEED", "type": "Feed", "ui": {"x": 40, "y": 140},
+     "params": {"T": "90 degC", "P": "1.5 bar",
+                "flows": {"benzene": "50 kmol/h", "toluene": "50 kmol/h"}}},
+    {"id": "COLUMN", "type": "DistillationColumn", "ui": {"x": 260, "y": 120},
+     "params": {"stages": 24, "feed_stage": 13, "P": "1 atm", "condenser": "total",
+                "reboiler": "kettle", "reflux_ratio": 1.79, "distillate_rate": "50 kmol/h"}},
+    {"id": "BENZENE", "type": "Product", "ui": {"x": 500, "y": 60}},
+    {"id": "TOLUENE", "type": "Product", "ui": {"x": 500, "y": 220}}
+  ],
+  "streams": [
+    {"id": "F", "from": "FEED.out", "to": "COLUMN.in"},
+    {"id": "DIST", "from": "COLUMN.distillate", "to": "BENZENE.in"},
+    {"id": "BOTT", "from": "COLUMN.bottoms", "to": "TOLUENE.in"}
+  ],
+  "dynamics": {
+    "t_end": "3 h",
+    "points": 181,
+    "units": {
+      "COLUMN": {"weir_height": "5 cm", "drum_time": "5 min", "sump_time": "5 min"}
+    },
+    "controllers": [
+      {"id": "LC_DRUM", "measure": {"unit": "COLUMN", "property": "drum_level"},
+       "manipulate": {"unit": "COLUMN", "param": "distillate_flow"}, "action": "direct",
+       "gain": 2, "integral_time": "10 min", "pv_range": [0, 1],
+       "op_range": ["0 kmol/h", "150 kmol/h"]},
+      {"id": "LC_SUMP", "measure": {"unit": "COLUMN", "property": "sump_level"},
+       "manipulate": {"unit": "COLUMN", "param": "bottoms_flow"}, "action": "direct",
+       "gain": 2, "integral_time": "10 min", "pv_range": [0, 1],
+       "op_range": ["0 kmol/h", "150 kmol/h"]},
+      {"id": "TC", "measure": {"unit": "COLUMN", "property": "control_T"},
+       "manipulate": {"unit": "COLUMN", "param": "reboiler_duty"}, "action": "reverse",
+       "gain": 1, "integral_time": "10 min", "pv_range": ["80 degC", "120 degC"],
+       "op_range": ["0 kW", "3000 kW"]}
+    ],
+    "events": [
+      {"time": "10 min", "unit": "FEED", "param": "flows", "component": "benzene",
+       "value": "55 kmol/h"},
+      {"time": "10 min", "unit": "FEED", "param": "flows", "component": "toluene",
+       "value": "45 kmol/h"}
+    ]
+  }
+}
