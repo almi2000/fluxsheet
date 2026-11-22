@@ -458,6 +458,40 @@ Set it up in the flowsheet settings and run it from the **Dynamics** tab of the 
 (charts per quantity, CSV export), or with
 `fluxsheet dynamic examples/esterification_control.json --csv run.csv`.
 
+## Importing DWSIM simulations
+
+```bash
+fluxsheet import-dwsim plant.dwxmz -o plant.json
+fluxsheet run plant.json
+```
+
+Reads a DWSIM simulation (`.dwxml`, or the zipped `.dwxmz`) and writes the equivalent
+flowsheet: the compounds (by CAS number or name), the property method, the feeds at their
+temperature, pressure and flows, the units with their main specs, the connections and
+DWSIM's layout. In Python: `model, warnings = fluxsheet.importers.import_dwsim(path)`;
+over HTTP: `POST /api/import/dwsim` with the file as the body.
+
+| DWSIM | Fluxsheet |
+|---|---|
+| Mixer, Splitter (three outlets: two splitters), Tank | Mixer, Splitter, Mixer |
+| Heater, Cooler | Heater (outlet T, duty, vapor fraction) |
+| Pump, Compressor, Expander, Valve | Pump, Compressor, Turbine, Valve |
+| Gas-liquid separator (with a second liquid: Decanter) | Flash, Decanter |
+| Heat exchanger (hot side by inlet temperature) | HeatExchanger (outlet T, duty, UA, approach) |
+| Shortcut column, compound separator | ShortcutColumn, ComponentSplitter |
+| Conversion reactor (with its reactions), Gibbs reactor | StoichiometricReactor, GibbsReactor |
+| Peng-Robinson (and PR78, PRSV2), SRK, NRTL, UNIQUAC, Wilson, UNIFAC variants, Raoult's law | peng-robinson, srk, nrtl, uniquac, wilson, unifac, ideal |
+
+Everything else is listed as a warning, never dropped silently: energy streams, logical
+blocks (adjust, spec, controllers), DWSIM's interaction parameters and package options,
+other property packages (then `auto`), and units without a counterpart (rigorous and
+absorption columns, equilibrium, CSTR and PFR reactors, pipes, ...). Such a unit is left
+out and the streams around it become products and feeds at the state DWSIM stored, so the
+rest still solves. Recycle blocks are dropped since Fluxsheet tears recycles itself, and a
+spec Fluxsheet cannot express (energy-stream or curve modes) is replaced by the outlet
+state DWSIM computed, with a warning. XML is parsed with `defusedxml`; files are
+size-limited and zip archives checked against zip bombs.
+
 ## What's included
 
 **Unit operations:** Feed, Product, Mixer, Splitter, Mixing tank, Heater/Cooler, Heat

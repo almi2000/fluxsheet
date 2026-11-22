@@ -102,7 +102,7 @@ Batch-Fließbilder gilt.
 - Dateien: `src/fluxsheet/costing.py`, `src/fluxsheet/units/batch.py` (nur Kostendaten),
   `tests/test_optimization.py` bzw. neue `tests/test_costing_batch.py`
 
-### G4 – DWSIM-Import · **ChatGPT** · Status: offen
+### G4 – DWSIM-Import · **ChatGPT** · Status: Review
 Import von DWSIM-Dateien (`.dwxmz`/`.dwxml`): Komponenten, Property-Methode, Feeds,
 Units, Verbindungen, Layout auf Fluxsheet-JSON abbilden; nicht abbildbare Teile als
 Warnliste ausgeben. CLI `fluxsheet import-dwsim`, optional `POST /api/import`.

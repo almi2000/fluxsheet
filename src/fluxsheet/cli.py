@@ -1,6 +1,7 @@
 """Command line: ``fluxsheet run file.json``, ``fluxsheet report file.json``,
 ``fluxsheet sensitivity file.json``, ``fluxsheet dynamic file.json``,
-``fluxsheet optimize file.json``, ``fluxsheet fit-binary`` and ``fluxsheet serve``."""
+``fluxsheet optimize file.json``, ``fluxsheet fit-binary`` and ``fluxsheet serve``.
+``fluxsheet import-dwsim file.dwxmz -o file.json`` converts a DWSIM simulation."""
 
 from __future__ import annotations
 
@@ -289,6 +290,29 @@ def _serve(args) -> int:
     return 0
 
 
+def _import_dwsim(args) -> int:
+    from .importers import DwsimImportError, import_dwsim
+
+    try:
+        model, warnings = import_dwsim(args.file)
+    except DwsimImportError as exc:
+        print(f"error: {exc.message}", file=sys.stderr)
+        if exc.hint:
+            print(f"  hint: {exc.hint}", file=sys.stderr)
+        return 1
+    text = json.dumps(model, indent=2, ensure_ascii=False) + "\n"
+    if args.output:
+        with open(args.output, "w", encoding="utf-8") as f:
+            f.write(text)
+        print(f"{len(model['units'])} units and {len(model['streams'])} streams written to "
+              f"{args.output}", file=sys.stderr)
+    else:
+        print(text, end="")
+    for w in warnings:
+        print(f"warning: {w}", file=sys.stderr)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="fluxsheet", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -348,6 +372,15 @@ def main(argv: list[str] | None = None) -> int:
     fit.add_argument("--output", help="directory for --write instead of the package data")
     fit.add_argument("--quiet", action="store_true", help="no download progress")
     fit.set_defaults(func=_fit_binary)
+    imp = sub.add_parser(
+        "import-dwsim", help="convert a DWSIM simulation (.dwxml/.dwxmz) into a flowsheet file",
+        description="Read a DWSIM simulation and write the equivalent Fluxsheet flowsheet: "
+        "compounds, property method, feeds, units with their specs, connections and layout. "
+        "What has no Fluxsheet counterpart is listed as a warning.")
+    imp.add_argument("file")
+    imp.add_argument("-o", "--output", help="write the flowsheet JSON to this file "
+                     "(default: print it)")
+    imp.set_defaults(func=_import_dwsim)
     args = parser.parse_args(argv)
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")

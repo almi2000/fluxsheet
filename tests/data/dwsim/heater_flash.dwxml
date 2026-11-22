@@ -1,0 +1,487 @@
+<?xml version='1.0' encoding='utf-8'?>
+<DWSIM_Simulation_Data>
+  <GeneralInfo>
+    <BuildVersion>8.8.1.0</BuildVersion>
+    <SavedOn>2026-11-22T10:00:00</SavedOn>
+    <SavedFromClassicUI>False</SavedFromClassicUI>
+  </GeneralInfo>
+  <SimulationObjects>
+    <SimulationObject>
+      <Type>DWSIM.Thermodynamics.Streams.MaterialStream</Type>
+      <ComponentName>MAT-01</ComponentName>
+      <ComponentDescription />
+      <Name>MAT-01</Name>
+      <PropertyPackage>PP-NRTL-1</PropertyPackage>
+      <SpecType>Temperature_and_Pressure</SpecType>
+      <Phases>
+        <Phase>
+          <ID>0</ID>
+          <Name>Mixture</Name>
+          <Compounds>
+            <Compound>
+              <Name>Water</Name>
+              <MoleFraction>0.7999999999999999</MoleFraction>
+              <MassFraction>0.61001108957157</MassFraction>
+              <MolarFlow>22.22222222222222</MolarFlow>
+            </Compound>
+            <Compound>
+              <Name>Ethanol</Name>
+              <MoleFraction>0.19999999999999998</MoleFraction>
+              <MassFraction>0.3899889104284299</MassFraction>
+              <MolarFlow>5.555555555555555</MolarFlow>
+            </Compound>
+          </Compounds>
+          <Properties>
+            <temperature>298.15</temperature>
+            <pressure>120000.0</pressure>
+            <molarflow>27.77777777777778</molarflow>
+            <massflow>0.6562722222222223</massflow>
+            <molarfraction>1.0</molarfraction>
+          </Properties>
+        </Phase>
+        <Phase>
+          <ID>1</ID>
+          <Name>OverallLiquid</Name>
+          <Compounds>
+            <Compound>
+              <Name>Water</Name>
+            </Compound>
+            <Compound>
+              <Name>Ethanol</Name>
+            </Compound>
+          </Compounds>
+          <Properties>
+            <molarfraction>1.0</molarfraction>
+          </Properties>
+        </Phase>
+        <Phase>
+          <ID>2</ID>
+          <Name>Vapor</Name>
+          <Compounds>
+            <Compound>
+              <Name>Water</Name>
+            </Compound>
+            <Compound>
+              <Name>Ethanol</Name>
+            </Compound>
+          </Compounds>
+          <Properties>
+            <molarfraction>0.0</molarfraction>
+          </Properties>
+        </Phase>
+      </Phases>
+    </SimulationObject>
+    <SimulationObject>
+      <Type>DWSIM.UnitOperations.UnitOperations.Heater</Type>
+      <ComponentName>HEAT-01</ComponentName>
+      <ComponentDescription />
+      <Name>HEAT-01</Name>
+      <PropertyPackage>PP-NRTL-1</PropertyPackage>
+      <CalcMode>OutletTemperature</CalcMode>
+      <OutletTemperature>365.15</OutletTemperature>
+      <DeltaP>10000</DeltaP>
+      <DeltaQ>1090.0</DeltaQ>
+      <Eficiencia>100</Eficiencia>
+    </SimulationObject>
+    <SimulationObject>
+      <Type>DWSIM.Thermodynamics.Streams.MaterialStream</Type>
+      <ComponentName>MAT-02</ComponentName>
+      <ComponentDescription />
+      <Name>MAT-02</Name>
+      <PropertyPackage>PP-NRTL-1</PropertyPackage>
+      <SpecType>Temperature_and_Pressure</SpecType>
+      <Phases>
+        <Phase>
+          <ID>0</ID>
+          <Name>Mixture</Name>
+          <Compounds>
+            <Compound>
+              <Name>Water</Name>
+              <MoleFraction>0.7999999999999999</MoleFraction>
+              <MassFraction>0.61001108957157</MassFraction>
+              <MolarFlow>22.22222222222222</MolarFlow>
+            </Compound>
+            <Compound>
+              <Name>Ethanol</Name>
+              <MoleFraction>0.19999999999999998</MoleFraction>
+              <MassFraction>0.3899889104284299</MassFraction>
+              <MolarFlow>5.555555555555555</MolarFlow>
+            </Compound>
+          </Compounds>
+          <Properties>
+            <temperature>365.15</temperature>
+            <pressure>110000.0</pressure>
+            <molarflow>27.77777777777778</molarflow>
+            <massflow>0.6562722222222223</massflow>
+            <molarfraction>1.0</molarfraction>
+          </Properties>
+        </Phase>
+        <Phase>
+          <ID>1</ID>
+          <Name>OverallLiquid</Name>
+          <Compounds>
+            <Compound>
+              <Name>Water</Name>
+            </Compound>
+            <Compound>
+              <Name>Ethanol</Name>
+            </Compound>
+          </Compounds>
+          <Properties>
+            <molarfraction>0.5073352707381104</molarfraction>
+          </Properties>
+        </Phase>
+        <Phase>
+          <ID>2</ID>
+          <Name>Vapor</Name>
+          <Compounds>
+            <Compound>
+              <Name>Water</Name>
+            </Compound>
+            <Compound>
+              <Name>Ethanol</Name>
+            </Compound>
+          </Compounds>
+          <Properties>
+            <molarfraction>0.49266472926188964</molarfraction>
+          </Properties>
+        </Phase>
+      </Phases>
+    </SimulationObject>
+    <SimulationObject>
+      <Type>DWSIM.UnitOperations.UnitOperations.Vessel</Type>
+      <ComponentName>VESS-01</ComponentName>
+      <ComponentDescription />
+      <Name>VESS-01</Name>
+      <PropertyPackage>PP-NRTL-1</PropertyPackage>
+      <OverrideP>false</OverrideP>
+      <OverrideT>false</OverrideT>
+    </SimulationObject>
+    <SimulationObject>
+      <Type>DWSIM.Thermodynamics.Streams.MaterialStream</Type>
+      <ComponentName>MAT-03</ComponentName>
+      <ComponentDescription />
+      <Name>MAT-03</Name>
+      <PropertyPackage>PP-NRTL-1</PropertyPackage>
+      <SpecType>Temperature_and_Pressure</SpecType>
+      <Phases>
+        <Phase>
+          <ID>0</ID>
+          <Name>Mixture</Name>
+          <Compounds>
+            <Compound>
+              <Name>Water</Name>
+              <MoleFraction>0.6538946007201277</MoleFraction>
+              <MassFraction>0.4248895878080061</MassFraction>
+              <MolarFlow>8.948633511933144</MolarFlow>
+            </Compound>
+            <Compound>
+              <Name>Ethanol</Name>
+              <MoleFraction>0.3461053992798724</MoleFraction>
+              <MassFraction>0.5751104121919939</MassFraction>
+              <MolarFlow>4.736497856452682</MolarFlow>
+            </Compound>
+          </Compounds>
+          <Properties>
+            <temperature>365.15</temperature>
+            <pressure>110000.0</pressure>
+            <molarflow>13.685131368385825</molarflow>
+            <massflow>0.37941535246639424</massflow>
+            <molarfraction>1.0</molarfraction>
+          </Properties>
+        </Phase>
+        <Phase>
+          <ID>1</ID>
+          <Name>OverallLiquid</Name>
+          <Compounds>
+            <Compound>
+              <Name>Water</Name>
+            </Compound>
+            <Compound>
+              <Name>Ethanol</Name>
+            </Compound>
+          </Compounds>
+          <Properties>
+            <molarfraction>0.0</molarfraction>
+          </Properties>
+        </Phase>
+        <Phase>
+          <ID>2</ID>
+          <Name>Vapor</Name>
+          <Compounds>
+            <Compound>
+              <Name>Water</Name>
+            </Compound>
+            <Compound>
+              <Name>Ethanol</Name>
+            </Compound>
+          </Compounds>
+          <Properties>
+            <molarfraction>1.0</molarfraction>
+          </Properties>
+        </Phase>
+      </Phases>
+    </SimulationObject>
+    <SimulationObject>
+      <Type>DWSIM.Thermodynamics.Streams.MaterialStream</Type>
+      <ComponentName>MAT-04</ComponentName>
+      <ComponentDescription />
+      <Name>MAT-04</Name>
+      <PropertyPackage>PP-NRTL-1</PropertyPackage>
+      <SpecType>Temperature_and_Pressure</SpecType>
+      <Phases>
+        <Phase>
+          <ID>0</ID>
+          <Name>Mixture</Name>
+          <Compounds>
+            <Compound>
+              <Name>Water</Name>
+              <MoleFraction>0.941880490341614</MoleFraction>
+              <MassFraction>0.8637087489530284</MassFraction>
+              <MolarFlow>13.273588710289085</MolarFlow>
+            </Compound>
+            <Compound>
+              <Name>Ethanol</Name>
+              <MoleFraction>0.05811950965838592</MoleFraction>
+              <MassFraction>0.13629125104697157</MassFraction>
+              <MolarFlow>0.8190576991028736</MolarFlow>
+            </Compound>
+          </Compounds>
+          <Properties>
+            <temperature>365.15</temperature>
+            <pressure>110000.0</pressure>
+            <molarflow>14.092646409391959</molarflow>
+            <massflow>0.2768568697558281</massflow>
+            <molarfraction>1.0</molarfraction>
+          </Properties>
+        </Phase>
+        <Phase>
+          <ID>1</ID>
+          <Name>OverallLiquid</Name>
+          <Compounds>
+            <Compound>
+              <Name>Water</Name>
+            </Compound>
+            <Compound>
+              <Name>Ethanol</Name>
+            </Compound>
+          </Compounds>
+          <Properties>
+            <molarfraction>1.0</molarfraction>
+          </Properties>
+        </Phase>
+        <Phase>
+          <ID>2</ID>
+          <Name>Vapor</Name>
+          <Compounds>
+            <Compound>
+              <Name>Water</Name>
+            </Compound>
+            <Compound>
+              <Name>Ethanol</Name>
+            </Compound>
+          </Compounds>
+          <Properties>
+            <molarfraction>0.0</molarfraction>
+          </Properties>
+        </Phase>
+      </Phases>
+    </SimulationObject>
+    <SimulationObject>
+      <Type>DWSIM.UnitOperations.Streams.EnergyStream</Type>
+      <ComponentName>EN-01</ComponentName>
+      <ComponentDescription />
+      <Name>EN-01</Name>
+      <PropertyPackage>PP-NRTL-1</PropertyPackage>
+    </SimulationObject>
+  </SimulationObjects>
+  <Settings />
+  <GraphicObjects>
+    <GraphicObject>
+      <Type>DWSIM.Drawing.SkiaSharp.GraphicObjects.Shapes.MaterialStreamGraphic</Type>
+      <Name>MAT-01</Name>
+      <Tag>FEED</Tag>
+      <ObjectType>MaterialStream</ObjectType>
+      <X>40</X>
+      <Y>160</Y>
+      <Width>40</Width>
+      <Height>40</Height>
+      <InputConnectors>
+        <Connector IsAttached="false" ConnType="ConIn" />
+      </InputConnectors>
+      <OutputConnectors>
+        <Connector IsAttached="true" ConnType="ConOut" AttachedToObjID="HEAT-01" AttachedToConnIndex="0" AttachedToEnergyConn="false" />
+      </OutputConnectors>
+      <EnergyConnector>
+        <Connector IsAttached="false" ConnType="ConEn" />
+      </EnergyConnector>
+    </GraphicObject>
+    <GraphicObject>
+      <Type>DWSIM.Drawing.SkiaSharp.GraphicObjects.Shapes.HeaterGraphic</Type>
+      <Name>HEAT-01</Name>
+      <Tag>E-101</Tag>
+      <ObjectType>Heater</ObjectType>
+      <X>200</X>
+      <Y>160</Y>
+      <Width>40</Width>
+      <Height>40</Height>
+      <InputConnectors>
+        <Connector IsAttached="true" ConnType="ConIn" AttachedFromObjID="MAT-01" AttachedFromConnIndex="0" AttachedFromEnergyConn="false" />
+        <Connector IsAttached="true" ConnType="ConIn" AttachedFromObjID="EN-01" AttachedFromConnIndex="0" AttachedFromEnergyConn="false" />
+      </InputConnectors>
+      <OutputConnectors>
+        <Connector IsAttached="true" ConnType="ConOut" AttachedToObjID="MAT-02" AttachedToConnIndex="0" AttachedToEnergyConn="false" />
+      </OutputConnectors>
+      <EnergyConnector>
+        <Connector IsAttached="false" ConnType="ConEn" />
+      </EnergyConnector>
+    </GraphicObject>
+    <GraphicObject>
+      <Type>DWSIM.Drawing.SkiaSharp.GraphicObjects.Shapes.MaterialStreamGraphic</Type>
+      <Name>MAT-02</Name>
+      <Tag>S2</Tag>
+      <ObjectType>MaterialStream</ObjectType>
+      <X>320</X>
+      <Y>160</Y>
+      <Width>40</Width>
+      <Height>40</Height>
+      <InputConnectors>
+        <Connector IsAttached="true" ConnType="ConIn" AttachedFromObjID="HEAT-01" AttachedFromConnIndex="0" AttachedFromEnergyConn="false" />
+      </InputConnectors>
+      <OutputConnectors>
+        <Connector IsAttached="true" ConnType="ConOut" AttachedToObjID="VESS-01" AttachedToConnIndex="0" AttachedToEnergyConn="false" />
+      </OutputConnectors>
+      <EnergyConnector>
+        <Connector IsAttached="false" ConnType="ConEn" />
+      </EnergyConnector>
+    </GraphicObject>
+    <GraphicObject>
+      <Type>DWSIM.Drawing.SkiaSharp.GraphicObjects.Shapes.VesselGraphic</Type>
+      <Name>VESS-01</Name>
+      <Tag>V-101</Tag>
+      <ObjectType>Vessel</ObjectType>
+      <X>440</X>
+      <Y>160</Y>
+      <Width>40</Width>
+      <Height>40</Height>
+      <InputConnectors>
+        <Connector IsAttached="true" ConnType="ConIn" AttachedFromObjID="MAT-02" AttachedFromConnIndex="0" AttachedFromEnergyConn="false" />
+        <Connector IsAttached="false" ConnType="ConIn" />
+        <Connector IsAttached="false" ConnType="ConIn" />
+        <Connector IsAttached="false" ConnType="ConIn" />
+        <Connector IsAttached="false" ConnType="ConIn" />
+        <Connector IsAttached="false" ConnType="ConIn" />
+        <Connector IsAttached="false" ConnType="ConIn" />
+      </InputConnectors>
+      <OutputConnectors>
+        <Connector IsAttached="true" ConnType="ConOut" AttachedToObjID="MAT-03" AttachedToConnIndex="0" AttachedToEnergyConn="false" />
+        <Connector IsAttached="true" ConnType="ConOut" AttachedToObjID="MAT-04" AttachedToConnIndex="0" AttachedToEnergyConn="false" />
+        <Connector IsAttached="false" ConnType="ConOut" />
+        <Connector IsAttached="false" ConnType="ConOut" />
+      </OutputConnectors>
+      <EnergyConnector>
+        <Connector IsAttached="false" ConnType="ConEn" />
+      </EnergyConnector>
+    </GraphicObject>
+    <GraphicObject>
+      <Type>DWSIM.Drawing.SkiaSharp.GraphicObjects.Shapes.MaterialStreamGraphic</Type>
+      <Name>MAT-03</Name>
+      <Tag>VAPOR</Tag>
+      <ObjectType>MaterialStream</ObjectType>
+      <X>600</X>
+      <Y>80</Y>
+      <Width>40</Width>
+      <Height>40</Height>
+      <InputConnectors>
+        <Connector IsAttached="true" ConnType="ConIn" AttachedFromObjID="VESS-01" AttachedFromConnIndex="0" AttachedFromEnergyConn="false" />
+      </InputConnectors>
+      <OutputConnectors>
+        <Connector IsAttached="false" ConnType="ConOut" />
+      </OutputConnectors>
+      <EnergyConnector>
+        <Connector IsAttached="false" ConnType="ConEn" />
+      </EnergyConnector>
+    </GraphicObject>
+    <GraphicObject>
+      <Type>DWSIM.Drawing.SkiaSharp.GraphicObjects.Shapes.MaterialStreamGraphic</Type>
+      <Name>MAT-04</Name>
+      <Tag>LIQUID</Tag>
+      <ObjectType>MaterialStream</ObjectType>
+      <X>600</X>
+      <Y>260</Y>
+      <Width>40</Width>
+      <Height>40</Height>
+      <InputConnectors>
+        <Connector IsAttached="true" ConnType="ConIn" AttachedFromObjID="VESS-01" AttachedFromConnIndex="1" AttachedFromEnergyConn="false" />
+      </InputConnectors>
+      <OutputConnectors>
+        <Connector IsAttached="false" ConnType="ConOut" />
+      </OutputConnectors>
+      <EnergyConnector>
+        <Connector IsAttached="false" ConnType="ConEn" />
+      </EnergyConnector>
+    </GraphicObject>
+    <GraphicObject>
+      <Type>DWSIM.Drawing.SkiaSharp.GraphicObjects.Shapes.EnergyStreamGraphic</Type>
+      <Name>EN-01</Name>
+      <Tag>Q-101</Tag>
+      <ObjectType>EnergyStream</ObjectType>
+      <X>200</X>
+      <Y>260</Y>
+      <Width>40</Width>
+      <Height>40</Height>
+      <InputConnectors>
+        <Connector IsAttached="false" ConnType="ConIn" />
+      </InputConnectors>
+      <OutputConnectors>
+        <Connector IsAttached="true" ConnType="ConOut" AttachedToObjID="HEAT-01" AttachedToConnIndex="1" AttachedToEnergyConn="false" />
+      </OutputConnectors>
+      <EnergyConnector>
+        <Connector IsAttached="false" ConnType="ConEn" />
+      </EnergyConnector>
+    </GraphicObject>
+    <GraphicObject>
+      <Type>DWSIM.Drawing.SkiaSharp.GraphicObjects.TextGraphic</Type>
+      <Name>TXT-01</Name>
+      <Tag>Ethanol enrichment</Tag>
+      <ObjectType>GO_Text</ObjectType>
+      <X>40</X>
+      <Y>20</Y>
+    </GraphicObject>
+  </GraphicObjects>
+  <PropertyPackages>
+    <PropertyPackage>
+      <ID>PP-NRTL-1</ID>
+      <Type>DWSIM.Thermodynamics.PropertyPackages.NRTLPropertyPackage</Type>
+      <ComponentName>NRTL</ComponentName>
+      <Tag>NRTL</Tag>
+    </PropertyPackage>
+  </PropertyPackages>
+  <Compounds>
+    <Compound>
+      <Type>DWSIM.Thermodynamics.BaseClasses.ConstantProperties</Type>
+      <Name>Water</Name>
+      <CAS_Number>7732-18-5</CAS_Number>
+      <Formula>H2O</Formula>
+      <Molar_Weight>18.015</Molar_Weight>
+    </Compound>
+    <Compound>
+      <Type>DWSIM.Thermodynamics.BaseClasses.ConstantProperties</Type>
+      <Name>Ethanol</Name>
+      <CAS_Number>64-17-5</CAS_Number>
+      <Formula>C2H6O</Formula>
+      <Molar_Weight>46.069</Molar_Weight>
+    </Compound>
+  </Compounds>
+  <ReactionSets>
+    <ReactionSet>
+      <ID>DefaultSet</ID>
+      <Name>Default Set</Name>
+      <Description />
+      <Reactions />
+    </ReactionSet>
+  </ReactionSets>
+  <Reactions />
+  <OptimizationCases />
+  <SensitivityAnalysis />
+</DWSIM_Simulation_Data>
