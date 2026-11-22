@@ -203,4 +203,6 @@ class CostingModel(BaseModel):
     material: Literal["CS", "SS"] = "CS"
     U: float | str = 500.0  # W/(m2 K), exchangers without a given area
     tray_efficiency: float = Field(default=0.7, gt=0.0, le=1.0)
+    # s, discharge, cleaning and setup per batch of a batch reactor without a down time
+    batch_turnaround: float | str = 3600.0
     units: dict[str, UnitCostingModel] = Field(default_factory=dict)

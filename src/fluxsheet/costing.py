@@ -30,6 +30,13 @@ Sizes come from the solved flowsheet:
 - pumps by shaft power (motor not included), compressors by shaft power (Turton's
   correlation is for fluid power, so this errs high by the efficiency) plus an electric
   drive, stirred reactors and tanks by volume.
+- batch reactors: a jacketed agitated vessel holding the largest contents volume of the
+  batch at 80 % fill (a constant-volume vessel: its volume), corrected for material and
+  pressure like the other vessels, once per vessel the batch cycle needs. A vessel is
+  occupied for the charge time, the reaction time and the turnaround (the unit's down time,
+  else ``batch_turnaround``, 1 h); the flowsheet charges one batch per cycle time, so
+  ceil(occupied / cycle) vessels are needed in turn, and hours_per_year / cycle time batches
+  run per year. Heating and cooling are priced per batch and times the batches per year.
 
 Operating cost per year: each heating or cooling duty times a price in $/GJ, and the
 electricity of pumps and compressors. Without a price, the cheapest utility hot or cold
@@ -79,6 +86,8 @@ NET_AREA = 0.88  # net (vapor flow) over total cross section of a tray column
 SOUDERS_BROWN_K = 0.07  # m/s, vertical drum without demister
 HOLDUP = 300.0  # s of liquid, drum half full
 TOTAL_MODULE = 1.18  # contingency (15 %) and fee (3 %) on the bare-module cost
+BATCH_FILL = 0.8  # working volume over vessel volume of a batch reactor (headspace)
+BATCH_ASPECT = 1.5  # height over diameter of an agitated vessel, for its wall thickness
 
 # Results a costed unit reports, readable by design specs, studies and optimizations.
 UNIT_FIELDS = UNIT_COSTS
@@ -123,6 +132,7 @@ KETTLE = Correlation("kettle reboiler", (4.4646, -0.5277, 0.3955), "m2", 10.0, 1
 PUMP = Correlation("centrifugal pump", (3.3892, 0.0536, 0.1538), "kW", 1.0, 300.0)
 COMPRESSOR = Correlation("centrifugal compressor", (2.2897, 1.3604, -0.1027), "kW", 450.0, 3000.0)
 DRIVE = Correlation("electric drive", (2.4604, 1.4191, -0.1798), "kW", 75.0, 2600.0)
+# Turton Table A.1, "Reactors - jacketed agitated" (agitator and jacket included).
 STIRRED = Correlation("jacketed agitated vessel", (4.1052, 0.5320, -0.0005), "m3", 0.1, 35.0)
 
 # Material factors FM (Turton Fig. A.18, Table A.3), carbon steel / stainless steel.
@@ -232,6 +242,7 @@ class _UnitCost:
     items: list[dict] = field(default_factory=list)
     energy: list[dict] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    batch: dict | None = None  # the cycle of a batch reactor
 
 
 class _Estimate:
@@ -246,6 +257,13 @@ class _Estimate:
             raise SimulationError(f"costing U: {exc}", where="costing") from exc
         if self.U <= 0:
             raise SimulationError("costing U must be positive", where="costing")
+        try:
+            self.turnaround = to_si(self.c.batch_turnaround, "time")
+        except (UnitError, ValueError) as exc:
+            raise SimulationError(f"costing batch turnaround: {exc}", where="costing") from exc
+        if self.turnaround < 0:
+            raise SimulationError("costing batch turnaround must not be negative",
+                                  where="costing")
         unit_ids = {u.id for u in model.units}
         for uid in self.c.units:
             if uid not in unit_ids:
@@ -472,6 +490,84 @@ def _reactor(e: _Estimate, cost: _UnitCost, uid: str, ures: dict) -> None:
            ures.get("duty"), _span(ins, outs), _pmax(ins, outs), exchanger=None, ures=ures)
 
 
+def _batch(e: _Estimate, cost: _UnitCost, uid: str, ures: dict) -> None:
+    """Batch reactor: its vessels from the batch cycle, heating and cooling per batch."""
+    t_cycle, t_react = ures.get("cycle_time"), ures.get("batch_time")
+    if not t_cycle or t_cycle <= 0 or t_react is None:
+        cost.notes.append("no batch cycle (no feed?): the reactor is not costed")
+        return
+    ins, outs = e.streams(uid)
+    conditions = (ures.get("profiles") or {}).get("conditions") or {}
+    series = {s["label"]: s["values"] for s in conditions.get("series", ())}
+    Ts = series.get("Temperature") or [ures.get("T_out") or _span(ins, outs)[1]]
+    qs = series.get("Duty") or [ures.get("duty") or 0.0] * len(Ts)
+    P = max([*series.get("Pressure", ()), ures.get("P_final") or 0.0, _pmax(ins, outs)])
+
+    # The cycle: one batch per cycle time; each occupies a vessel for longer by the
+    # charge time and the turnaround (the unit's down time, else the costing's).
+    down = e.param(uid, "down_time", "time") or 0.0
+    turnaround, source = (down, "down time") if down > 0 else (e.turnaround, "turnaround")
+    occupied = (e.param(uid, "charge_time", "time") or 0.0) + t_react + turnaround
+    vessels = max(1, math.ceil(occupied / t_cycle - 1e-9))
+    batches = e.seconds / t_cycle
+
+    # Vessel: Turton's jacketed agitated reactor (Table A.1) with the reactor bare-module
+    # factor FBM_STIRRED of the CSTR. Turton gives no material or pressure factor for it,
+    # so they scale it as they scale a vertical vessel's: (B1 + B2 FM FP) / (B1 + B2),
+    # B1 2.25, B2 1.82 (Table A.4), FM Table A.3, FP eq. A.2; 1 in carbon steel near
+    # ambient pressure, where it costs as much as a CSTR of the same volume.
+    V_max = ures.get("max_volume") or 0.0
+    closed = e.model_unit(uid).params.get("vessel") == "constant_volume"
+    V = V_max if closed else V_max / BATCH_FILL
+    if V > 0:
+        n_par = max(1, math.ceil(V / STIRRED.hi - 1e-9))
+        D = (4.0 * V / n_par / (BATCH_ASPECT * math.pi)) ** (1.0 / 3.0)
+        fp = vessel_pressure_factor(P, D)
+        fm = FM_VESSEL[e.material(uid)]
+        factor = (2.25 + 1.82 * fm * fp) / (2.25 + 1.82)
+        fill = ("closed vessel" if closed else
+                f"largest contents {V_max:.3g} m³ at {BATCH_FILL:.0%} fill")
+        many = f", {vessels} vessels in turn" if vessels > 1 else ""
+        e.item(cost, "vessel", STIRRED, V, FBM_STIRRED * factor,
+               f"{fill}, D {D:.2f} m, FM·FP factor {factor:.2f}{many}", count=vessels)
+        cost.items[-1]["parallel"] *= vessels
+    else:
+        cost.notes.append("no contents volume: the vessel is not costed")
+
+    # Heating and cooling per batch, priced by sign; as average duties over the cycle
+    # (heat per batch / cycle time) they cost per year what the batches per year take.
+    for what, Q_batch, sign in (("heating", ures.get("heating_per_batch"), 1.0),
+                                ("cooling", ures.get("cooling_per_batch"), -1.0)):
+        if Q_batch is None:  # results without the split: the net heat
+            net = ures.get("heat_per_batch") or 0.0
+            Q_batch = net if net * sign > 0 else 0.0
+        T_side = [T for T, q in zip(Ts, qs) if q * sign > 0] or list(Ts)
+        before = len(cost.energy)
+        e.heat(cost, uid, what, Q_batch / t_cycle, (min(T_side), max(T_side)), P,
+               exchanger=None, ures=ures)
+        if len(cost.energy) > before:
+            entry = cost.energy[-1]
+            entry.update(per_batch=Q_batch, cost_per_batch=entry["cost"] / batches)
+
+    utilities = sum(x["cost"] for x in cost.energy)
+    capital = annualization_factor(e.c) * TOTAL_MODULE * sum(
+        i["bare_module_cost"] for i in cost.items)
+    per_batch, all_in = utilities / batches, (utilities + capital) / batches
+    cost.batch = {
+        "cycle_time": t_cycle, "batch_time": t_react, "turnaround": turnaround,
+        "turnaround_source": source, "occupied_time": occupied, "vessels": vessels,
+        "batches_per_year": batches, "utility_cost_per_batch": per_batch,
+        "annualized_capital": capital, "cost_per_batch": all_in,
+    }
+    ures.update(batches_per_year=batches, vessels_costed=float(vessels),
+                utility_cost_per_batch=per_batch, cost_per_batch=all_in)
+    cost.notes.append(
+        f"batch cycle: {batches:.4g} batches/yr (one every {t_cycle / 3600:.3g} h), a vessel "
+        f"occupied {occupied / 3600:.3g} h per batch ({source} {turnaround / 3600:.3g} h): "
+        f"{vessels} vessel{'s' if vessels > 1 else ''}; {per_batch:.4g} $ utilities and "
+        f"{all_in:.4g} $ with annualized capital per batch")
+
+
 def _pump(e: _Estimate, cost: _UnitCost, uid: str, ures: dict) -> None:
     power = ures.get("power") or 0.0
     if power <= 0:
@@ -579,6 +675,7 @@ _HANDLERS = {
     "YieldReactor": _reactor,
     "EquilibriumReactor": _reactor,
     "GibbsReactor": _reactor,
+    "BatchReactor": _batch,
     "Pump": _pump,
     "Compressor": _compressor,
     "MultistageCompressor": _compressor,
@@ -619,6 +716,8 @@ def estimate(model: FlowsheetModel, result: SolveResult, packages) -> None:
         units[um.id] = {"type": um.type, "items": cost.items, "utilities": cost.energy,
                         "notes": cost.notes, "purchased_cost": purchased,
                         "bare_module_cost": bare, "operating_cost": operating}
+        if cost.batch is not None:
+            units[um.id]["batch"] = cost.batch
     purchased = sum(u["purchased_cost"] for u in units.values())
     bare = sum(u["bare_module_cost"] for u in units.values())
     operating = sum(u["operating_cost"] for u in units.values())

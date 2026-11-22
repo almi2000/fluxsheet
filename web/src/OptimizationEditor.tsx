@@ -101,6 +101,16 @@ export function CostingEditor({ costing, onChange }: { costing?: Costing; onChan
           <span className="field-label">Exchanger U</span>
           <Qty quantity="heat_transfer_coefficient" label="Exchanger U" value={costing.U} placeholder="500" onChange={(U) => set({ U: U === "" ? undefined : U })} />
         </label>
+        <label title="Discharge, cleaning and setup per batch of a batch reactor that gives no down time">
+          <span className="field-label">Batch turnaround</span>
+          <Qty
+            quantity="time"
+            label="Batch turnaround"
+            value={costing.batch_turnaround}
+            placeholder="1 h"
+            onChange={(batch_turnaround) => set({ batch_turnaround: batch_turnaround === "" ? undefined : batch_turnaround })}
+          />
+        </label>
       </div>
       <button className="danger" onClick={() => onChange(undefined)}>
         Remove costing

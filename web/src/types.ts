@@ -368,6 +368,7 @@ export interface Costing {
   material?: "CS" | "SS";
   U?: Value;
   tray_efficiency?: number;
+  batch_turnaround?: Value; // per batch of a batch reactor without a down time; default 1 h
   units?: Record<string, { material?: "CS" | "SS"; U?: Value; exclude?: boolean }>;
 }
 

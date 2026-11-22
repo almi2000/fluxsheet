@@ -9,6 +9,16 @@ format or API).
 
 ### Added
 
+- **Batch reactor costing:** the `BatchReactor` gets Turton costs as a jacketed agitated
+  vessel (Table A.1, the CSTR's bare-module factor, scaled for material and pressure like
+  the other vessels) holding its largest contents at 80 % fill, once per vessel the cycle
+  needs: a vessel is occupied for charge, reaction and turnaround (the unit's down time,
+  else the new costing setting `batch_turnaround`, default 1 h). Heating and cooling are
+  priced apart per batch (the unit now reports `heating_per_batch` and
+  `cooling_per_batch`) and per year from the batches per year (operating hours over the
+  cycle time). Results `batches_per_year`, `vessels_costed`, `utility_cost_per_batch` and
+  `cost_per_batch`; the batch reactor counts in `tac`, so studies, design specs and
+  optimizations of batch flowsheets see it. Editor field for the turnaround.
 - **Dynamic distillation column:** the rigorous column under `dynamics.units`, started
   from its steady MESH solution. Trays hold liquid over the weir (Francis), reflux drum and
   sump hold minutes of liquid; reflux, distillate and bottoms flows and the reboiler duty

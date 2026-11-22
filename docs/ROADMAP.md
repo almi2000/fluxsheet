@@ -95,7 +95,7 @@ und Temperaturregelung einer Benzol/Toluol-Kolonne mit Feedsprung.
   `src/fluxsheet/units/columns.py` (nur `dyn_params`), `tests/test_dynamics.py`,
   `web/src/DynamicsEditor.tsx`, `web/src/DynamicsView.tsx`
 
-### G3 – Kostenrechnung für den Batch-Reaktor · **ChatGPT** · Status: offen
+### G3 – Kostenrechnung für den Batch-Reaktor · **ChatGPT** · Status: Review
 Turton-Kosten für den `BatchReactor` (Rührkessel, Mantel, Rührer) aus Volumen/Material;
 Betriebskosten pro Charge und pro Jahr (Chargen/Jahr, Rüstzeit), damit `tac` auch für
 Batch-Fließbilder gilt.
