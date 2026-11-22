@@ -1,11 +1,14 @@
-"""Offline campaign status and structured summary checks use synthetic input."""
+"""Campaign status and structured summaries on synthetic input, and the feature reference
+campaign (docs/validation-campaign-features.json) run against its recorded results."""
 
 import hashlib
 import json
+import math
 import sys
+from itertools import pairwise
 
 import pytest
-from scripts import validate_models
+from scripts import validate_features, validate_models
 
 
 def test_parse_legacy_summary_and_phase_errors():
@@ -101,3 +104,122 @@ def test_campaign_exit_status_and_reports(tmp_path, monkeypatch, mode, expected)
     else:
         assert report["results"][0]["passed"] == (mode in ("pass", "download"))
         assert "x=0.5" in (output / "validation.md").read_text()
+
+
+# --- Feature reference campaign (roadmap G5) --------------------------------------------------
+
+@pytest.fixture(scope="module")
+def feature_campaign():
+    manifest = json.loads(validate_features.MANIFEST.read_text(encoding="utf-8"))
+    validate_features.validate(manifest)
+    results, errors = validate_features.run(manifest)
+    assert not errors
+    return {r["case"]: r for r in results}
+
+
+def _metrics(result):
+    return {m["quantity"]: m for m in result["metrics"]}
+
+
+def test_ammonia_on_fugacities_against_larson(feature_campaign):
+    # The numbers recorded in docs/model-validation.md; a model change that moves them must
+    # update the page as well.
+    result = feature_campaign["ammonia_larson"]
+    m = _metrics(result)
+    low = m["equilibrium ammonia mole percent, 10-300 atm"]
+    high = m["equilibrium ammonia mole percent, 600-1000 atm"]
+    assert low["passed"] and not high["passed"] and not result["passed"]
+    assert (low["mean_absolute_error"], low["maximum_absolute_error"]) == pytest.approx(
+        (0.258, 1.47), abs=0.01)
+    assert (high["mean_absolute_error"], high["maximum_absolute_error"]) == pytest.approx(
+        (4.40, 6.54), abs=0.01)
+    # The ideal gas is not screened, and it is further from the measurement at every point
+    # from 100 atm on.
+    assert not m["equilibrium ammonia mole percent, 600-1000 atm, ideal gas"].get(
+        "screened", True)
+    for p in result["points"]:
+        if p["P_atm"] >= 100:
+            assert abs(p["property_method"] - p["measured"]) < abs(p["ideal_gas"] - p["measured"])
+
+
+def test_equilibrium_methyl_acetate_column_against_mekala(feature_campaign):
+    result = feature_campaign["methyl_acetate_mekala"]
+    m = _metrics(result)
+    T, x = m["stage temperature"], m["liquid mole fraction"]
+    assert not T["passed"] and not x["passed"]
+    assert (T["points"], x["points"]) == (8, 20)
+    assert (T["mean_absolute_error"], T["maximum_absolute_error"]) == pytest.approx(
+        (4.51, 13.09), abs=0.01)
+    assert (x["mean_absolute_error"], x["maximum_absolute_error"]) == pytest.approx(
+        (0.0872, 0.2815), abs=1e-3)
+    assert x["maximum_error_point"].startswith("stage 30, water")
+
+
+def test_feature_reference_values_are_consistent():
+    manifest = json.loads(validate_features.MANIFEST.read_text(encoding="utf-8"))
+    cases = {c["id"]: c for c in manifest["cases"]}
+    assert set(cases) == set(validate_features.RUNNERS)
+    ammonia = cases["ammonia_larson"]
+    pressures = [p for s in ammonia["series"] for p in s["pressures_atm"]]
+    for row in ammonia["measured"].values():
+        assert sorted(map(int, row)) == sorted(pressures)
+        # More ammonia at higher pressure, less at higher temperature.
+        assert [row[str(p)] for p in sorted(pressures)] == sorted(row.values())
+    for T_low, T_high in pairwise(sorted(ammonia["measured"], key=float)):
+        for p in pressures:
+            assert ammonia["measured"][T_low][str(p)] > ammonia["measured"][T_high][str(p)]
+    column = cases["methyl_acetate_mekala"]
+    for row in column["measured_liquid_mole_fraction"].values():
+        assert sum(row.values()) == pytest.approx(1.0, abs=2e-5)
+    # The column limits are the preregistered equipment-campaign limits.
+    assert column["thresholds"] == {"temperature": [2, 5], "composition": [0.02, 0.05]}
+
+
+@pytest.mark.parametrize("manifest", [
+    {"version": 2, "cases": [{"id": "ammonia_larson", "references": ["x"]}]},
+    {"version": 1, "cases": []},
+    {"version": 1, "cases": [{"id": "unknown", "references": ["x"]}]},
+    {"version": 1, "cases": [{"id": "ammonia_larson", "references": []}]},
+    {"version": 1, "cases": [{"id": "ammonia_larson", "references": ["x"]}] * 2},
+])
+def test_invalid_feature_campaign_exits_2(tmp_path, manifest):
+    path = tmp_path / "features.json"
+    path.write_text(json.dumps(manifest))
+    with pytest.raises(SystemExit) as exc:
+        validate_features.main(["--manifest", str(path), "--output-dir", str(tmp_path / "o")])
+    assert exc.value.code == 2
+
+
+@pytest.mark.parametrize("outcome, expected", [("pass", 0), ("fail", 1), ("error", 2)])
+def test_feature_campaign_exit_status_and_reports(tmp_path, monkeypatch, outcome, expected):
+    def runner(case):
+        if outcome == "error":
+            raise ValueError("did not converge")
+        limit = [1.0, 2.0]
+        errors = [("a", 0.5), ("b", 0.5 if outcome == "pass" else 3.0)]
+        return [validate_features.metric("q", "K", errors, limit)], []
+
+    monkeypatch.setattr(validate_features, "RUNNERS", {"ammonia_larson": runner})
+    path = tmp_path / "features.json"
+    path.write_text(json.dumps({"version": 1, "cases": [
+        {"id": "ammonia_larson", "feature": "G2", "references": ["x"]}]}))
+    out = tmp_path / "o"
+    assert validate_features.main(["--manifest", str(path), "--output-dir", str(out)]) == expected
+    report = json.loads((out / "features.json").read_text())
+    text = (out / "features.md").read_text()
+    if outcome == "error":
+        assert "did not converge" in report["errors"][0]["error"] and "Not run" in text
+    else:
+        assert report["results"][0]["passed"] == (outcome == "pass")
+        assert ("| pass |" if outcome == "pass" else "| fail |") in text
+
+
+def test_batch_vessel_cost_by_hand_from_turton_table_a1():
+    # Turton Table A.1, jacketed agitated reactor: log10 Cp = K1 + K2 log10 V + K3 (log10 V)^2
+    # with K = 4.1052, 0.5320, -0.0005 (2001 $, CEPCI 397), typed here from the table rather
+    # than imported, at 2 m3 of vessel.
+    from fluxsheet.costing import STIRRED
+
+    log_v = math.log10(2.0)
+    by_hand = 10 ** (4.1052 + 0.5320 * log_v - 0.0005 * log_v ** 2)
+    assert STIRRED.cost(2.0)[0] == pytest.approx(by_hand, rel=1e-12)

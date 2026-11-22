@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "description": "Reference comparisons for the roadmap features G1 (equilibrium reactive stages) and G2 (Gibbs reactor on fugacities). Limits were fixed when the cases were registered, before the campaign script was first run; see docs/model-validation.md for what was known before then.",
+  "cases": [
+    {
+      "id": "ammonia_larson",
+      "feature": "G2: GibbsReactor with fugacities = property_method",
+      "references": [
+        "A. T. Larson and R. L. Dodge, J. Am. Chem. Soc. 45 (1923) 2918, 10-100 atm",
+        "A. T. Larson, J. Am. Chem. Soc. 46 (1924) 367, 300-1000 atm"
+      ],
+      "transcription": "Values of the standard Larson tabulation for a 3:1 hydrogen-nitrogen mixture, not yet checked against a copy of the original articles.",
+      "property_method": "peng-robinson",
+      "feed": {"nitrogen": "25 kmol/h", "hydrogen": "75 kmol/h"},
+      "quantity": "equilibrium ammonia mole percent",
+      "unit": "mol-%",
+      "measured": {
+        "400": {"10": 3.85, "30": 10.09, "50": 15.27, "100": 25.12, "300": 47.00, "600": 65.20,
+                "1000": 79.82},
+        "450": {"10": 2.04, "30": 5.80, "50": 9.17, "100": 16.43, "300": 35.82, "600": 53.71,
+                "1000": 69.69},
+        "500": {"10": 1.20, "30": 3.48, "50": 5.58, "100": 10.61, "300": 25.80, "600": 42.15,
+                "1000": 57.47}
+      },
+      "series": [
+        {"name": "10-300 atm", "pressures_atm": [10, 30, 50, 100, 300], "thresholds": [1.0, 2.0]},
+        {"name": "600-1000 atm", "pressures_atm": [600, 1000], "thresholds": [3.0, 6.0]}
+      ]
+    },
+    {
+      "id": "methyl_acetate_mekala",
+      "feature": "G1: DistillationColumn with equilibrium reactive stages",
+      "references": [
+        "M. Mekala, Data in Brief 27 (2019) 104262, Tables 3 and 4 (experimental columns, cited there from Mekala and Goli, J. Taiwan Inst. Chem. Eng. 2016)"
+      ],
+      "doi": "10.1016/j.dib.2019.104262",
+      "transcription": "Checked against the PMC full text (PMC6864169), Tables 3 and 4.",
+      "example": "examples/methyl_acetate_equilibrium_column.json",
+      "column": "COLUMN",
+      "measured_temperature_K": {"1": 328, "5": 333, "10": 337, "13": 338, "17": 339, "20": 339,
+                                 "25": 339, "30": 358},
+      "measured_liquid_mole_fraction": {
+        "1": {"acetic acid": 0, "methanol": 0.04909, "methyl acetate": 0.95091, "water": 0},
+        "5": {"acetic acid": 0, "methanol": 0.09, "methyl acetate": 0.87, "water": 0.04},
+        "17": {"acetic acid": 0.09654, "methanol": 0.2806, "methyl acetate": 0.51517,
+               "water": 0.1077},
+        "25": {"acetic acid": 0.06487, "methanol": 0.44458, "methyl acetate": 0.07137,
+               "water": 0.41918},
+        "30": {"acetic acid": 0.10083, "methanol": 0.20889, "methyl acetate": 0.02107,
+               "water": 0.66921}
+      },
+      "thresholds": {"temperature": [2, 5], "composition": [0.02, 0.05]}
+    }
+  ]
+}

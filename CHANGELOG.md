@@ -9,10 +9,18 @@ format or API).
 
 ### Added
 
+- **Feature reference campaign:** `scripts/validate_features.py` compares the Gibbs
+  reactor on fugacities with the Larson and Dodge (1923) and Larson (1924) ammonia
+  equilibria and the equilibrium methyl acetate column with the measured profile in
+  Mekala (2019), against limits registered in `docs/validation-campaign-features.json`.
+  Ammonia passes at 10-300 atm and fails at 600-1000 atm; the equilibrium column fails
+  against the kinetically limited pilot column. `docs/model-validation.md` records the
+  results and the verification of the dynamic column and batch costing.
+
 - **Gibbs reactor on fugacities:** `fugacities: property_method` minimizes the Gibbs
   energy on fugacities from the property method (equation of state or activity model)
   with the vapor and liquid phases the mixture forms, instead of an ideal gas. Ammonia at
-  300 atm comes within 0.1-1.5 points of Larson and Dodge's data (the ideal gas is 4-5
+  300 atm comes within 0.1-1.5 points of Larson's (1924) data (the ideal gas is 4-5
   points low); condensing methanol and water drive the synthesis almost to completion.
   Example `ammonia_equilibrium_fugacities.json`.
 - **Batch reactor costing:** the `BatchReactor` gets Turton costs as a jacketed agitated

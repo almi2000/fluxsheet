@@ -479,8 +479,9 @@ H2_N2 = {"nitrogen": "25 kmol/h", "hydrogen": "75 kmol/h"}
 
 
 @pytest.mark.parametrize("T, P, measured, within", [
-    # Larson and Dodge (1923), J. Am. Chem. Soc. 45, 2918: equilibrium mol-% NH3 from a 3:1
-    # hydrogen-nitrogen mixture.
+    # Equilibrium mol-% NH3 from a 3:1 hydrogen-nitrogen mixture: Larson and Dodge (1923),
+    # J. Am. Chem. Soc. 45, 2918, at 100 atm; Larson (1924), J. Am. Chem. Soc. 46, 367, at
+    # 300 and 600 atm. The full comparison is in scripts/validate_features.py.
     (400, 300, 47.00, 0.5), (450, 300, 35.82, 2.0), (500, 300, 25.80, 2.0),
     (450, 100, 16.43, 0.5), (450, 600, 53.71, 4.0),
 ])

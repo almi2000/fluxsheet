@@ -7,9 +7,9 @@ experimental data or validate an entire operating range.
 | Family | Existing verification | Experimental coverage and remaining work |
 | --- | --- | --- |
 | Thermodynamic packages and flash | Pure-component phase boundaries, mixture bubble and dew points, binary diagram endpoints, water/ethanol azeotrope and water/butanol phase split in `test_phase_physics.py` and `test_thermo_models.py`. | The azeotrope and liquid-liquid tests use selected literature-derived values. Offline comparisons with three selected ThermoML references are recorded below; broader independent series remain open. |
-| Distillation, absorption and extraction | Fenske and Underwood hand calculations, a single-stage Raoult/Rachford-Rice comparison, total and per-stage balances, feed and side streams, pump-around, reactive stages, Murphree efficiency and phase equilibria in `test_stage_validation.py`, `test_columns.py`, `test_column_side_streams.py` and `test_more_units.py`. | Experimental column data and independent reactive kinetics remain open. |
-| Reactors | First-order CSTR and PFR closed forms, element balances, adiabatic enthalpy and independent integration of illustrative kinetic laws in `test_reactors.py` and `test_validation.py`. | The HDA kinetic constants in `test_validation.py` are illustrative, so the comparison validates the implementation rather than a measured reaction. Experimental kinetics remain open. |
-| Dynamic simulation | Analytical first-order lag and mixed-tank response, integrated tank material and energy inventories, reactor comparison with a new steady state, integrated reactive CSTR mass and energy and controller tests in `test_dynamics.py`; a pure-propane boil/cool transient with time-grid refinement in `test_dynamic_phase_boundaries.py`. | Experimental transient data and multicomponent multiphase transients remain open. |
+| Distillation, absorption and extraction | Fenske and Underwood hand calculations, a single-stage Raoult/Rachford-Rice comparison, total and per-stage balances, feed and side streams, pump-around, reactive stages, Murphree efficiency and phase equilibria in `test_stage_validation.py`, `test_columns.py`, `test_column_side_streams.py` and `test_more_units.py`. | Equilibrium reactive stages are compared with a measured methyl acetate column profile below; the comparison fails the screening limits. Independent reactive kinetics remain open. |
+| Reactors | First-order CSTR and PFR closed forms, element balances, adiabatic enthalpy and independent integration of illustrative kinetic laws in `test_reactors.py` and `test_validation.py`. | The HDA kinetic constants in `test_validation.py` are illustrative, so the comparison validates the implementation rather than a measured reaction. The Gibbs reactor on fugacities is compared with measured ammonia equilibria below. Experimental kinetics remain open. |
+| Dynamic simulation | Analytical first-order lag and mixed-tank response, integrated tank material and energy inventories, reactor comparison with a new steady state, integrated reactive CSTR mass and energy and controller tests in `test_dynamics.py`; a pure-propane boil/cool transient with time-grid refinement in `test_dynamic_phase_boundaries.py`. | The dynamic column is verified against the steady column below. Experimental transient data remain open. |
 | Heat transfer and pressure changes | Exchanger balances, constant-heat-capacity effectiveness comparisons for co- and countercurrent flow, pipe grid convergence to an exponential thermal profile, friction and elevation, turbine isentropic work and multistage compressor tests in `test_core.py`, `test_utilities.py` and `test_more_units.py`; pure-propane evaporation and condensation against independent PH quadrature in both flow arrangements in `test_exchanger_phase_boundaries.py`; two-phase pipe grid convergence in `test_pipe_boundaries_audit.py`; Fanno flow of a gas (outlet Mach number, pressure and the choking length), the multistage compressor's discharge pressure with cooler pressure drops, heats of vaporization against the compound correlations at 1, 5 and 10 bar and liquid densities of the equations of state in `test_engineering_audit.py`. | Multicomponent phase-change heat transfer, two-phase choking against measurements and experimental equipment data remain open. |
 
 ## Automatic balance diagnostics
@@ -211,6 +211,99 @@ Reproduce each method from the original XML with
 `python scripts/validate_chen_lle.py PATH_TO_XML --method unifac` (or `nrtl`
 or `uniquac`). The source hash is checked before parsing. The script returns
 1 for an exceeded screening limit and 2 for invalid or unavailable input.
+
+## Reactive columns and non-ideal Gibbs reactors
+
+`docs/validation-campaign-features.json` registers two literature comparisons for
+the equilibrium reactive stages and the Gibbs reactor on fugacities. The reference
+values are small published tables kept in the manifest, so nothing is downloaded.
+Run `python scripts/validate_features.py --output-dir PATH`. It writes
+`features.json` and `features.md` and returns 0 when every limit holds, 1 for a
+screening failure and 2 for an invalid manifest or a case that cannot be solved.
+`tests/test_validation_campaign.py` runs the campaign and checks the numbers on
+this page.
+
+The limits below were fixed in the manifest before the script was first run. For
+ammonia this is not a blind comparison: the reactor tests had already compared five
+of the points with looser tolerances while the feature was being built. No model
+parameter was fitted to either source.
+
+### Ammonia synthesis equilibrium
+
+Larson and Dodge, J. Am. Chem. Soc. 45 (1923) 2918, measured equilibrium
+ammonia in a 3:1 hydrogen-nitrogen mixture at 10–100 atm; Larson, J. Am. Chem.
+Soc. 46 (1924) 367, extended the series to 300–1000 atm. The manifest carries the
+standard tabulation of both at 400, 450 and 500 °C. **These values have not yet
+been checked against a copy of the original articles.** The Gibbs reactor solves
+each point isothermally with `fugacities: property_method` and Peng-Robinson
+without fitted binary parameters. The ideal-gas result is shown for contrast and
+is not screened.
+
+| Series | Points | Limits mean/max | Mean error | Maximum error | Maximum-error point | Screening |
+| --- | --- | --- | --- | --- | --- | --- |
+| 10–300 atm, Peng-Robinson | 15 | 1/2 mol-% | 0.26 mol-% | 1.47 mol-% | 450 °C, 300 atm: 34.35 predicted, 35.82 measured | pass |
+| 10–300 atm, ideal gas | 15 | — | 1.14 mol-% | 5.10 mol-% | 400 °C, 300 atm: 41.90 predicted, 47.00 measured | — |
+| 600–1000 atm, Peng-Robinson | 6 | 3/6 mol-% | 4.40 mol-% | 6.54 mol-% | 450 °C, 1000 atm: 63.15 predicted, 69.69 measured | **fail** |
+| 600–1000 atm, ideal gas | 6 | — | 14.0 mol-% | 18.4 mol-% | 400 °C, 1000 atm: 61.46 predicted, 79.82 measured | — |
+
+From 100 atm on, the fugacities are closer to the measurement than the ideal gas
+at every point. Above 300 atm Peng-Robinson without binary parameters still
+predicts too little ammonia, by up to 6.5 points at 1000 atm. The reactor is
+therefore screened for ordinary synthesis pressures, not for the 600–1000 atm
+range. Pure-component formation data and the equation of state are both part of
+this comparison; their contributions have not been separated.
+
+### Methyl acetate reactive distillation
+
+Mekala, Data in Brief 27 (2019) 104262,
+DOI [10.1016/j.dib.2019.104262](https://doi.org/10.1016/j.dib.2019.104262),
+Tables 3 and 4, report measured temperatures on eight stages and liquid
+compositions on five stages of a 30-stage column with ten catalytic stages. The
+article cites the measurements from earlier work by the same group. The values
+were checked against the PMC full text. The registered limits are the
+preregistered column limits of the equipment campaign: 2/5 K for temperature and
+0.02/0.05 mole fraction for composition.
+
+The Fluxsheet case is `examples/methyl_acetate_equilibrium_column.json`: NRTL,
+chemical equilibrium on stages 11–20 with the activity-based K(T) of Huss et al.,
+reflux ratio 1.9 and equimolar feeds of 10.2 mol/h. The article does not give the
+distillate rate or the feed temperatures; the example assumes half the feed and
+320 K.
+
+| Quantity | Points | Limits mean/max | Mean error | Maximum error | Maximum-error point | Screening |
+| --- | --- | --- | --- | --- | --- | --- |
+| Stage temperature | 8 | 2/5 K | 4.51 K | 13.09 K | stage 30: 371.09 K predicted, 358 K measured | **fail** |
+| Liquid mole fraction | 20 | 0.02/0.05 | 0.087 | 0.28 | stage 30, water: 0.951 predicted, 0.669 measured | **fail** |
+
+**The comparison fails both screening limits.** The measured column did not reach
+chemical equilibrium: its bottoms still hold 0.10 acetic acid and 0.21 methanol,
+and stages 13–25 sit within 1 K of 339 K. An equilibrium model cannot represent a
+kinetically limited packing, and the unreported distillate rate and heat losses
+remain unknown. The comparison therefore establishes that equilibrium stages are
+not a substitute for the kinetic model on this column. It does not test whether
+the stage equations themselves are correct; that is verified separately in
+`tests/test_column_side_streams.py`, where the activities on every reactive stage
+are recomputed from the NRTL model and meet K(T) to a relative 1e-8.
+
+## Dynamic column and batch reactor costing
+
+No experimental reference has been registered for these two features. The checks
+below are verification only.
+
+- **Dynamic column.** In `tests/test_dynamic_column.py` a 24-stage
+  benzene/toluene column starts at its steady MESH solution and stays there
+  undisturbed. After a feed-composition step under level control it comes to rest
+  again with nothing vented or accumulated (distillate plus bottoms equal to the
+  feed to a relative 1e-5). It then matches the steady column with the same reflux,
+  distillate and feed within 2e-5 mole fraction and 0.1 % in both duties. The
+  candidate column sources in the equipment qualification table below apply here
+  as well; experimental transients remain open.
+- **Batch reactor costing.** The vessel uses Turton's jacketed agitated reactor,
+  Table A.1, the same correlation as the CSTR. `tests/test_validation_campaign.py`
+  evaluates that correlation by hand from the tabulated coefficients. The fill
+  fraction of 0.8, the default turnaround of 1 h and the parallel-vessel rule are
+  engineering assumptions. They have not been compared with vendor quotes or
+  plant costs, and Turton's correlations themselves are study-grade (about ±30 %).
 
 ## Equipment-data qualification
 

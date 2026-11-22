@@ -121,7 +121,7 @@ Palette. Fasst die Registry an, daher als letztes Paket ohne parallele Unit-Arbe
   (Registry), `pyproject.toml`, `web/src/Palette.tsx`, `docs/architecture.md`,
   Beispiel-Plug-in unter `examples/plugin/`
 
-### G5 – Validierungskampagne für die neuen Features · **ChatGPT** · Status: offen
+### G5 – Validierungskampagne für die neuen Features · **ChatGPT** (übernommen von Claude) · Status: in Arbeit
 G1, G2, G3, C2 gegen Referenzdaten in die bestehende Kampagne aufnehmen
 (`docs/validation-campaign.json`, `docs/model-validation.md`), Abweichungen dokumentieren.
 - Dateien: `docs/validation-campaign*`, `docs/model-validation.md`,
