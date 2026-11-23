@@ -18,6 +18,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
 import { extractFragment, fragmentOrigin, mergeComponents, parseFragment, remapFragment, type Point } from "./clipboard";
 import { componentsUsed, renameComponent } from "./compoundRename";
+import { activePorts } from "./mediumPorts";
 import { idleSideOutlets, idleSideOutletText } from "./sideOutlets";
 import { useHistory } from "./history";
 import { FlowsheetInspector, StreamInspector, UnitInspector } from "./Inspector";
@@ -691,8 +692,9 @@ function Editor() {
         const sym = getSymbol(n.data.type);
         const width = n.measured?.width ?? sym.w;
         const height = n.measured?.height ?? sym.h + 20;
-        const inlets = n.data.schema?.inlets.map((p) => p.name) ?? [];
-        const outlets = n.data.schema?.outlets.map((p) => p.name) ?? [];
+        const schema = n.data.schema;
+        const inlets = activePorts(schema, n.data.params, schema?.inlets ?? []).map((p) => p.name);
+        const outlets = activePorts(schema, n.data.params, schema?.outlets ?? []).map((p) => p.name);
         // Ports sit on the symbol's nozzles, which the layout lines up with their neighbors.
         const portOffsets: Record<string, number> = {};
         inlets.forEach((p, i) => (portOffsets[p] = portAt(sym, p, "in", i, inlets.length).y / height - 0.5));

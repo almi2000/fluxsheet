@@ -1,0 +1,31 @@
+{
+  "format": "fluxsheet/1",
+  "name": "Cooled tubular reactor: phthalic anhydride",
+  "description": "One tube of a multitubular reactor oxidizing o-xylene (1 mol% in air) to phthalic anhydride on a vanadium catalyst, cooled along its length by a molten-salt bath in countercurrent. The textbook case for a hot spot (Froment and Bischoff, Chemical Reactor Analysis and Design): the pseudo-homogeneous rate r = k p(xylene) p(O2), ln k = 19.837 - 13636/T in kmol/(kg cat h atm²), is converted to mol/(m³ s Pa²) with a bed density of 1300 kg/m³. The heat of reaction comes from the formation enthalpies (1.12 MJ/mol, less than the 1.29 MJ/mol of the book's lumped scheme), so the hot spot is milder than there. The reactor results give the hot-spot temperature and position; its profiles show both sides of the wall. Raise the salt temperature a few kelvin to see how sensitive the hot spot is.",
+  "components": ["o-xylene", "phthalic anhydride", "oxygen", "water", "nitrogen"],
+  "property_method": "ideal",
+  "reactions": [
+    {"id": "PA",
+     "stoichiometry": {"o-xylene": -1, "oxygen": -3, "phthalic anhydride": 1, "water": 3},
+     "kinetics": {"k0": 14.5, "Ea": "113.37 kJ/mol", "basis": "partial_pressure",
+                  "orders": {"o-xylene": 1, "oxygen": 1}}}
+  ],
+  "utilities": [
+    {"id": "SALT", "type": "fluid", "T_in": "625 K", "T_out": "630 K", "cp": "1.56 kJ/kgK"}
+  ],
+  "units": [
+    {"id": "AIR", "type": "Feed", "ui": {"x": 0, "y": 100},
+     "params": {"T": "625 K", "P": "1 atm",
+                "flows": {"o-xylene": "0.000248 mol/s", "oxygen": "0.00467 mol/s",
+                          "nitrogen": "0.01758 mol/s"}}},
+    {"id": "TUBE", "type": "PFR", "ui": {"x": 200, "y": 100},
+     "params": {"reactions": ["PA"], "length": "3 m", "diameter": "25.4 mm", "phase": "gas",
+                "key": "o-xylene", "utility": "SALT", "utility_flow": "0.01 kg/s",
+                "U": "111.6 W/m2K", "arrangement": "countercurrent"}},
+    {"id": "PRODUCT", "type": "Product", "ui": {"x": 420, "y": 100}}
+  ],
+  "streams": [
+    {"id": "S1", "from": "AIR.out", "to": "TUBE.in"},
+    {"id": "S2", "from": "TUBE.out", "to": "PRODUCT.in"}
+  ]
+}

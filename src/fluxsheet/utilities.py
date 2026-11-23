@@ -16,11 +16,16 @@ and the area of a jacket or coil, finds the duty itself: Q = UA * LMTD, solved t
 the unit's own energy balance. On the process side a unit is either well mixed (vessels,
 drums, stirred tanks: the contents are at the outlet temperature everywhere) or in plug flow
 (a heater: from the inlet to the outlet temperature, counter- or cocurrent to the utility).
+
+A unit that follows the wall along its length (a cooled tubular reactor) needs the medium's
+temperature at every point instead of an LMTD: ``WallMedium`` gives it as a function of the
+heat the medium has given up since its inlet, for a utility or for a process stream.
 """
 
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from chemicals.iapws import iapws95_dPsat_dT, iapws95_rhog_sat, iapws95_rhol_sat, iapws95_Tsat
@@ -304,3 +309,79 @@ def _outlet_T(unit, outputs) -> float:
     streams = list(outputs.values())
     flowing = [s for s in streams if s.total_flow > 0.0]
     return (flowing or streams)[0].T
+
+
+# ---- a medium followed along a wall ---------------------------------------------------------
+
+@dataclass(frozen=True)
+class WallMedium:
+    """A heating or cooling medium followed along a wall, e.g. the coolant of a tubular
+    reactor. Its temperature is a function of the heat ``g`` (W) it has given up since its
+    inlet: linear for a fluid with the heat capacity flow ``C`` (W/K), constant for
+    condensing steam (``C`` None), or from a PH flash for a process stream
+    (``temperature``), which also follows its phase changes.
+    """
+
+    label: str
+    T_in: float  # K
+    C: float | None = None  # W/K
+    temperature: Callable[[float], float] | None = None
+    heat_at: Callable[[float], float] | None = None  # inverse of ``temperature``
+    heats_only: bool = False  # condensing steam gives heat, it cannot take any
+
+    @property
+    def isothermal(self) -> bool:
+        return self.C is None and self.temperature is None
+
+    def T(self, g: float) -> float:
+        """Temperature after giving up ``g`` W (negative: after taking up heat)."""
+        if self.temperature is not None:
+            return self.temperature(g)
+        if self.C is None:
+            return self.T_in
+        return self.T_in - g / self.C
+
+    def given_up(self, T: float) -> float:
+        """Heat given up (W) by the time the medium has reached ``T``."""
+        if self.heat_at is not None:
+            return self.heat_at(T)
+        if self.C is None:
+            raise ValueError("an isothermal medium does not change its temperature")
+        return self.C * (self.T_in - T)
+
+
+def utility_medium(ut: Utility, flow: float | None = None, Q: float | None = None) -> WallMedium:
+    """A utility as a medium along a wall.
+
+    A fluid has a fixed mass ``flow`` (kg/s), or, without one, the flow that brings it to
+    its outlet temperature when it passes the total heat ``Q`` into the process.
+    """
+    if ut.kind == "steam":
+        return WallMedium(ut.describe(), ut.T_in, heats_only=True)
+    if flow is None:
+        if Q is None:
+            raise ValueError("a fluid utility without a flow needs the duty")
+        return WallMedium(ut.describe(), ut.T_in, C=Q / (ut.T_in - ut.T_out))
+    return WallMedium(ut.describe(), ut.T_in, C=flow * ut.cp)
+
+
+def utility_mass_flow(ut: Utility, medium: WallMedium, Q: float) -> float:
+    """Mass flow (kg/s) of a utility that passed ``Q`` W into the process as ``medium``."""
+    if ut.kind == "steam":
+        return abs(Q) / ut.latent
+    return (medium.C or 0.0) / ut.cp
+
+
+def stream_medium(pkg, stream, label: str = "the medium stream") -> WallMedium:
+    """A process stream as a medium along a wall, at its inlet pressure throughout."""
+    F, zs, P, H = stream.total_flow, list(stream.zs), stream.P, stream.state.H
+    if F <= 0.0:
+        raise ValueError("a medium stream needs a flow")
+
+    def temperature(g: float) -> float:
+        return pkg.flash(zs, P=P, H=H - g / F).T
+
+    def heat_at(T: float) -> float:
+        return F * (H - pkg.flash(zs, T=T, P=P).H)
+
+    return WallMedium(label, stream.T, temperature=temperature, heat_at=heat_at)

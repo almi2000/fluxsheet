@@ -150,7 +150,7 @@ Kostenrechnung; Henry-Komponenten mit Plug-in-Aktivitätsmethoden.
   `src/fluxsheet/costing.py` (Registry), `src/fluxsheet/thermo_package.py` (Henry-Pfad),
   `tests/test_plugins.py`, `examples/plugin/`
 
-### G6 – Gekühlter Rohrreaktor · **ChatGPT** (übernommen von Claude, Session) · Status: in Arbeit
+### G6 – Gekühlter Rohrreaktor · **ChatGPT** (übernommen von Claude, Session) · Status: gemergt
 PFR mit Kühl- oder Heizmedium entlang der Länge im Gleich- oder Gegenstrom
 (Randwertproblem beim Gegenstrom), Temperaturprofil beider Seiten, Prozessströme als
 Mantelmedium (zweiter Strom am Reaktor).
