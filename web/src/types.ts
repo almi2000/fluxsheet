@@ -347,6 +347,7 @@ export interface Dynamics {
   controllers?: Controller[];
   events?: DynamicEvent[];
   rtol?: number;
+  pressure_driven?: boolean; // flows follow from pressures (dynamics/pressure.py)
 }
 
 export interface DynamicSeries {

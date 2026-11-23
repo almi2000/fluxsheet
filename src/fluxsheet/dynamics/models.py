@@ -1,7 +1,7 @@
 """File format of dynamic simulations, under ``"dynamics"`` in a flowsheet::
 
     "dynamics": {
-      "t_end": "2 h", "points": 241,
+      "t_end": "2 h", "points": 241, "pressure_driven": false,
       "units": {"TANK": {"diameter": "1.5 m", "height": "3 m", "initial_level": 0.5}},
       "controllers": [
         {"id": "LC1", "measure": {"unit": "TANK", "property": "level"},
@@ -17,7 +17,8 @@
     }
 
 ``units`` holds the dynamic settings of units with a hold-up (sizes, initial level, time
-constants; see ``dynamics.units``). Controllers and events address parameters like design
+constants; see ``dynamics.units``). ``pressure_driven`` lets valves with a flow coefficient
+and pump curves set the flows from the pressures (see ``dynamics.pressure``). Controllers and events address parameters like design
 specs do. Values take units; plain numbers are SI.
 """
 
@@ -93,3 +94,6 @@ class DynamicsModel(BaseModel):
     controllers: list[ControllerModel] = Field(default_factory=list)
     events: list[EventModel] = Field(default_factory=list)
     rtol: float = Field(default=1e-5, gt=0.0, lt=0.1)
+    # Flows between hold-ups follow from their pressures (see dynamics/pressure.py); by
+    # default they are those of the steady state, or a controller's output.
+    pressure_driven: bool = False

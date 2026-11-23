@@ -12,7 +12,8 @@ material, from the inlets), ``derivatives`` the time derivatives of the state.
   time constant (the thermal mass of the exchanger), so a duty step shows up gradually.
 
 All other units stay algebraic: they are recalculated from their inlets at every instant.
-Pressure is fixed at its steady-state value (a flow-driven simulation).
+Pressure is fixed at its steady-state value (a flow-driven simulation), unless the run is
+pressure-driven (see pressure.py).
 """
 
 from __future__ import annotations
@@ -138,6 +139,7 @@ class Vessel(DynamicModel):
         ResultField("liquid_flow", "Liquid outflow", "molar_flow"),
         ResultField("vapor_flow", "Vapor outflow", "molar_flow"),
         ResultField("duty", "Duty", "power"),
+        ResultField("P", "Pressure", "pressure"),  # changes in a pressure-driven run only
     )
     liquid_port, vapor_port = "liquid", "vapor"
 
@@ -217,7 +219,7 @@ class Vessel(DynamicModel):
         self._out = (F_liq, xs, h_liq, F_vap, ys, h_vap)
         self.results.update(level=level, level_fraction=level / self.s["height"], T=st.T,
                             holdup=n_liq, liquid_volume=volume, liquid_flow=F_liq,
-                            vapor_flow=F_vap, duty=self._duty(st.T))
+                            vapor_flow=F_vap, duty=self._duty(st.T), P=self.P)
         if level > self.s["height"]:
             self.results["overfilled"] = 1.0
         return {

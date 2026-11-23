@@ -359,6 +359,7 @@ function newCurve(p: ParamSchema): CurveValue {
 function noneLabel(group: string[]): string {
   if (group.includes("dP") && group.includes("P")) return "No ΔP";
   if (group.includes("duty")) return "Adiabatic";
+  if (group.includes("Kv")) return "Not sized";
   return "Default";
 }
 

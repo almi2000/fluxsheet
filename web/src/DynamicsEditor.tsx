@@ -443,6 +443,23 @@ export function DynamicsSettings({
           />
         </label>
       </div>
+      <label
+        className="check"
+        title="Flows follow from pressures: valves with a flow coefficient (Cv or Kv) and pump curves set them, vessels with gas carry their pressure. Otherwise flows stay those of the steady state or a controller's output."
+      >
+        <input
+          type="checkbox"
+          checked={dynamics.pressure_driven === true}
+          onChange={(e) => onChange({ ...dynamics, pressure_driven: e.target.checked ? true : undefined })}
+        />
+        <span>Pressure-driven flows</span>
+      </label>
+      {dynamics.pressure_driven && (
+        <p className="muted small">
+          Valves with a flow coefficient (Cv or Kv) and pumps with a curve set the flows from the pressures; controllers can move
+          a valve's opening. Vessels with gas in them carry their pressure.
+        </p>
+      )}
       <h4>Hold-ups</h4>
       <HoldUps units={shared.units} dynamic={dynamic} onChange={(units) => onChange({ ...dynamics, units })} />
       <h4>Controllers</h4>

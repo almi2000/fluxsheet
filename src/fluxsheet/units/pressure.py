@@ -40,9 +40,34 @@ class Valve(UnitOperation):
         "vaporize and cool."
     inlets = (IN,)
     outlets = (OUT,)
-    params = (P_OUT, Param("dP", "Pressure drop", "pressure_difference", min=0.0))
-    exclusive_groups = (("P", "dP"),)
-    required_groups = exclusive_groups
+    params = (
+        P_OUT,
+        Param("dP", "Pressure drop", "pressure_difference", min=0.0),
+        # Sizing, used by pressure-driven dynamic runs (dynamics/pressure.py); the steady
+        # state ignores them.
+        Param("Cv", "Flow coefficient Cv", min=0.0, tab="Cv",
+              help="US gpm of water at 1 psi pressure drop, fully open. In a pressure-driven "
+              "dynamic run the flow then follows from the pressures; the steady state uses "
+              "the outlet pressure or pressure drop."),
+        Param("Kv", "Flow coefficient Kv", min=0.0, tab="Kv",
+              help="m3/h of water at 1 bar pressure drop, fully open (Kv = 0.865 Cv). In a "
+              "pressure-driven dynamic run the flow then follows from the pressures."),
+        Param("opening", "Opening", "fraction", min=0.0, max=1.0,
+              help="Valve position, 0 (closed) to 1, which a controller can move. Defaults "
+              "to the opening that passes the steady-state flow."),
+        Param("characteristic", "Characteristic", "choice", default="linear",
+              options=("linear", "equal_percentage", "quick_opening"),
+              help="Inherent flow characteristic: fraction of the flow coefficient at an "
+              "opening x: x, about R^(x-1), or sqrt(x)."),
+        Param("rangeability", "Rangeability", default=50.0, min=1.0 + 1e-9,
+              help="R of the equal-percentage characteristic."),
+        Param("xT", "Pressure differential ratio factor xT", default=0.7, min=0.01, max=1.0,
+              help="Gas flow chokes when the pressure drop reaches xT gamma/1.4 of the inlet "
+              "pressure (IEC 60534); about 0.7 for globe valves, 0.15 to 0.5 for ball and "
+              "butterfly valves."),
+    )
+    exclusive_groups = (("P", "dP"), ("Cv", "Kv"))
+    required_groups = (("P", "dP"),)
 
     def calculate(self, pkg, inlets):
         s = single_inlet(inlets)

@@ -60,6 +60,39 @@ To give another unit a dynamic model, subclass `DynamicModel` in `dynamics/units
 in `DYNAMIC_MODELS`. Start it from the unit's steady state, so a run without events stays put
 (`tests/test_dynamics.py` checks this).
 
+#### Pressure-driven dynamics (`dynamics/pressure.py`)
+
+With `"pressure_driven": true` the flows between pressure nodes follow from their pressures
+instead of the steady state. Nodes are vessels with a dynamic model (`PressureVessel`, used
+for Flash and MixingTank in such a run), feeds and products. `Network` finds the *lines*
+from a node's outlet through valves, pumps, compressors and heaters (one inlet, one outlet)
+to the next node. A line is pressure-driven if it holds a valve with a flow coefficient
+(`Cv` or `Kv` on the valve) or a pump with a curve; every other line keeps the flow-driven
+rule, and a valve with a coefficient that sits on no line is reported in the warnings.
+
+- `PressureVessel`: with gas in it at the start, its states are the component amounts and
+  the internal energy U = H - P V; the contents fill the vessel, and `_UVFlash` finds T and
+  P by Newton steps in (T, ln P) on T-P flashes (on one phase's properties while the
+  contents stay one phase), converged far below the Jacobian's step. Without gas it keeps its
+  pressure. Outlets on a pressure-driven line take the flow the line sets (`forced`); the
+  liquid leaves at the gas pressure plus rho g level.
+- `Network.update`, called in `_evaluate` after the controllers: the vessels' pressures,
+  then the flow of each line: the valve equation (IEC 60534-2-1, liquid and gas with
+  choking) at the pressures before and after the valve, with the pump curve and the other
+  units' steady-state pressure changes in between, solved for the flow if the line has a
+  pump. The line's flow goes to the vessel's outlet or scales the feed; the valve's outlet
+  pressure is set before the sweep recalculates it.
+- `Network.start`: openings not given are those that pass the steady-state flows; a line
+  with a pump only gets the line resistance that makes the steady state balance. An
+  undisturbed run therefore equals the flow-driven one.
+- The Jacobian's sparsity adds, for each line, the node downstream and the controllers on
+  the line to the source's dependencies (`Network.dependencies`).
+
+Limits: flow runs downstream only (no reverse flow through a valve), one valve with a
+coefficient and one pump curve per line, no flashing or cavitation in liquid valves, gamma
+of a gas valve from the steady state, compressors keep their steady pressure rise, and
+mixers, splitters and other units end a line (the flows there stay flow-driven).
+
 ### Adding a unit operation
 
 1. Subclass `UnitOperation` in a module under `units/` (or a new one, which

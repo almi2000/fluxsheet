@@ -39,6 +39,7 @@ from ..stream import Stream
 from ..units.base import mix_streams
 from .controllers import Controller
 from .models import ControllerModel, EventModel, ManipulatedParam
+from .pressure import PRESSURE_MODELS, Network
 from .units import DYNAMIC_MODELS, DynamicModel
 
 CACHE_SIZE = 64
@@ -109,6 +110,8 @@ class Simulator(Solver):
             if unit is None:
                 raise SimulationError(f"there is no unit called {uid!r}", where="dynamics")
             cls = DYNAMIC_MODELS.get(unit.type)
+            if dyn.pressure_driven:
+                cls = PRESSURE_MODELS.get(unit.type, cls)
             if cls is None:
                 raise SimulationError(
                     f"{unit.label} has no dynamic model yet", where=uid,
@@ -124,6 +127,10 @@ class Simulator(Solver):
             scales.append(model.scale(x))
         for (uid, model), x in zip(self.dynamic.items(), x0):  # their results at the start
             model.outlets(x, None if model.source else self._inlets(uid))
+        # Pressure-driven lines; they set the valve openings the controllers start from.
+        self.network = Network(self) if dyn.pressure_driven else None
+        if self.network is not None:
+            self.network.start(dict(zip(self.dynamic, x0)))
 
         self.controllers: dict[str, Controller] = {}
         for cm in dyn.controllers:
@@ -135,6 +142,8 @@ class Simulator(Solver):
                 x0.append(x)
                 scales.append(ctrl.scale())
 
+        if self.network is not None:
+            self.network.check_controllers()
         self.slices: dict[str, slice] = {}
         start = 0
         for owner, size in blocks:
@@ -245,7 +254,9 @@ class Simulator(Solver):
         unit = self.units.get(m.unit)
         if unit is None:
             raise SimulationError(f"there is no unit called {m.unit!r}", where=where)
-        dyn_cls = DYNAMIC_MODELS.get(unit.type) if m.unit in self.model.dynamics.units else None
+        dyn_cls = (type(self.dynamic[m.unit]) if m.unit in getattr(self, "dynamic", {})
+                   else DYNAMIC_MODELS.get(unit.type) if m.unit in self.model.dynamics.units
+                   else None)
         if dyn_cls is not None:
             for p in dyn_cls.params:
                 if p.name == m.param:
@@ -431,6 +442,8 @@ class Simulator(Solver):
         for cid, ctrl in self.controllers.items():
             value, _ = ctrl.output(x[self.slices[cid]])
             self._set(_target(ctrl.model.manipulate), value)
+        if self.network is not None:
+            self.network.update(x)
         for uid in self.sources:
             self._store(uid, self.dynamic[uid].outlets(x[self.slices[uid]]))
         if not self.tears:
@@ -451,6 +464,12 @@ class Simulator(Solver):
             model = self.dynamic.get(uid)
             if model is not None:
                 self._store(uid, model.outlets(x[self.slices[uid]], self._inlets(uid)))
+            elif self.network is not None and uid in self.network.feed_streams:
+                self._store(uid, {"out": self.network.feed_streams[uid]})
+            elif self.network is not None and uid in self.network.valve_p2:
+                inlets = self._inlets(uid)
+                self.network.set_valve(uid, inlets)
+                self._store(uid, Network.isenthalpic(inlets["in"][0], self._calc(uid, inlets)))
             else:
                 self._store(uid, self._calc(uid))
 
@@ -496,6 +515,9 @@ class Simulator(Solver):
             if c.dst_unit is not None:
                 inlet_srcs[c.dst_unit].append(c.src_unit)
         memo: dict[str, set[str]] = {}
+        # Pressure-driven lines: a source's outflow depends on the node downstream (and on
+        # the controllers moving the valves and pumps between).
+        extra = self.network.dependencies() if self.network is not None else {}
 
         def affects(uid: str, seen: frozenset = frozenset()) -> set[str]:
             """State blocks that a unit's outlets and results depend on."""
@@ -503,7 +525,7 @@ class Simulator(Solver):
                 return memo[uid]
             if uid in seen:
                 return set()
-            blocks = set(manipulators.get(uid, ()))
+            blocks = set(manipulators.get(uid, ())) | extra.get(uid, set())
             if uid in self.dynamic:
                 blocks.add(uid)
             if uid not in self.dynamic or not self.dynamic[uid].source:
@@ -654,6 +676,12 @@ class Simulator(Solver):
                     if f.name in model.results:
                         add(f"unit.{uid}.{f.name}", "Units", uid, f.label, f.quantity,
                             float(model.results[f.name]))
+            if self.network is not None:
+                for vid, values in self.network.valve_results().items():
+                    add(f"unit.{vid}.opening", "Units", vid, "Opening", "fraction",
+                        values["opening"])
+                    add(f"unit.{vid}.dP", "Units", vid, "Pressure drop", "pressure_difference",
+                        values["dP"])
             for cid, ctrl in self.controllers.items():
                 op, _ = ctrl.output(x[self.slices[cid]])
                 add(f"controller.{cid}.pv", "Controllers", cid, "Measurement", ctrl.quantity,
@@ -682,7 +710,7 @@ def _column(s: dict) -> str:
 
 
 SI_UNITS = {"temperature": "K", "pressure": "Pa", "molar_flow": "mol/s", "power": "W",
-            "length": "m", "volume": "m3", "amount": "mol", "time": "s", "mass_flow": "kg/s"}
+            "length": "m", "volume": "m3", "pressure_difference": "Pa", "amount": "mol", "time": "s", "mass_flow": "kg/s"}
 
 
 def _target(m: ManipulatedParam) -> tuple:

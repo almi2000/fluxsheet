@@ -1,0 +1,41 @@
+{
+  "format": "fluxsheet/1",
+  "name": "Flash drum with pressure and level control (pressure-driven dynamics)",
+  "description": "Dynamic simulation with pressure-driven flows: a propane/n-butane liquid flows from a 15 bar header through a feed valve into an adiabatic flash drum at 8 bar. Vapor and liquid leave through valves to 3 bar. A pressure controller moves the vapor valve, a level controller the liquid valve. After 1 min the feed valve opens from 28 % to 60 %: the inflow doubles, the pressure and the level rise, and the controllers bring both back.",
+  "components": ["propane", "n-butane"],
+  "property_method": "peng-robinson",
+  "units": [
+    {"id": "HEADER", "type": "Feed", "ui": {"x": 0, "y": 120},
+     "params": {"T": "330 K", "P": "15 bar",
+                "flows": {"propane": "50 kmol/h", "n-butane": "50 kmol/h"}}},
+    {"id": "VIN", "type": "Valve", "ui": {"x": 180, "y": 120}, "params": {"P": "8 bar", "Kv": 10}},
+    {"id": "DRUM", "type": "Flash", "ui": {"x": 360, "y": 120}, "params": {"P": "8 bar", "duty": 0}},
+    {"id": "VV", "type": "Valve", "ui": {"x": 540, "y": 40}, "params": {"P": "3 bar", "Kv": 15}},
+    {"id": "VL", "type": "Valve", "ui": {"x": 540, "y": 200}, "params": {"P": "3 bar", "Kv": 10}},
+    {"id": "GAS", "type": "Product", "ui": {"x": 720, "y": 40}},
+    {"id": "LIQUID", "type": "Product", "ui": {"x": 720, "y": 200}}
+  ],
+  "streams": [
+    {"id": "S1", "from": "HEADER.out", "to": "VIN.in"},
+    {"id": "S2", "from": "VIN.out", "to": "DRUM.in"},
+    {"id": "S3", "from": "DRUM.vapor", "to": "VV.in"},
+    {"id": "S4", "from": "VV.out", "to": "GAS.in"},
+    {"id": "S5", "from": "DRUM.liquid", "to": "VL.in"},
+    {"id": "S6", "from": "VL.out", "to": "LIQUID.in"}
+  ],
+  "dynamics": {
+    "t_end": "1 h", "points": 121, "pressure_driven": true,
+    "units": {"DRUM": {"diameter": "1.2 m", "height": "3 m", "initial_level": 0.5}},
+    "controllers": [
+      {"id": "PC", "measure": {"unit": "DRUM", "property": "P"},
+       "manipulate": {"unit": "VV", "param": "opening"}, "action": "direct",
+       "gain": 2, "integral_time": "2 min", "pv_range": ["6 bar", "10 bar"], "op_range": [0, 1]},
+      {"id": "LC", "measure": {"unit": "DRUM", "property": "level"},
+       "manipulate": {"unit": "VL", "param": "opening"}, "action": "direct",
+       "gain": 2, "integral_time": "5 min", "pv_range": ["0 m", "3 m"], "op_range": [0, 1]}
+    ],
+    "events": [
+      {"time": "1 min", "unit": "VIN", "param": "opening", "value": 0.6}
+    ]
+  }
+}

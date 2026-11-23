@@ -7,6 +7,18 @@ format or API).
 
 ## [Unreleased]
 
+### Added
+
+- **Pressure-driven dynamics** (`"pressure_driven": true` under `dynamics`): flows between
+  vessels, feeds and products follow from their pressures. Valves get a flow coefficient
+  (`Cv` or `Kv`), an opening that controllers and events move, a linear, equal-percentage or
+  quick-opening characteristic and the IEC 60534 liquid and gas equations with choked gas
+  flow. Vessels with gas in them carry their pressure (the contents fill the volume), so it
+  builds up behind a closed valve and relieves through an open one; the liquid outflow adds
+  the static head of the level. Pumps with a curve deliver against the line. Valves start
+  at the opening that passes the steady-state flow, so an undisturbed run stays put. The
+  flow-driven mode stays the default. Example: `flash_drum_pressure_control.json`.
+
 ## [0.3.0] - 2026-11-23
 
 The first published release; the prepared 0.2.0 was never published and is included here.
