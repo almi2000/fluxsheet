@@ -129,11 +129,54 @@ G1, G2, G3, C2 gegen Referenzdaten in die bestehende Kampagne aufnehmen
 
 ---
 
+## Welle 4 (ab 2026-11-23)
+
+Mehrere Agenten parallel: höchstens zwei Sessions gleichzeitig plus die koordinierende
+Session. C6 folgt auf C5 und G7 auf G6, weil sie dieselben Dateien anfassen.
+
+### C5 – Druckgetriebene Dynamik · **Claude** (Session) · Status: in Arbeit
+Durchflüsse in der dynamischen Simulation folgen aus Druckdifferenzen statt fest
+vorgegeben zu sein: Ventile mit Kennlinie (Cv, Öffnung als Stellgröße), Gas-Hold-up mit
+Druck in Behältern (Druckaufbau, Abblasen), Pumpen gegen den Netzdruck. Eine Option
+`pressure_driven` hält den bisherigen flussgetriebenen Modus als Standard.
+- Dateien: `src/fluxsheet/dynamics/` (Kern, neue Module), `src/fluxsheet/units/pressure.py`
+  (nur neue Ventil-Parameter, additiv), `tests/test_dynamics_pressure.py`, ein Beispiel in
+  `examples/`, Abschnitt in `docs/architecture.md`
+
+### C6 – Plug-ins überall · **Claude** · Status: offen · *nach C5*
+Plug-in-Units in der Dynamik (eigene dynamische Modelle über Entry-Point) und in der
+Kostenrechnung; Henry-Komponenten mit Plug-in-Aktivitätsmethoden.
+- Dateien: `src/fluxsheet/plugins.py`, `src/fluxsheet/dynamics/units.py` (Registry),
+  `src/fluxsheet/costing.py` (Registry), `src/fluxsheet/thermo_package.py` (Henry-Pfad),
+  `tests/test_plugins.py`, `examples/plugin/`
+
+### G6 – Gekühlter Rohrreaktor · **ChatGPT** (übernommen von Claude, Session) · Status: in Arbeit
+PFR mit Kühl- oder Heizmedium entlang der Länge im Gleich- oder Gegenstrom
+(Randwertproblem beim Gegenstrom), Temperaturprofil beider Seiten, Prozessströme als
+Mantelmedium (zweiter Strom am Reaktor).
+- Dateien: `src/fluxsheet/units/reactors.py` (nur PFR), `src/fluxsheet/utilities.py`,
+  `tests/test_pfr_cooled.py`, ein Beispiel in `examples/`
+
+### G7 – Wärmedurchgang aus Filmkoeffizienten · **ChatGPT** · Status: offen · *nach G6*
+U aus Geometrie und Korrelationen (Rohr innen: Gnielinski/Dittus-Boelter, Mantel, Rührkessel,
+Kondensation/Sieden vereinfacht) plus Foulingwiderstände, statt U als feste Zahl.
+- Dateien: `src/fluxsheet/utilities.py`, `src/fluxsheet/units/heat_transfer.py`,
+  `src/fluxsheet/units/heat.py` (nur U-Herkunft), `tests/test_film_coefficients.py`
+
+### G8 – Restpunkte G1b und G4 · **ChatGPT** (übernommen von Claude) · Status: in Arbeit
+Reaktive Gleichgewichtskolonnen mit Boilup-Spezifikation konvergieren lassen und die
+Rücklauf-Fortsetzung beschleunigen (früher Abbruch, weniger Schritte); Import-Test mit einer
+echten DWSIM-Datei, sofern eine mit passender Lizenz verfügbar ist.
+- Dateien: `src/fluxsheet/columns/stages.py`, `src/fluxsheet/units/columns.py`,
+  `src/fluxsheet/importers/dwsim.py`, `tests/test_column_side_streams.py`,
+  `tests/test_import_dwsim.py`, `tests/data/dwsim/`
+
+---
+
 ## Offen bei Alex (kein Agent)
 
-- Zwei ChatGPT-Stashes in `main` (`chatgpt-wip-before-…`, je 15 Dateien) sind nicht
-  vollständig gemergt: behalten, anwenden oder löschen?
-- 8 alte Worktrees unter `.claude/worktrees/` und gemergte `claude/*`-Branches aufräumen.
+- Drei ChatGPT-Stashes (`chatgpt-wip-before-…` zweimal, `Preserve local roadmap…`) sind
+  nicht vollständig gemergt: behalten, anwenden oder löschen?
 - Release 0.3.0 ist vorbereitet (Version, CHANGELOG); Tag, GitHub-Release, PyPI und
   Online-Demo erst auf ausdrücklichen Wunsch. 0.2.0 wurde nie veröffentlicht.
 
@@ -144,3 +187,4 @@ G1, G2, G3, C2 gegen Referenzdaten in die bestehende Kampagne aufnehmen
 | 1 | C1 PI-Pumpenregler, C3 Ergebnis-Overlays | G1 Reaktive Gleichgewichtsstufen, G1b Konvergenz reaktiver Kolonnen, G2 Nicht-idealer Gibbs |
 | 2 | C2 Dynamische Kolonne | G3 Batch-Kosten, G4 DWSIM-Import |
 | 3 | C4 Plug-ins | G5 Validierungskampagne |
+| 4 | C5 Druckgetriebene Dynamik, C6 Plug-ins überall | G6 Gekühlter Rohrreaktor, G7 Filmkoeffizienten, G8 Restpunkte G1b/G4 |
