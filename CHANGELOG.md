@@ -7,6 +7,14 @@ format or API).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Reactive columns on a boilup ratio:** an equilibrium reactive column specified by its
+  boilup ratio now converges by continuation from a column at moderate reflux, as one
+  specified by its reflux ratio already did. A direct solve that makes no progress is
+  abandoned after 20 iterations, which halves the solve time at high reflux (methyl acetate
+  column at reflux 3-5: about 8 s instead of 14 s).
+
 ## [0.3.0] - 2026-11-23
 
 The first published release; the prepared 0.2.0 was never published and is included here.
