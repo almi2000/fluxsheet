@@ -18,3 +18,12 @@ after a run, were computed with Fluxsheet, not with DWSIM.
 - `hydrogenation.dwxml`: benzene hydrogenation, Peng-Robinson. Feed/effluent heat exchanger
   (hot side on connector 1), heater, conversion reactor with its reaction set, cooler,
   flash and a compound separator. The tests also zip it into a `.dwxmz`.
+
+## Real DWSIM files
+
+`real-samples.json` identifies three of the sample simulations that ship with DWSIM (its
+repository at a fixed commit, by SHA-256). They are GPL-licensed and are not copied into
+this repository. `python scripts/fetch_dwsim_samples.py --cache-dir PATH` downloads and
+verifies them; `FLUXSHEET_DWSIM_SAMPLES=PATH pytest tests/test_import_dwsim.py` then imports
+each one, solves it and compares every stream with the state DWSIM stored. Without the
+variable those tests are skipped.

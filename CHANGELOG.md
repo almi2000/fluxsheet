@@ -9,6 +9,21 @@ format or API).
 
 ### Fixed
 
+- **Three-phase flash with vapor:** with a vapor and two liquids, the heavy-liquid fraction
+  was the heavy liquid's share of the liquid instead of the mixture, so decanters with a gas
+  phase put too much into their heavy outlet. Found by the DWSIM comparison below.
+- **DWSIM import of real DWSIM files:** stream states were not read from files DWSIM
+  writes, which store a phase's properties and compounds twice (a type name first, the data
+  after). Such files lost every feed. Three-phase vessels now assign their liquids by the
+  stored densities. On a cubic equation of state, which finds no second liquid in Fluxsheet,
+  they split with UNIFAC, with a warning. Gibbs reactors minimize on the property method's
+  fugacities, as DWSIM's do. `fluxsheet.importers.stored_streams` returns the stream states
+  DWSIM saved. Three of DWSIM's own sample simulations (Cavett's problem, a three-phase
+  separator, Gibbs and equilibrium reactors) are identified by SHA-256 in
+  `tests/data/dwsim/real-samples.json`, but not redistributed because they are GPL-licensed.
+  `scripts/fetch_dwsim_samples.py` downloads them, and the tests then compare every stream
+  with DWSIM's result: within 1 K and 2-8 % in flow for Cavett's problem, 1.5 % for the
+  separator and 5e-5 for the Gibbs reactor.
 - **Reactive columns on a boilup ratio:** an equilibrium reactive column specified by its
   boilup ratio now converges by continuation from a column at moderate reflux, as one
   specified by its reflux ratio already did. A direct solve that makes no progress is

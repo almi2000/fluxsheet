@@ -1269,7 +1269,9 @@ class PropertyPackage:
         liquid_x = _combined_liquid(res, liquids, self.n) if liquids else None
         split: dict = {}
         if len(liquids) > 1:
-            betas = [float(b) for b in res.betas_liquids]  # mol per mol mixture
+            # thermo's betas_liquids are fractions of the liquid; the split is per mole of
+            # mixture, so with vapor present they are scaled by the liquid fraction.
+            betas = [float(b) * (1.0 - vf) for b in res.betas_liquids]
             by_density = sorted(zip(liquids, betas), key=lambda pb: pb[0].rho_mass())
             (light, _), (heavy, beta_heavy) = by_density[0], by_density[-1]
             split = {"x_light": tuple(light.zs), "x_heavy": tuple(heavy.zs),

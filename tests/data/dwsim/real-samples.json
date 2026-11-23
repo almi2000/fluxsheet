@@ -1,0 +1,14 @@
+{
+  "source": "https://github.com/DanWBR/dwsim",
+  "commit": "1abf72d1b6b41d3e9a8cc770d3cc4e8fc76e5766",
+  "directory": "PlatformFiles/Common/samples",
+  "license": "GPL-3.0 (DWSIM); the files are not redistributed here, only identified",
+  "samples": [
+    {"file": "Cavett's Problem.dwxmz", "bytes": 250069,
+     "sha256": "0f25a2895f8e11193c5c91a1bd3fb53ef53294f524afc8cef8ea7170d97ce030"},
+    {"file": "Three Phase Separator.dwxmz", "bytes": 26918,
+     "sha256": "82bd4a73bac117e02446d8ff9466b2588f46a9f436b7204afebbe3384800df19"},
+    {"file": "Gibbs and Equilibrium Reactors.dwxml", "bytes": 467195,
+     "sha256": "2bdc50b7fc34bf5a166577a518e99009aa25cbfb5b783c3b172074f105a88c87"}
+  ]
+}

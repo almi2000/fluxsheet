@@ -5,6 +5,7 @@ Reference values: azeotrope and heteroazeotrope data as tabulated in standard re
 1-butanol from IUPAC-NIST Solubility Data Series. Tolerances reflect the models, not the data.
 """
 
+import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
@@ -291,3 +292,16 @@ def test_unifac_butanol_lle_matches_independent_activity_equality(temperature):
     assert swapped.liquid_split
     assert sorted((swapped.x_light[0], swapped.x_heavy[0])) == pytest.approx(
         independent.x, abs=1e-6)
+
+
+def test_three_phase_flash_with_vapor_splits_per_mole_of_mixture():
+    # Vapor, a hydrocarbon liquid and water: the two liquid fractions and the vapor add up to
+    # the feed (thermo reports the liquids' shares of the liquid, not of the mixture).
+    pkg = get_package(("methane", "water", "decane"), "unifac")
+    z = np.array([1 / 3, 1 / 3, 1 / 3])
+    s = pkg.flash(list(z), T=300.0, P=101325.0)
+    assert 0.0 < s.VF < 1.0 and s.liquid_split
+    light = 1.0 - s.VF - s.heavy_fraction
+    np.testing.assert_allclose(s.VF * np.array(s.y) + light * np.array(s.x_light)
+                               + s.heavy_fraction * np.array(s.x_heavy), z, atol=1e-9)
+    assert s.x_heavy[1] > 0.99  # the water phase is the heavy one
