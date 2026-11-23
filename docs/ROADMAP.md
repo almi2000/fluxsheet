@@ -134,7 +134,7 @@ G1, G2, G3, C2 gegen Referenzdaten in die bestehende Kampagne aufnehmen
 Mehrere Agenten parallel: höchstens zwei Sessions gleichzeitig plus die koordinierende
 Session. C6 folgt auf C5 und G7 auf G6, weil sie dieselben Dateien anfassen.
 
-### C5 – Druckgetriebene Dynamik · **Claude** (Session) · Status: in Arbeit
+### C5 – Druckgetriebene Dynamik · **Claude** (Session) · Status: gemergt
 Durchflüsse in der dynamischen Simulation folgen aus Druckdifferenzen statt fest
 vorgegeben zu sein: Ventile mit Kennlinie (Cv, Öffnung als Stellgröße), Gas-Hold-up mit
 Druck in Behältern (Druckaufbau, Abblasen), Pumpen gegen den Netzdruck. Eine Option
