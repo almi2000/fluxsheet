@@ -1,0 +1,45 @@
+{
+  "format": "fluxsheet/1",
+  "name": "Exchangers rated from their geometry",
+  "description": "U from film coefficients instead of a fixed number. A double-pipe exchanger (Kraume, Transportvorgänge in der Verfahrenstechnik, Example 5.12: 1 m³/h of water from 20 °C in a 50 mm steel tube, hot water from 60 °C in the 100 mm outer pipe, 45.9 m long) preheats the water; a steam-heated shell-and-tube heater (20 tubes of 19.05 mm in two passes) brings it to temperature; a stirred drum cools it again with cooling water in a helical coil (33.7 mm tube on a 0.9 m helix). Each unit reports its film coefficients, Reynolds and Nusselt numbers and the U they give, on the outer tube surface. Rate the drum with U_from jacket and a 25 mm jacket gap instead to see why plain jackets are poor: the cooling water creeps through the gap in laminar flow. Both water streams of the double pipe are in the transition region (Re 4400 and 9200), so U is low; shorten the outer pipe's diameter or raise the flows to see U rise. Give U again to compare with a fixed coefficient.",
+  "components": ["water"],
+  "property_method": "ideal",
+  "utilities": [
+    {"id": "LPS", "type": "steam", "P": "3 bar"},
+    {"id": "CW", "type": "fluid", "T_in": "25 degC", "T_out": "35 degC", "cp": "4.18 kJ/kgK"}
+  ],
+  "units": [
+    {"id": "COLD", "type": "Feed", "ui": {"x": 0, "y": 200},
+     "params": {"T": "20 degC", "P": "3 bar", "flows": {"water": "55.51 kmol/h"}}},
+    {"id": "HOT", "type": "Feed", "ui": {"x": 0, "y": 0},
+     "params": {"T": "60 degC", "P": "3 bar", "flows": {"water": "59.47 kmol/h"}}},
+    {"id": "DP", "type": "HeatExchanger", "ui": {"x": 200, "y": 100},
+     "params": {"area": "8.075 m2", "U_from": "double_pipe", "tube_side": "cold",
+                "tube_outer_diameter": "56 mm", "wall_thickness": "3 mm",
+                "annulus_diameter": "100 mm", "wall_conductivity": "15 W/mK"}},
+    {"id": "HEATER", "type": "Heater", "ui": {"x": 420, "y": 200},
+     "params": {"utility": "LPS", "area": "3 m2", "U_from": "shell_and_tube", "tubes": 20,
+                "tube_passes": 2, "tube_outer_diameter": "19.05 mm",
+                "wall_thickness": "1.65 mm", "wall_conductivity": "50 W/mK",
+                "shell_diameter": "0.2 m", "tube_pitch": "23.8 mm",
+                "baffle_spacing": "0.15 m", "fouling_process": "0.0002 m2K/W"}},
+    {"id": "DRUM", "type": "Flash", "ui": {"x": 640, "y": 200},
+     "params": {"utility": "CW", "area": "2 m2", "U_from": "coil",
+                "vessel_diameter": "1.2 m", "impeller_diameter": "0.4 m",
+                "impeller_speed": "120 rpm", "tube_outer_diameter": "33.7 mm",
+                "wall_thickness": "2.6 mm", "coil_diameter": "0.9 m",
+                "fouling_medium": "0.0002 m2K/W"}},
+    {"id": "WARM", "type": "Product", "ui": {"x": 420, "y": 0}},
+    {"id": "VENT", "type": "Product", "ui": {"x": 860, "y": 120}},
+    {"id": "PRODUCT", "type": "Product", "ui": {"x": 860, "y": 280}}
+  ],
+  "streams": [
+    {"id": "S1", "from": "HOT.out", "to": "DP.hot_in"},
+    {"id": "S2", "from": "COLD.out", "to": "DP.cold_in"},
+    {"id": "S3", "from": "DP.hot_out", "to": "WARM.in"},
+    {"id": "S4", "from": "DP.cold_out", "to": "HEATER.in"},
+    {"id": "S5", "from": "HEATER.out", "to": "DRUM.in"},
+    {"id": "S6", "from": "DRUM.vapor", "to": "VENT.in"},
+    {"id": "S7", "from": "DRUM.liquid", "to": "PRODUCT.in"}
+  ]
+}

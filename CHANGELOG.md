@@ -27,6 +27,22 @@ format or API).
   the flow that brings it to its outlet temperature. Results: both temperature profiles,
   the heat through the wall, the medium's outlet state, and the hot-spot temperature and
   position. Example: `examples/phthalic_anhydride_tube.json`.
+- **U from film coefficients** (`U_from`, opt-in): heaters, the two-sided heat exchanger,
+  vessels with a jacket or coil (drums, stirred and other reactors, decanters) and the plug
+  flow reactor find U from their geometry instead of taking it as a number, as 1/U = 1/h_i +
+  R_f,i + wall + R_f,o + 1/h_o on the area the unit already uses (the outer tube surface,
+  the vessel wall, the reactor's inner tube surface). In tubes Gnielinski (Dittus-Boelter as
+  an option) with Nu = 3.66 below Re 2300 and the transition interpolated; annuli; Kern's
+  shell side; stirred vessels by Chilton-Drew-Jebens with impeller diameter, speed and
+  constants; steam condensing by Nusselt's film theory and nucleate boiling by Mostinski,
+  both simplified. Fouling on both sides and the wall's conduction are included. The
+  process side's density, heat capacity, viscosity and conductivity come from the property
+  package (new `PropertyPackage.transport_properties`), a liquid utility is rated as water.
+  Results: U, both film coefficients, Reynolds and Nusselt numbers and the wall temperature;
+  the reactor evaluates U at the local temperatures and shows it along the tube. A given U
+  works as before. New quantities for the inputs: fouling resistance (m²K/W), thermal
+  conductivity (W/m·K) and rotational speed (rpm). Example:
+  `examples/double_pipe_from_geometry.json`.
 
 ### Changed
 

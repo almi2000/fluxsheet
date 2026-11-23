@@ -157,11 +157,16 @@ Mantelmedium (zweiter Strom am Reaktor).
 - Dateien: `src/fluxsheet/units/reactors.py` (nur PFR), `src/fluxsheet/utilities.py`,
   `tests/test_pfr_cooled.py`, ein Beispiel in `examples/`
 
-### G7 – Wärmedurchgang aus Filmkoeffizienten · **ChatGPT** · Status: offen · *nach G6*
+### G7 – Wärmedurchgang aus Filmkoeffizienten · **Claude** (übernommen von ChatGPT, Session) · Status: fertig, nicht gemergt (Branch `claude/sweet-moser-0a8dc4`)
 U aus Geometrie und Korrelationen (Rohr innen: Gnielinski/Dittus-Boelter, Mantel, Rührkessel,
 Kondensation/Sieden vereinfacht) plus Foulingwiderstände, statt U als feste Zahl.
 - Dateien: `src/fluxsheet/utilities.py`, `src/fluxsheet/units/heat_transfer.py`,
-  `src/fluxsheet/units/heat.py` (nur U-Herkunft), `tests/test_film_coefficients.py`
+  `src/fluxsheet/units/heat.py` (nur U-Herkunft), U-Eingabe des PFR in
+  `src/fluxsheet/units/reactors.py`, neu `src/fluxsheet/film_coefficients.py` und
+  `src/fluxsheet/film_rating.py`, `tests/test_film_coefficients.py`,
+  `examples/double_pipe_from_geometry.json`; additiv: `thermo_package.py`
+  (`transport_properties`), drei Größen in `quantities.py`, `report.py`,
+  `web/src/quantities.ts`
 
 ### G8 – Restpunkte G1b und G4 · **ChatGPT** (übernommen von Claude) · Status: gemergt
 Reaktive Gleichgewichtskolonnen mit Boilup-Spezifikation konvergieren lassen und die

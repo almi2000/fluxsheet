@@ -242,6 +242,20 @@ class PhaseProps:
 
 
 @dataclass(frozen=True)
+class TransportProps:
+    """One phase's properties for heat transfer correlations (film coefficients), SI."""
+
+    rho: float  # density, kg/m3
+    cp: float  # heat capacity, J/(kg K)
+    mu: float  # dynamic viscosity, Pa s
+    k: float  # thermal conductivity, W/(m K)
+
+    @property
+    def Pr(self) -> float:
+        return self.cp * self.mu / self.k
+
+
+@dataclass(frozen=True)
 class Saturation:
     """A bubble or dew point: liquid composition x and vapor composition y in equilibrium."""
 
@@ -973,6 +987,57 @@ class PropertyPackage:
             )
 
         return self._single_phase(kind, T, P, zs, state)
+
+    def transport_properties(self, kind: str, T: float, P: float,
+                             zs: list[float]) -> TransportProps:
+        """Density, heat capacity, viscosity and thermal conductivity of one ``"vapor"`` or
+        ``"liquid"`` phase at T, P and mole fractions ``zs``, for film coefficients.
+
+        The density comes from the package's own phase model (the same as its flashes), and
+        so does a vapor's heat capacity. A liquid's heat capacity is the mole-fraction
+        average of the pure-liquid correlations, which is closer to measurements than an
+        activity model's (built from the heat of vaporization), with the phase model as a
+        fallback. Viscosity and thermal conductivity come from the pure-component
+        correlations of ``thermo`` (DIPPR and others) mixed by fixed rules: liquids by
+        logarithmic (molar) viscosity mixing and DIPPR 9H, gases by Brokaw and
+        Lindsay-Bromley.
+        """
+        zs = list(zs)
+        mws = self.mws
+        mw = sum(z * m for z, m in zip(zs, mws)) / 1e3  # kg/mol
+        ws = [z * m / 1e3 / mw for z, m in zip(zs, mws)]
+
+        def basic(ph):
+            return (mw / self._volume(ph.V(), zs), float(ph.Cp()) / mw)
+
+        rho, cp = self._single_phase(kind, T, P, zs, basic)
+        p = self.props
+        vapor = kind == "vapor"
+        if not vapor:
+            try:
+                cp_l = p.HeatCapacityLiquidMixture.calculate(T, P, zs, ws, "LINEAR")
+            except (ArithmeticError, ValueError, TypeError):
+                cp_l = None
+            if cp_l is not None and math.isfinite(cp_l) and cp_l > 0.0:
+                cp = float(cp_l) / mw
+        mixtures = (((p.ViscosityGasMixture, "BROKAW"),
+                     (p.ThermalConductivityGasMixture, "LINDSAY_BROMLEY")) if vapor
+                    else ((p.ViscosityLiquidMixture, "Logarithmic mixing, molar"),
+                          (p.ThermalConductivityLiquidMixture, "DIPPR_9H")))
+        values = []
+        for prop, (mixture, method) in zip(("viscosity", "thermal conductivity"), mixtures):
+            try:
+                v = mixture.calculate(T, P, zs, ws, method)
+            except (ArithmeticError, ValueError, TypeError):  # out of range, missing data
+                v = None
+            if v is None or not math.isfinite(v) or v <= 0.0:
+                names = ", ".join(n for n, z in zip(self.names, zs) if z > 0.0)
+                raise SimulationError(
+                    f"no {kind} {prop} for {names} at {T:.6g} K",
+                    hint="the film coefficients need it; give the heat transfer "
+                    "coefficient U (or that side's film coefficient) instead")
+            values.append(float(v))
+        return TransportProps(rho=rho, cp=cp, mu=values[0], k=values[1])
 
     def _single_phase(self, kind: str, T: float, P: float, zs: list[float], evaluate):
         if kind == "vapor":

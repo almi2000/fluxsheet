@@ -22,7 +22,19 @@ from .base import (
     empty_stream,
     single_inlet,
 )
-from .heat_transfer import AREA, ARRANGEMENT, HEAT_PARAMS, HEAT_RESULTS
+from .heat_transfer import (
+    AREA,
+    ARRANGEMENT,
+    FILM_RESULTS,
+    HEAT_RESULTS,
+    HEATER_FILM_PARAMS,
+    TUBE_GEOMETRY,
+    TUBE_U_FROM_HELP,
+    UTILITY,
+    UTILITY_FLOW,
+    U,
+    u_from,
+)
 
 
 class Heater(UnitOperation):
@@ -39,7 +51,10 @@ class Heater(UnitOperation):
         Param("VF", "Outlet vapor fraction", "fraction", min=0.0, max=1.0),
         Param("duty", "Duty", "power", help="Positive = heating, negative = cooling."),
         AREA,
-        *HEAT_PARAMS,
+        UTILITY,
+        UTILITY_FLOW,
+        U,
+        *HEATER_FILM_PARAMS,
         ARRANGEMENT,
         P_OUT,
         DP,
@@ -184,19 +199,46 @@ class HeatExchanger(UnitOperation):
               help="Smallest hot-minus-cold temperature difference anywhere in the exchanger."),
         Param("UA", "UA", "thermal_conductance", min=0.0,
               help="Overall heat transfer coefficient times area (rating mode)."),
+        Param("area", "Area", "area", min=0.0, tab="Area",
+              help="Outer tube surface (rating mode): U follows from the geometry and film "
+              "coefficients (U from film coefficients)."),
+        u_from(("double_pipe", "shell_and_tube"), TUBE_U_FROM_HELP),
+        Param("tube_side", "Stream in the tubes", "choice", default="cold",
+              options=("cold", "hot"), requires="U_from",
+              help="Which stream flows in the tubes; the other one flows in the annulus or "
+              "the shell."),
+        *TUBE_GEOMETRY,
+        Param("fouling_tube", "Fouling, tube side", "fouling_resistance", min=0.0,
+              requires="U_from", help="Fouling resistance on the inner tube surface."),
+        Param("fouling_shell", "Fouling, shell side", "fouling_resistance", min=0.0,
+              requires="U_from", help="Fouling resistance on the outer tube surface."),
         Param("arrangement", "Flow arrangement", "choice", default="countercurrent",
               options=("countercurrent", "cocurrent")),
         Param("dP_hot", "Hot side pressure drop", "pressure_difference", min=0.0),
         Param("dP_cold", "Cold side pressure drop", "pressure_difference", min=0.0),
     )
-    exclusive_groups = (("T_hot_out", "T_cold_out", "duty", "min_approach", "UA"),)
+    exclusive_groups = (("T_hot_out", "T_cold_out", "duty", "min_approach", "UA", "area"),)
     required_groups = exclusive_groups
     result_fields = (
         DUTY,
         ResultField("LMTD", "Mean temperature difference (LMTD)", "temperature_difference"),
         ResultField("UA", "UA", "thermal_conductance"),
         ResultField("min_approach", "Minimum approach", "temperature_difference"),
+        ResultField("heat_transfer_area", "Heat transfer area", "area"),
+        FILM_RESULTS[0],  # U
+        *(ResultField(f"{q}_{side}", f"{label}, {where}", quantity)
+          for side, where in (("tube", "tube side"), ("shell", "annulus / shell side"))
+          for q, label, quantity in (("h", "Film coefficient", "heat_transfer_coefficient"),
+                                     ("Re", "Reynolds number", None),
+                                     ("Nu", "Nusselt number", None))),
     )
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if self.p["area"] is not None and self.p["U_from"] is None:
+            raise SimulationError("the area is given but not how to find U", where=self.id,
+                                  hint="set U from film coefficients (and the geometry), or "
+                                  "give UA instead")
 
     def calculate(self, pkg, inlets):
         hot, cold = inlets["hot_in"][0], inlets["cold_in"][0]
@@ -224,7 +266,8 @@ class HeatExchanger(UnitOperation):
 
         countercurrent = self.p["arrangement"] == "countercurrent"
         curves = _Curves(pkg, hot, cold, P_hot, P_cold, countercurrent)
-        Q = self._duty(curves)
+        films = _Films(self, pkg, curves) if self.p["U_from"] is not None else None
+        Q = self._duty(curves, films)
 
         hot_out = Stream.from_flash(pkg, hot.flows, P=P_hot, H=hot.state.H - Q / hot.total_flow)
         cold_out = Stream.from_flash(pkg, cold.flows, P=P_cold,
@@ -234,6 +277,12 @@ class HeatExchanger(UnitOperation):
             duty=Q, UA=UA, min_approach=curves.approach(Q),
             LMTD=Q / UA if Q > 0.0 else hot.T - cold.T,
         )
+        if films is not None:  # U from the geometry; the area is given or follows from UA
+            o = films.overall(Q)
+            self.results.update(films.results(o))
+            self.results["heat_transfer_area"] = (self.p["area"] if self.p["area"] is not None
+                                                  else UA / o.U)
+            self.notes.extend(n for n in films.notes if n not in self.notes)
         x, T_hot, T_cold = curves.profile(Q, n=20)
         self.add_profile(
             "temperatures", "Temperature along the exchanger", "Heat transferred [kW]",
@@ -243,7 +292,7 @@ class HeatExchanger(UnitOperation):
         )
         return {"hot_out": hot_out, "cold_out": cold_out}
 
-    def _duty(self, c: _Curves) -> float:
+    def _duty(self, c: _Curves, films: _Films | None = None) -> float:
         hot, cold, p = c.hot, c.cold, self.p
         if p["duty"] is not None:
             Q = p["duty"]
@@ -275,6 +324,19 @@ class HeatExchanger(UnitOperation):
                 return c.Q_max
             return brentq(lambda Q: c.approach(Q) - p["min_approach"], 0.0, c.Q_max,
                           xtol=1e-9 * max(c.Q_max, 1.0))
+        elif p["area"] is not None:
+            # Rating from the geometry: the duty where the zone analysis needs the UA the
+            # film coefficients give at that duty's mean temperatures.
+            if p["area"] == 0.0 or c.Q_max <= 0.0:
+                return 0.0
+            Q_hi = c.Q_max * (1.0 - 1e-9)
+
+            def excess(Q: float) -> float:
+                return c.UA(Q) - p["area"] * films.overall(Q).U
+
+            if excess(Q_hi) <= 0.0:
+                return Q_hi
+            return brentq(excess, 0.0, Q_hi, xtol=1e-9 * max(c.Q_max, 1.0))
         else:
             if p["UA"] == 0.0:
                 return 0.0
@@ -307,3 +369,52 @@ class HeatExchanger(UnitOperation):
             f"side (at most {_kW(Q_ok)} can be transferred)",
             hint=f"{hint}; or specify a minimum approach temperature, e.g. 10 K",
         )
+
+
+class _Films:
+    """U of a two-sided exchanger from its geometry, at the mean temperatures of both sides
+    for a duty Q; referred to the outer tube surface."""
+
+    def __init__(self, unit: HeatExchanger, pkg, c: _Curves):
+        from ..film_rating import Tubes
+
+        self.unit, self.pkg, self.c = unit, pkg, c
+        self.tubes = Tubes.of(unit)
+        self.notes: list[str] = []
+        self.tube_hot = unit.p["tube_side"] == "hot"
+
+    def overall(self, Q: float):
+        from .. import film_coefficients as fc
+        from ..film_rating import mass_flow, stream_fluid
+
+        c, t, pkg = self.c, self.tubes, self.pkg
+        hot, cold = c.hot, c.cold
+        T_hot = 0.5 * (hot.T + pkg.flash(hot.zs, P=c.P_hot,
+                                         H=hot.state.H - Q / hot.total_flow).T)
+        T_cold = 0.5 * (cold.T + pkg.flash(cold.zs, P=c.P_cold,
+                                           H=cold.state.H + Q / cold.total_flow).T)
+        sides = {}
+        for name, s, T, P in (("hot", c.hot, T_hot, c.P_hot), ("cold", c.cold, T_cold, c.P_cold)):
+            sides[name] = (s, T, stream_fluid(pkg, s.zs, T, P, self.notes,
+                                              f"the {name} stream"))
+        tube, shell = ("hot", "cold") if self.tube_hot else ("cold", "hot")
+        s_t, T_t, f_t = sides[tube]
+        s_s, T_s, f_s = sides[shell]
+        inside = t.inside(f_t, T_t, mass_flow(pkg, s_t), tube == "cold")
+        outside, dependent = t.outside(f_s, T_s, mass_flow(pkg, s_s), shell == "cold",
+                                       self.notes)
+        p = self.unit.p
+        inner = fc.Side(T_t, inside, t.ratio_inside, p["fouling_tube"] or 0.0)
+        outer = fc.Side(T_s, outside, 1.0, p["fouling_shell"] or 0.0, dependent)
+        try:
+            return fc.overall(inner, outer, t.wall)
+        except SimulationError as exc:
+            raise exc.located(self.unit.id)
+
+    @staticmethod
+    def results(o) -> dict:
+        from ..film_rating import overall_results
+
+        out = overall_results(o, "tube", "shell")
+        out.pop("T_wall")
+        return out
