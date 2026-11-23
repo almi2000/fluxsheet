@@ -14,7 +14,7 @@ import math
 import numpy as np
 from scipy.integrate import solve_ivp
 from scipy.linalg import null_space
-from scipy.optimize import brentq, root
+from scipy.optimize import brentq, minimize_scalar, root
 
 from ..errors import SimulationError
 from ..reactions import (
@@ -27,6 +27,7 @@ from ..reactions import (
     gibbs_over_rt,
 )
 from ..stream import Stream
+from ..utilities import WallMedium, stream_medium, utility_mass_flow, utility_medium
 from .base import (
     DP,
     DUTY,
@@ -34,12 +35,13 @@ from .base import (
     OUT,
     P_OUT,
     Param,
+    Port,
     ResultField,
     UnitOperation,
     empty_stream,
     single_inlet,
 )
-from .heat_transfer import AREA, ARRANGEMENT, HEAT_PARAMS, HEAT_RESULTS
+from .heat_transfer import AREA, HEAT_PARAMS, HEAT_RESULTS, UTILITY, UTILITY_FLOW
 
 T_SPEC = Param("T", "Outlet temperature", "temperature", min=0.0,
                help="Isothermal operation at this temperature.")
@@ -118,13 +120,17 @@ class Reactor(UnitOperation):
             )
         return [max(float(f), 0.0) for f in flows]
 
-    def finish(self, pkg, s: Stream, flows, P: float, hf: np.ndarray) -> Stream:
-        """Outlet stream from the energy specification; records duty, T_out, conversion."""
+    def finish(self, pkg, s: Stream, flows, P: float, hf: np.ndarray,
+               duty: float | None = None) -> Stream:
+        """Outlet stream from the energy specification, or from ``duty`` when the unit found
+        it itself; records duty, T_out, conversion."""
         flows = self.clean(np.asarray(flows, dtype=float), s.total_flow)
-        if self.p["T"] is not None:
+        if self.p["T"] is not None and duty is None:
             out = Stream.from_flash(pkg, flows, T=self.p["T"], P=P)
         else:
-            target = self.h_flow(s, hf) + (self.p["duty"] or 0.0)
+            if duty is None:
+                duty = self.p["duty"] or 0.0
+            target = self.h_flow(s, hf) + duty
             total = sum(flows)
             h = target / total - sum(f / total * v for f, v in zip(flows, hf))
             out = Stream.from_flash(pkg, flows, H=h, P=P)
@@ -538,36 +544,155 @@ class CSTR(KineticReactor):
         return self.finish(pkg, s, n0 + xi @ nu, P, hf)
 
 
+
+
+# ---- plug flow, cooled or heated along the tube --------------------------------------------
+
+COOLANT_IN = Port("coolant_in", "Medium inlet")
+COOLANT_OUT = Port("coolant_out", "Medium outlet")
+MEDIUM = Param(
+    "medium", "Medium side", "choice", default="utility", options=("utility", "stream"),
+    help="What flows outside the tube: a utility from the flowsheet's list, or a process "
+    "stream connected to the medium inlet and outlet (e.g. the cold feed that cools the "
+    "reactor before it enters it).")
+WALL_U = Param(
+    "U", "Heat transfer coefficient U", "heat_transfer_coefficient", min=0.0,
+    help="Overall coefficient through the tube wall, on the heat transfer area. With a "
+    "medium and neither temperature nor duty, the heat exchanged along the tube follows "
+    "from U, the area and the local temperatures of both sides.")
+AREA_PER_LENGTH = Param(
+    "area_per_length", "Heat transfer area per length", "length", min=0.0, requires="U",
+    help="Wall area per metre of tube in m²/m, entered as a length. Defaults to the tube "
+    "circumference π·D.")
+WALL_ARRANGEMENT = Param(
+    "arrangement", "Flow arrangement", "choice", default="countercurrent",
+    options=("countercurrent", "cocurrent"),
+    help="Direction of the medium relative to the reacting stream. Countercurrent: the "
+    "medium enters at the reactor outlet.")
+WALL_DUTY = ResultField("wall_duty", "Heat through the wall", "power")
+T_HOT_SPOT = ResultField("T_hot_spot", "Hot-spot temperature", "temperature")
+HOT_SPOT_AT = ResultField("hot_spot_position", "Hot-spot position", "length")
+
+
 class PFR(KineticReactor):
+    """Plug flow reactor: adiabatic, isothermal, with a fixed duty, or exchanging heat
+    along its length with a medium outside the tube.
+
+    Along the volume V the balances are dξ/dV = r and, for the energy, dH/dV = q with
+    q = U a_V (T_m - T): U the overall coefficient, a_V the wall area per reactor volume
+    and T_m the medium temperature there. The medium's balance is integrated with them as
+    Q(V), the heat passed into the process up to V. Cocurrent, the medium has given up Q(V)
+    at V. Countercurrent, it enters at the reactor outlet, so at V it has given up
+    Q_tot - Q(V), where Q_tot = Q(V_end) is the unknown total duty: a boundary-value
+    problem, solved by shooting on Q_tot (equivalently on the medium outlet temperature)
+    with a bracketing root finder. A fluid utility without a given flow takes the flow that
+    brings it to its outlet temperature; that flow depends on Q_tot, so it is shot on Q_tot
+    as well, in either arrangement.
+    """
+
     type = "PFR"
     label = "Plug Flow Reactor"
     description = ("Tubular reactor without back-mixing: the balances are integrated along the "
-                   "volume. Gives conversion, temperature and composition profiles.")
+                   "volume. Gives conversion, temperature and composition profiles. Can be "
+                   "cooled or heated along its length by a utility or a process stream, in "
+                   "co- or countercurrent.")
+    inlets = (IN, COOLANT_IN)
+    outlets = (OUT, COOLANT_OUT)
     params = (
         REACTIONS,
         Param("V", "Volume", "volume", min=0.0, help="Reactor volume."),
         Param("length", "Length", "length", min=0.0, help="Tube length; needs the diameter."),
         Param("diameter", "Diameter", "length", min=0.0,
               help="Tube inner diameter, used with the length."),
-        PHASE, KEY, T_SPEC, DUTY_SPEC, *HEAT_PARAMS, ARRANGEMENT, P_OUT, DP,
+        PHASE, KEY, T_SPEC, DUTY_SPEC, MEDIUM, UTILITY, UTILITY_FLOW, WALL_U, AREA_PER_LENGTH,
+        WALL_ARRANGEMENT, P_OUT, DP,
     )
     exclusive_groups = (("V", "length"), ("T", "duty"), ("P", "dP"))
     required_groups = (("V", "length"),)
-    process_side = "plug"  # with a utility, the jacket is rated along the tube in a later step
+    result_fields = (T_OUT, DUTY, CONVERSION, RESIDENCE_TIME, WALL_DUTY, T_HOT_SPOT,
+                     HOT_SPOT_AT, *HEAT_RESULTS)
+    process_side = "plug"
     N_POINTS = 41
+    RTOL = 1e-8  # relative tolerance of the integration along the tube
 
-    def react(self, pkg, s, P_out):
-        rxns = self.setup(pkg)
-        nu, m = self._nu, len(rxns)
-        if self.p["length"] is not None:
+    def __post_init__(self) -> None:
+        self._utility = None
+        self._rated = False
+        self._coolant: Stream | None = None
+        self._wall_heat: float | None = None
+        self._feed_T = 0.0
+        super().__post_init__()
+        p = self.p
+        stream = p["medium"] == "stream"
+        if stream and p["utility"] is not None:
+            raise SimulationError("the medium is a process stream, but a utility is chosen too",
+                                  where=self.id, hint="clear the utility, or set the medium "
+                                  "side to utility")
+        if stream and p["U"] is None and p["T"] is None and p["duty"] is None:
+            raise SimulationError(
+                "the medium stream exchanges heat through the tube wall, which needs U",
+                where=self.id, hint="give U (with the length and diameter), or a temperature "
+                "or duty for the medium stream to take up")
+        # The wall is rated along the tube: the duty follows from U, the area and the local
+        # temperatures. Otherwise a utility reports its consumption for the given T or duty.
+        self._rated = (p["U"] is not None and p["T"] is None and p["duty"] is None
+                       and (stream or p["utility"] is not None))
+        if not stream:  # no medium stream: the reactor has one inlet and one outlet
+            self.inlets, self.outlets = (IN,), (OUT,)
+
+    # The solver's utilities.calculate() finds the duty of a well-mixed jacket or reports a
+    # utility's consumption. A wall rated along the tube is integrated here instead, so the
+    # wrapper sees no utility then.
+    @property
+    def utility(self):
+        return None if self._rated else self._utility
+
+    @utility.setter
+    def utility(self, medium) -> None:
+        self._utility = medium
+
+    def calculate(self, pkg, inlets):
+        c = inlets["coolant_in"][0] if "coolant_in" in inlets else None
+        self._coolant, self._wall_heat = c, None
+        outputs = super().calculate(pkg, inlets)
+        if c is None:
+            return outputs
+        # Heat the medium stream passed into the process: rated along the wall, or the duty
+        # that keeps the given temperature or duty.
+        Q = self._wall_heat if self._wall_heat is not None else self.results.get("duty") or 0.0
+        if c.total_flow > 0.0:
+            out = Stream.from_flash(pkg, c.flows, P=c.P, H=c.state.H - Q / c.total_flow)
+        elif abs(Q) > 1e-9:
+            raise SimulationError("the medium stream has no flow, so it cannot take up the "
+                                  "reactor's duty", where=self.id,
+                                  hint="give the medium stream a flow, or clear the "
+                                  "temperature or duty")
+        else:
+            out = empty_stream(pkg, c.T, c.P)
+        # The heat stays inside the unit: no duty crosses its boundary.
+        self.results.update(duty=0.0, wall_duty=Q, utility_T_out=out.T,
+                            utility_flow=sum(f * mw for f, mw in zip(c.flows, pkg.mws)) / 1e3)
+        outputs["coolant_out"] = out
+        return outputs
+
+    def _geometry(self) -> tuple[float, float | None]:
+        """Volume and, if the tube is given by length and diameter, its length."""
+        L = self.p["length"]
+        if L is not None:
             if not self.p["diameter"]:
                 raise SimulationError("the length is given but not the diameter", where=self.id,
                                       hint="set the diameter, or give the volume instead")
-            V = math.pi / 4.0 * self.p["diameter"] ** 2 * self.p["length"]
+            V = math.pi / 4.0 * self.p["diameter"] ** 2 * L
         else:
             V = self.p["V"]
         if not V or V <= 0.0:
             raise SimulationError("the reactor volume must be positive", where=self.id)
+        return V, L
+
+    def react(self, pkg, s, P_out):
+        rxns = self.setup(pkg)
+        nu, m = self._nu, len(rxns)
+        V, L = self._geometry()
         n0 = np.array(s.flows)
         scale = s.total_flow
         species = sorted({i for r in rxns for i in r.involved})
@@ -576,47 +701,219 @@ class PFR(KineticReactor):
         q_v = (self.p["duty"] or 0.0) / V
         P_in = s.P
         dPdV = (P_out - P_in) / V
+        e_scale = scale * R * s.T  # W, scales the heat through the wall
+        counter = self.p["arrangement"] == "countercurrent"
+        wall = self._rated and not (self._coolant is not None and self._coolant.total_flow <= 0)
+        if wall and L is None:
+            raise SimulationError(
+                "the heat exchanged along the tube needs its length", where=self.id,
+                hint="give the length and diameter instead of the volume")
+        area = (self.p["area_per_length"] or math.pi * self.p["diameter"]) * L if wall else 0.0
+        UA_v = self.p["U"] * area / V if wall else 0.0  # W/(m³ K)
 
-        def rhs(vol, y):
+        def rhs(vol, y, medium, Q_tot):
             xi = y[:m] * scale
             T = fixed_T if fixed_T is not None else y[m]
+            if not 1.0 < T < 6000.0:
+                raise SimulationError(
+                    f"the temperature along the reactor runs away ({T:.4g} K)", where=self.id,
+                    hint="check the rate constants and units, or remove more heat")
             P = P_in + dPdV * vol
             flows = n0 + xi @ nu
             r = self.rates(pkg, T, P, flows)
             if fixed_T is not None:
                 return r / scale
-            # dH/dV = q: split into dH/dT dT/dV + sum_j dH/dxi_j r_j + dH/dP dP/dV.
+            if medium is None:
+                q = q_v
+            else:
+                Q = y[m + 1] * e_scale
+                q = UA_v * (medium.T(Q_tot - Q if counter else Q) - T)
+            # dH/dV = q: split into dH/dT dT/dV + sum_j dH/dxi_j r_j + dH/dP dP/dV. The heat
+            # capacity by a central difference: a forward one is off by about 3e-5, which
+            # shifts the temperature profile by a millikelvin.
             h0 = self.h_phase(pkg, T, P, flows, hf)
             dT = 1e-4 * T
-            cp = (self.h_phase(pkg, T + dT, P, flows, hf) - h0) / dT
+            cp = (self.h_phase(pkg, T + dT, P, flows, hf)
+                  - self.h_phase(pkg, T - dT, P, flows, hf)) / (2.0 * dT)
             d_xi = 1e-7 * scale
             dh = [(self.h_phase(pkg, T, P, flows + d_xi * nu[j], hf) - h0) / d_xi
                   for j in range(m)]
             dP = 1e-4 * P
             dh_dp = (self.h_phase(pkg, T, P + dP, flows, hf) - h0) / dP if dPdV else 0.0
-            dTdV = (q_v - float(np.dot(dh, r)) - dh_dp * dPdV) / cp
-            return np.r_[r / scale, dTdV]
+            dTdV = (q - float(np.dot(dh, r)) - dh_dp * dPdV) / cp
+            if medium is None:
+                return np.r_[r / scale, dTdV]
+            return np.r_[r / scale, dTdV, q / e_scale]
 
-        y0 = np.zeros(m) if fixed_T is not None else np.r_[np.zeros(m), s.T]
+        def integrate(medium: WallMedium | None = None, Q_tot: float = 0.0, t_eval=None,
+                      dense: bool = False):
+            y0 = np.zeros(m) if fixed_T is not None else np.r_[np.zeros(m), s.T]
+            atol = np.r_[np.full(m, 1e-12), [1e-6]][: len(y0)]
+            if medium is not None:
+                y0, atol = np.r_[y0, 0.0], np.r_[atol, 1e-9]
+            sol = solve_ivp(rhs, (0.0, V), y0, method="LSODA", t_eval=t_eval, rtol=self.RTOL,
+                            atol=atol, dense_output=dense, args=(medium, Q_tot))
+            if not sol.success:
+                raise SimulationError(f"integration along the reactor failed: {sol.message}",
+                                      where=self.id,
+                                      hint="check the rate constants and units, or give a "
+                                      "temperature")
+            return sol
+
         grid = np.linspace(0.0, V, self.N_POINTS)
-        sol = solve_ivp(rhs, (0.0, V), y0, method="LSODA", t_eval=grid, rtol=1e-8,
-                        atol=np.r_[np.full(m, 1e-12), [1e-6]][: len(y0)])
-        if not sol.success:
-            raise SimulationError(f"integration along the reactor failed: {sol.message}",
-                                  where=self.id,
-                                  hint="check the rate constants and units, or give a "
-                                  "temperature")
+        medium, Q_tot = None, 0.0
+        if wall:
+            self._feed_T = s.T
+            medium, Q_tot = self._shoot(pkg, integrate, e_scale, counter)
+        sol = integrate(medium, Q_tot, t_eval=grid, dense=fixed_T is None)
         xis = sol.y[:m].T * scale
         flows_profile = n0 + xis @ nu
         T_profile = np.full(len(grid), fixed_T) if fixed_T is not None else sol.y[m]
 
         self.results["extents"] = {r.id: float(v) for r, v in zip(rxns, xis[-1])}
         self.results["residence_time"] = self.residence_time(pkg, s, V)
-        out = self.finish(pkg, s, flows_profile[-1], P_out, hf)
-        self._profiles(pkg, grid, V, flows_profile, T_profile, P_in, dPdV)
+        extra: dict[str, tuple[str | None, list[float]]] = {}
+        duty = None
+        if medium is not None:
+            Q_wall = sol.y[m + 1] * e_scale
+            duty = float(Q_wall[-1])
+            if counter and not medium.isothermal:
+                miss = abs(duty - Q_tot)  # integration noise is of order RTOL
+                if miss > max(1e-6, 10.0 * self.RTOL) * max(abs(duty), e_scale):
+                    raise SimulationError(
+                        "the countercurrent wall balance did not converge: the medium does "
+                        f"not meet its inlet condition (off by {miss / 1e3:.3g} kW)",
+                        where=self.id,
+                        hint="a small medium flow along a long, well-cooled tube makes the "
+                        "problem ill-conditioned; raise the medium flow or split the reactor")
+            T_medium = np.array([medium.T(Q_tot - q if counter else q) for q in Q_wall])
+            extra = {"Medium temperature": ("temperature", [float(t) for t in T_medium]),
+                     "Heat through the wall": ("power", [float(q) for q in Q_wall])}
+            self._wall_results(medium, duty, area, T_profile, T_medium)
+        out = self.finish(pkg, s, flows_profile[-1], P_out, hf, duty)
+        if fixed_T is None:
+            self._hot_spot(sol, m, V, L)
+        self._profiles(pkg, grid, V, flows_profile, T_profile, P_in, dPdV, extra)
         return out
 
-    def _profiles(self, pkg, grid, V, flows, T, P_in, dPdV) -> None:
+    def _shoot(self, pkg, integrate, e_scale: float, counter: bool):
+        """The medium along the wall and the total duty Q_tot it passes into the process."""
+        ut, flow = self._utility, self.p["utility_flow"]
+
+        def heat(medium: WallMedium, Q_tot: float) -> float:  # into the process, W
+            return float(integrate(medium, Q_tot).y[-1, -1]) * e_scale
+
+        if self._coolant is not None:
+            fixed = stream_medium(pkg, self._coolant)
+        elif ut.kind == "steam" or flow is not None:
+            if ut.kind != "steam" and flow <= 0.0:
+                raise SimulationError("the medium flow must be positive", where=self.id,
+                                      hint="give a positive medium flow, or leave it empty")
+            fixed = utility_medium(ut, flow)
+        else:
+            fixed = None
+        if fixed is not None and (fixed.isothermal or not counter):
+            return fixed, 0.0  # a single pass from the reactor inlet
+
+        if fixed is not None:
+            # Countercurrent: the medium's state at the reactor inlet is unknown. The search
+            # starts where the medium leaves at the feed temperature, the most it could
+            # exchange without a reaction. The residual falls with Q_tot (a medium that has
+            # given up more is colder and takes more heat), so its sign there says which way
+            # the root lies. Starting at Q_tot = 0 instead would ask the medium to come out
+            # colder than it went in, where a process stream may condense.
+            def medium_for(Q: float) -> WallMedium:
+                return fixed
+
+            def residual(Q: float) -> float:
+                return heat(fixed, Q) - Q
+
+            Q_ref = fixed.given_up(self._feed_T)
+            a = Q_ref if abs(Q_ref) > 1e-6 * e_scale else 0.0
+            fa = residual(a)
+            if fa == 0.0:
+                return fixed, a
+            step = math.copysign(abs(Q_ref) / 2.0 if a else e_scale, fa)
+            found = _bracket(residual, a, fa, a + step)
+            if found is None:
+                raise SimulationError(
+                    "no medium outlet temperature meets the medium inlet temperature in "
+                    "countercurrent", where=self.id,
+                    hint="check U, the area and the medium, or try cocurrent flow")
+        else:
+            # A fluid utility at the flow that brings it to its outlet temperature: that flow
+            # is Q_tot / (cp (T_in - T_out)). With an unlimited flow the medium stays at T_in
+            # and passes the most heat, Q_inf; the duty has its sign and lies near it or
+            # below it in magnitude, so it is searched on ln|Q_tot| from there.
+            Q_inf = heat(WallMedium(ut.describe(), ut.T_in), 0.0)
+            if Q_inf == 0.0 or (Q_inf > 0.0) != ut.heats:
+                raise SimulationError(
+                    f"temperature cross: {ut.describe()} cannot "
+                    f"{'heat' if ut.heats else 'cool'} the reactor along the tube",
+                    where=self.id, hint="choose a utility with more temperature difference")
+
+            def medium_for(Q: float) -> WallMedium:
+                return utility_medium(ut, Q=Q)
+
+            def residual(Q: float) -> float:
+                return heat(medium_for(Q), Q) - Q
+
+            def in_log(x: float) -> float:
+                return residual(math.copysign(math.exp(x), Q_inf))
+
+            x0 = math.log(abs(Q_inf))
+            f_inf = in_log(x0)
+            step = math.log(2.0)
+            found = (_bracket(in_log, x0, f_inf, x0 - step, tries=40, grow=False)
+                     or _bracket(in_log, x0, f_inf, x0 + step, tries=20, grow=False))
+            if found is None:
+                raise SimulationError(
+                    f"{ut.describe()} cannot reach its outlet temperature along the reactor",
+                    where=self.id, hint="give the medium flow, so its outlet temperature "
+                    "follows, or choose another outlet temperature")
+            found = tuple((math.copysign(math.exp(x), Q_inf), f) for x, f in found)
+        (a, fa), (b, fb) = found
+        if fa == 0.0 or fb == 0.0:
+            Q = a if fa == 0.0 else b
+            return medium_for(Q), Q
+        Q = brentq(residual, min(a, b), max(a, b), rtol=1e-12,
+                   xtol=1e-10 * max(abs(a), abs(b)) + 1e-9 * e_scale)
+        return medium_for(Q), Q
+
+    def _wall_results(self, medium: WallMedium, Q: float, area: float, T, T_medium) -> None:
+        UA = self.p["U"] * area
+        self.results.update(wall_duty=Q, UA=UA, heat_transfer_area=area,
+                            LMTD=abs(Q) / UA if UA > 0.0 else None)
+        if self._coolant is not None:
+            self._wall_heat = Q
+            return
+        ut = self._utility
+        if medium.heats_only and Q < 0.0:
+            raise SimulationError(
+                f"{ut.describe()} can only heat, but the reactor gives {-Q / 1e3:.4g} kW to it",
+                where=self.id, hint="choose a cooling utility")
+        if medium.heats_only and (T > T_medium + 1e-9).any():
+            self.notes.append(f"the reactor is hotter than {ut.describe()} over part of its "
+                              "length; the jacket takes heat there at the saturation "
+                              "temperature")
+        self.results.update(utility_flow=utility_mass_flow(ut, medium, Q),
+                            utility_T_out=medium.T(Q))
+
+    def _hot_spot(self, sol, m: int, V: float, L: float | None) -> None:
+        """Highest temperature along the tube and where it is, from the dense solution."""
+        v = np.linspace(0.0, V, 801)
+        T = sol.sol(v)[m]
+        k = int(np.argmax(T))
+        v_hot, T_hot = float(v[k]), float(T[k])
+        if 0 < k < len(v) - 1:
+            res = minimize_scalar(lambda x: -float(sol.sol(x)[m]), bounds=(v[k - 1], v[k + 1]),
+                                  method="bounded", options={"xatol": 1e-10 * V})
+            if -res.fun > T_hot:
+                v_hot, T_hot = float(res.x), float(-res.fun)
+        self.results["T_hot_spot"] = T_hot
+        self.results["hot_spot_position"] = v_hot / V * L if L is not None else None
+
+    def _profiles(self, pkg, grid, V, flows, T, P_in, dPdV, extra=None) -> None:
         if self.p["length"] is not None:
             x, x_label = grid / V * self.p["length"], "Length [m]"
         else:
@@ -630,6 +927,7 @@ class PFR(KineticReactor):
             series[f"Conversion of {pkg.names[key]}"] = (
                 "fraction", [float(1.0 - f / flows[0, key]) for f in flows[:, key]])
         series["Temperature"] = ("temperature", [float(t) for t in T])
+        series.update(extra or {})
         if dPdV:
             series["Pressure"] = ("pressure", [float(P_in + dPdV * v) for v in grid])
         self.add_profile("conditions", "Along the reactor", x_label, x, series)
@@ -639,3 +937,29 @@ class PFR(KineticReactor):
             {f"{pkg.names[i]} (mole fraction)": ("fraction", [float(v) for v in z[:, i]])
              for i in present},
         )
+
+
+def _bracket(residual, a: float, fa: float, b: float, tries: int = 60, grow: bool = True):
+    """Two points around a sign change of ``residual``, walking from ``a`` (where it is
+    ``fa``) through ``b`` and on in the same direction; None if there is none within
+    ``tries`` steps. Each step doubles if ``grow``. Where the residual cannot be evaluated
+    (the reactor runs away, a flash fails), the step is halved instead.
+    """
+    step, bad = b - a, None
+    for _ in range(tries):
+        try:
+            fb = residual(b)
+        except SimulationError:
+            bad = b
+            step /= 2.0
+            b = a + step
+            continue
+        if fb == 0.0 or (fb > 0.0) != (fa > 0.0):
+            return (a, fa), (b, fb)
+        a, fa = b, fb
+        if bad is not None:
+            step = (bad - a) / 2.0
+        elif grow:
+            step *= 2.0
+        b = a + step
+    return None

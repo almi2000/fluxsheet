@@ -1,6 +1,7 @@
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import { memo } from "react";
 import { getSymbol, portAt, UnitIcon } from "./icons";
+import { activePorts } from "./mediumPorts";
 import { MethodTag } from "./PropertyMethods";
 import { formatQuantity } from "./quantities";
 import type { Params, UnitResult, UnitType } from "./types";
@@ -38,6 +39,8 @@ function UnitNodeView({ id, data, selected }: NodeProps<UnitFlowNode>) {
   const { schema } = data;
   const sym = getSymbol(data.type);
   const badge = summary(schema, data.result);
+  const inlets = activePorts(schema, data.params, schema.inlets);
+  const outlets = activePorts(schema, data.params, schema.outlets);
   return (
     <div
       className={[
@@ -53,28 +56,28 @@ ${schema.description}` : schema.description}
     >
       <div className="unit-symbol" style={{ width: sym.w, height: sym.h }}>
         <UnitIcon type={data.type} jacket={data.jacket} />
-        {schema.inlets.map((p, i) => (
+        {inlets.map((p, i) => (
           <Handle
             key={p.name}
             id={p.name}
             type="target"
             position={Position.Left}
-            style={at(portAt(sym, p.name, "in", i, schema.inlets.length))}
+            style={at(portAt(sym, p.name, "in", i, inlets.length))}
             title={p.label}
           >
-            {schema.inlets.length > 1 && <span className="port-label in">{p.label}</span>}
+            {inlets.length > 1 && <span className="port-label in">{p.label}</span>}
           </Handle>
         ))}
-        {schema.outlets.map((p, i) => (
+        {outlets.map((p, i) => (
           <Handle
             key={p.name}
             id={p.name}
             type="source"
             position={Position.Right}
-            style={at(portAt(sym, p.name, "out", i, schema.outlets.length))}
+            style={at(portAt(sym, p.name, "out", i, outlets.length))}
             title={p.label}
           >
-            {schema.outlets.length > 1 && <span className="port-label">{p.label}</span>}
+            {outlets.length > 1 && <span className="port-label">{p.label}</span>}
           </Handle>
         ))}
       </div>

@@ -74,7 +74,8 @@ export const symbols: Record<string, UnitSymbol> = {
         <rect {...metalH} x="108" y="6" width="5" height="32" rx="1" />
       </>
     ),
-    ports: { in: { x: 1, y: 22 }, out: { x: 119, y: 22 } },
+    // A medium stream enters the jacket near the outlet end and leaves near the inlet end.
+    ports: { in: { x: 1, y: 22 }, out: { x: 119, y: 22 }, coolant_in: { x: 96, y: 42 }, coolant_out: { x: 24, y: 2 } },
     jacket: "M10 10H110V34H10Z",
   },
 };

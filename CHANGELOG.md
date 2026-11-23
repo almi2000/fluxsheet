@@ -7,6 +7,25 @@ format or API).
 
 ## [Unreleased]
 
+### Added
+
+- **Cooled tubular reactor:** the plug flow reactor exchanges heat along its length with a
+  utility (cooling water, steam, thermal oil) or with a process stream on new medium ports
+  (`medium: "stream"`, ports `coolant_in` and `coolant_out`), co- or countercurrent. Give U
+  with the length and diameter; the area per length defaults to the tube circumference
+  (`area_per_length`). Countercurrent is solved as the boundary-value problem it is, by
+  shooting on the duty with a bracketing root finder; a fluid utility without a flow takes
+  the flow that brings it to its outlet temperature. Results: both temperature profiles,
+  the heat through the wall, the medium's outlet state, and the hot-spot temperature and
+  position. Example: `examples/phthalic_anhydride_tube.json`.
+
+### Changed
+
+- The plug flow reactor takes its heat capacity by a central difference, which moves
+  temperature profiles by up to about a millikelvin. A PFR with a utility and U but neither
+  temperature nor duty now rates the wall along the tube (before, nothing was exchanged)
+  and needs the length and diameter for it.
+
 ## [0.3.0] - 2026-11-23
 
 The first published release; the prepared 0.2.0 was never published and is included here.
