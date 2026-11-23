@@ -523,12 +523,13 @@ class PropertyPackage:
         self.henry = [False] * self.n
         self._flasher = self._build()
         self._warn_association()
-        if henry_components and not (self.method in HENRY_METHODS and self.n > 1):
+        if henry_components and not (self.has_henry_model and self.n > 1):
             self.warnings.append(
                 f"henry_components is ignored by {METHODS[method].label}: "
                 + ("equations of state describe dissolved gases directly." if is_eos(method)
-                   else "a single compound has no solvent." if self.method in HENRY_METHODS
-                   else "this plug-in method has no Henry components."))
+                   else "a single compound has no solvent." if self.has_henry_model
+                   else "this plug-in method has no Henry components (ActivityMethod "
+                   "henry=False)."))
 
     def _carboxylic(self) -> list[bool]:
         """Which components are carboxylic acids (by their UNIFAC groups)."""
@@ -633,6 +634,15 @@ class PropertyPackage:
         return list(self.consts.MWs)  # g/mol
 
     @property
+    def has_henry_model(self) -> bool:
+        """Whether light gases can be Henry components: the activity methods in
+        ``HENRY_METHODS`` and plug-in activity methods with ``henry=True``."""
+        plugin = PLUGIN_METHODS.get(self.method)
+        if isinstance(plugin, plugins.ActivityMethod):
+            return plugin.henry
+        return self.method in HENRY_METHODS
+
+    @property
     def supports_lle(self) -> bool:
         """Whether flashes can find two liquid phases (vapor-liquid-liquid equilibrium)."""
         plugin = PLUGIN_METHODS.get(self.method)
@@ -682,13 +692,21 @@ class PropertyPackage:
             gas = (AssociatingGas(self._assoc, HeatCapacityGases=cp_gas) if self._assoc
                    else IdealGas(HeatCapacityGases=cp_gas))
             henry_kwargs: dict = {}
-            if self.method in HENRY_METHODS and self.n > 1:
+            if self.has_henry_model and self.n > 1:
                 self.henry, henry_kwargs = self._henry_setup()
             solvents = [i for i in range(self.n) if not self.henry[i]]
             ge_model = None
             if isinstance(plugin, plugins.ActivityMethod):
+                # Henry components left out: the solvents only (all without henry=True).
                 with _plugin_errors(self.method):
-                    ge_model = plugin.gibbs_excess(c, list(range(self.n)))
+                    ge_model = plugin.gibbs_excess(c, solvents)
+                if ge_model is not None and getattr(ge_model, "N", len(solvents)) != len(
+                        solvents):
+                    raise SimulationError(
+                        f"{plugin.label}: gibbs_excess returned a model of {ge_model.N} "
+                        f"compounds for {len(solvents)}",
+                        hint=f"from the plug-in {METHODS[self.method].plugin!r}; it must "
+                        "describe exactly the components whose indices it is given")
             elif self.method == "unifac":
                 for i in solvents:
                     if not c.UNIFAC_Dortmund_groups[i]:

@@ -143,7 +143,7 @@ Druck in Behältern (Druckaufbau, Abblasen), Pumpen gegen den Netzdruck. Eine Op
   (nur neue Ventil-Parameter, additiv), `tests/test_dynamics_pressure.py`, ein Beispiel in
   `examples/`, Abschnitt in `docs/architecture.md`
 
-### C6 – Plug-ins überall · **Claude** · Status: offen · *nach C5*
+### C6 – Plug-ins überall · **Claude** (Session) · Status: gemergt
 Plug-in-Units in der Dynamik (eigene dynamische Modelle über Entry-Point) und in der
 Kostenrechnung; Henry-Komponenten mit Plug-in-Aktivitätsmethoden.
 - Dateien: `src/fluxsheet/plugins.py`, `src/fluxsheet/dynamics/units.py` (Registry),

@@ -27,6 +27,16 @@ format or API).
   the flow that brings it to its outlet temperature. Results: both temperature profiles,
   the heat through the wall, the medium's outlet state, and the hot-spot temperature and
   position. Example: `examples/phthalic_anhydride_tube.json`.
+- **Plug-ins everywhere.** A new entry-point group `fluxsheet.dynamic_models` gives plug-in
+  units (or built-in units without one) a dynamic model, with the same rules as the other
+  groups: no replacing an existing model, failures reported in `fluxsheet plugins` and
+  `GET /api/plugins`. Plug-in units can price their equipment with an `estimate_cost`
+  method on `costing.UnitCosting` (Turton correlations, utilities, electricity); units
+  without it keep the utility-only estimate. Plug-in activity methods with `henry=True` get
+  Henry components: `gibbs_excess` receives the solvents only. The example plug-in uses all
+  three (version 0.2.0): its dew-point cooler costs its exchanger and has a first-order lag,
+  and the regular-solution method dissolves hydrogen and methane by Henry's law
+  (`examples/plugin/hydrogen_separator.json`).
 
 ### Changed
 

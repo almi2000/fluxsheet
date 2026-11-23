@@ -494,8 +494,8 @@ size-limited and zip archives checked against zip bombs.
 
 ## Plug-ins
 
-Other packages can add unit operations, property methods and compounds. They declare
-entry points in their `pyproject.toml`:
+Other packages can add unit operations, property methods, compounds and dynamic models.
+They declare entry points in their `pyproject.toml`:
 
 ```toml
 [project.entry-points."fluxsheet.units"]
@@ -506,7 +506,14 @@ regular = "my_package.thermo:REGULAR"         # fluxsheet.plugins.ActivityMethod
 
 [project.entry-points."fluxsheet.components"]
 cuts = "my_package.compounds:COMPOUNDS"       # custom-compound definitions
+
+[project.entry-points."fluxsheet.dynamic_models"]
+lags = "my_package.dynamics:MODELS"           # {unit type: DynamicModel subclass}
 ```
+
+A plug-in unit can price its own equipment with a method `estimate_cost(c)`, using Turton's
+correlations through `fluxsheet.costing.UnitCosting`; an activity method with `henry=True`
+treats light gases as Henry components, as NRTL does.
 
 Once the package is installed, its units appear in the editor's palette and its methods in
 the property-method lists. `fluxsheet plugins` shows what each plug-in added, and why one

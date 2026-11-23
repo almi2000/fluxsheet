@@ -37,6 +37,8 @@ Sizes come from the solved flowsheet:
   else ``batch_turnaround``, 1 h); the flowsheet charges one batch per cycle time, so
   ceil(occupied / cycle) vessels are needed in turn, and hours_per_year / cycle time batches
   run per year. Heating and cooling are priced per batch and times the batches per year.
+- other units (plug-ins): what their ``estimate_cost`` adds through ``UnitCosting``, with
+  the correlations and factors of this module; without it, the utility of their duty only.
 
 Operating cost per year: each heating or cooling duty times a price in $/GJ, and the
 electricity of pumps and compressors. Without a price, the cheapest utility hot or cold
@@ -71,6 +73,7 @@ from .quantities import UnitError, to_si
 from .solver import SolveResult
 from .specs import UNIT_COSTS
 from .study_models import CostingModel
+from .units import UNIT_TYPES
 from .utilities import lmtd
 
 BASE_CEPCI = 397.0  # September 2001, the basis of Turton's correlations
@@ -395,8 +398,21 @@ class _Estimate:
     def unit(self, uid: str, utype: str, ures: dict) -> _UnitCost | None:
         handler = _HANDLERS.get(utype)
         cost = _UnitCost()
+        cls = UNIT_TYPES.get(utype)
+        hook = getattr(cls, "estimate_cost", None) if handler is None else None
         if handler is not None:
             handler(self, cost, uid, ures)
+        elif hook is not None:  # a plug-in unit prices its own equipment
+            try:
+                hook(UnitCosting(self, cost, uid, ures))
+            except SimulationError:
+                raise
+            except Exception as exc:  # a plug-in's failure, reported like any flowsheet error
+                raise SimulationError(
+                    f"the cost estimate of {cls.label} failed: {type(exc).__name__}: {exc}",
+                    where=uid, hint="raised by its estimate_cost" + (
+                        f", from the plug-in {cls.plugin!r}" if cls.plugin else ""),
+                ) from exc
         elif isinstance(ures.get("duty"), (int, float)):  # utilities only
             ins, outs = self.streams(uid)
             self.heat(cost, uid, "duty", ures["duty"], _span(ins, outs), _pmax(ins, outs),
@@ -406,6 +422,72 @@ class _Estimate:
         else:
             return None
         return cost if cost.items or cost.energy else None
+
+
+class UnitCosting:
+    """The cost estimate of one unit, as a plug-in unit's ``estimate_cost`` sees it.
+
+    A unit operation that Fluxsheet does not cost by type (a plug-in's) prices its equipment
+    with a class or static method ``estimate_cost(c)``, which reads the solved unit from
+    ``c`` and adds equipment and utilities to it::
+
+        @staticmethod
+        def estimate_cost(c):
+            c.heat("exchanger", c.results["duty"])        # exchanger and its utility
+            c.equipment("vessel", costing.VESSEL, 2.0,     # Turton's correlation, 2 m3
+                        (2.25, 1.82, costing.FM_VESSEL[c.material]), "hold-up")
+
+    The costs follow the costing section (CEPCI, material, U, prices) as for built-in
+    units. A unit whose ``estimate_cost`` adds nothing is listed as not costed; one without
+    ``estimate_cost`` gets its utility cost only, if it reports a ``duty``.
+    """
+
+    def __init__(self, estimate: _Estimate, cost: _UnitCost, uid: str, results: dict):
+        self._e, self._cost = estimate, cost
+        self.unit_id = uid
+        self.results = results  # the unit's results, SI
+        self.inlets, self.outlets = estimate.streams(uid)  # stream results (dicts, SI)
+        self.material = estimate.material(uid)  # "CS" or "SS"
+        self.temperatures = _span(self.inlets, self.outlets)  # (inlet, outlet) T, K
+        self.pressure = _pmax(self.inlets, self.outlets)  # highest P, at least 1 atm, Pa
+
+    @property
+    def U(self) -> float:
+        """The exchanger U (W/m2 K) the costing section gives this unit."""
+        return self._e.unit_U(self.unit_id)
+
+    def param(self, name: str, quantity: str) -> float | None:
+        """A parameter of the unit as given in the flowsheet, in SI; None if not set."""
+        return self._e.param(self.unit_id, name, quantity)
+
+    def equipment(self, what: str, correlation: Correlation, size: float,
+                  bare_module: float | tuple[float, float, float], basis: str,
+                  count: float = 1.0) -> None:
+        """A piece of equipment of ``size`` (in the correlation's unit). ``bare_module`` is
+        FBM or (B1, B2, FM·FP); ``count`` multiplies its cost."""
+        if not (isinstance(size, (int, float)) and math.isfinite(size) and size > 0):
+            raise SimulationError(f"{what}: the size to cost must be positive, not {size!r}",
+                                  where=self.unit_id)
+        self._e.item(self._cost, what, correlation, float(size), bare_module, basis, count)
+
+    def heat(self, what: str, duty: float | None, *,
+             exchanger: Correlation | None = EXCHANGER,
+             temperatures: tuple[float, float] | None = None,
+             pressure: float | None = None) -> None:
+        """The utility for ``duty`` (W, > 0 heating) and, unless ``exchanger`` is None, the
+        exchanger sized as A = |Q| / (U LMTD) against the utility (as for a Heater). The
+        process goes from ``temperatures[0]`` to ``[1]``; the unit's inlet and outlet by
+        default."""
+        self._e.heat(self._cost, self.unit_id, what, duty, temperatures or self.temperatures,
+                     self.pressure if pressure is None else pressure, exchanger=exchanger,
+                     ures=self.results)
+
+    def electricity(self, what: str, power: float) -> None:
+        """Electric power (W) bought for the unit."""
+        self._e.electricity(self._cost, what, power)
+
+    def note(self, text: str) -> None:
+        self._cost.notes.append(text)
 
 
 def _span(ins: list[dict], outs: dict[str, dict]) -> tuple[float, float]:

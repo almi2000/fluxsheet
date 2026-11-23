@@ -14,6 +14,10 @@ material, from the inlets), ``derivatives`` the time derivatives of the state.
 All other units stay algebraic: they are recalculated from their inlets at every instant.
 Pressure is fixed at its steady-state value (a flow-driven simulation), unless the run is
 pressure-driven (see pressure.py).
+
+Plug-ins add dynamic models through the ``fluxsheet.dynamic_models`` entry point (see
+``fluxsheet.plugins``): a dict {unit type: DynamicModel subclass}, for their own units or
+built-in units without a model. They cannot replace a model that exists.
 """
 
 from __future__ import annotations
@@ -24,6 +28,7 @@ from typing import Any, ClassVar
 
 import numpy as np
 
+from .. import plugins
 from ..contents_flash import ContentsFlash as _ContentsFlash
 from ..errors import SimulationError
 from ..quantities import UnitError
@@ -422,3 +427,48 @@ DYNAMIC_MODELS: dict[str, type[DynamicModel]] = {
 # The column model builds on the classes above and adds itself to DYNAMIC_MODELS. The
 # module (not its class) is imported, so this works whichever of the two is imported first.
 from . import column as _column  # noqa: F401
+
+# ---- plug-ins ------------------------------------------------------------------------------
+
+# Fluxsheet's own dynamic models, including the column's (which may register itself after
+# the plug-ins load, when dynamics.column is the module imported first).
+BUILTIN_MODELS = frozenset(("Flash", "MixingTank", "CSTR", "Heater", "DistillationColumn"))
+# Unit type -> the plug-in (distribution) whose dynamic model it has.
+PLUGIN_MODELS: dict[str, str] = {}
+
+
+def _register_plugin(plugin, value) -> list[str]:
+    """Register the dynamic models an entry point brings: a dict {unit type: DynamicModel
+    subclass}, a list of such dicts, or a function returning either. The unit type may be a
+    built-in or a plug-in unit's; it must not have a dynamic model yet."""
+    from ..units import UNIT_TYPES
+
+    found: dict[str, type] = {}
+    for mapping in plugins.objects(value):
+        if not isinstance(mapping, dict):
+            raise TypeError("expected a dict {unit type: DynamicModel subclass}")
+        for utype, cls in mapping.items():
+            if utype in found:
+                raise ValueError(f"dynamic model for {utype} given twice")
+            found[utype] = cls
+    if not found:
+        raise ValueError("provides no dynamic model")
+    for utype, cls in found.items():
+        if not (isinstance(cls, type) and issubclass(cls, DynamicModel)):
+            raise TypeError(f"{utype}: {cls!r} is not a DynamicModel subclass")
+        if cls is DynamicModel:
+            raise TypeError(f"{utype}: DynamicModel itself is abstract; subclass it")
+        if utype not in UNIT_TYPES:
+            raise ValueError(f"unknown unit type {utype!r}")
+    taken = sorted(t for t in found if t in DYNAMIC_MODELS or t in BUILTIN_MODELS)
+    if taken:
+        owners = [f"{t} (plug-in {PLUGIN_MODELS[t]})" if t in PLUGIN_MODELS else t
+                  for t in taken]
+        raise ValueError(f"dynamic model already defined: {', '.join(owners)}")
+    for utype, cls in found.items():
+        DYNAMIC_MODELS[utype] = cls
+        PLUGIN_MODELS[utype] = plugin.distribution or plugin.name
+    return list(found)
+
+
+plugins.load("dynamic_models", _register_plugin)
