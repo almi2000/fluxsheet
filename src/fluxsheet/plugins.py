@@ -11,15 +11,19 @@ A package registers them in its ``pyproject.toml``::
     [project.entry-points."fluxsheet.components"]
     oils = "my_package.compounds:COMPOUNDS"    # custom-compound definitions
 
+    [project.entry-points."fluxsheet.dynamic_models"]
+    lags = "my_package.dynamics:MODELS"        # {unit type: DynamicModel subclass}
+
 An entry point may name a module, an object, a list of objects, or a function without
-arguments that returns either. Plug-ins are loaded once, when Fluxsheet's unit and property
-registries are first imported. A plug-in that fails to load, or that reuses a name Fluxsheet
-or another plug-in already has, is skipped and reported (``fluxsheet plugins``,
-``GET /api/plugins``); the rest of Fluxsheet keeps working. Set the environment variable
+arguments that returns either. Plug-ins are loaded once, when Fluxsheet's unit, property and
+dynamic-model registries are first imported. A plug-in that fails to load, or that reuses a
+name Fluxsheet or another plug-in already has, is skipped and reported (``fluxsheet
+plugins``, ``GET /api/plugins``); the rest of Fluxsheet keeps working. Set the environment variable
 ``FLUXSHEET_DISABLE_PLUGINS=1`` to load none.
 
 Plug-ins are ordinary installed Python packages and run with Fluxsheet's permissions; only
-install ones you trust. See ``examples/plugin/`` for a complete one.
+install ones you trust. A plug-in unit can also price its equipment: see
+``UnitCosting`` in ``fluxsheet.costing``. See ``examples/plugin/`` for a complete one.
 """
 
 from __future__ import annotations
@@ -34,7 +38,10 @@ GROUPS = {
     "units": "fluxsheet.units",
     "property_methods": "fluxsheet.property_methods",
     "components": "fluxsheet.components",
+    "dynamic_models": "fluxsheet.dynamic_models",
 }
+# The registries that load each group, imported by ``report`` so that it lists them all.
+_REGISTRIES = ("fluxsheet.units", "fluxsheet.thermo_package", "fluxsheet.dynamics.units")
 DISABLE_ENV = "FLUXSHEET_DISABLE_PLUGINS"
 
 
@@ -45,9 +52,14 @@ class ActivityMethod:
     supplies the excess Gibbs energy.
 
     ``gibbs_excess(consts, components)`` returns a ``thermo`` ``GibbsExcess`` model for the
-    components with indices ``components`` (all of them, in order). ``consts`` is the
-    ``thermo.ChemicalConstantsPackage`` of the flowsheet's compounds. ``liquid_liquid``:
-    whether flashes should look for two liquid phases.
+    components with indices ``components`` (all of them in order, unless ``henry``).
+    ``consts`` is the ``thermo.ChemicalConstantsPackage`` of the flowsheet's compounds.
+    ``liquid_liquid``: whether flashes should look for two liquid phases.
+
+    ``henry``: whether light gases may be Henry components, as with NRTL (see
+    ``fluxsheet.henry``). Then ``components`` holds the indices of the solvents only (the
+    Henry components left out, possibly a single solvent), and Fluxsheet extends the model to
+    all compounds with the solutes ideal dilute (``HenryDilutedModel``).
     """
 
     key: str
@@ -55,6 +67,7 @@ class ActivityMethod:
     description: str
     gibbs_excess: Callable
     liquid_liquid: bool = False
+    henry: bool = False
 
 
 @dataclass(frozen=True)
@@ -142,4 +155,9 @@ def load(group: str, register: Callable[[Plugin, object], Iterable[str]],
 
 
 def report() -> list[dict]:
+    """Every entry point of every group, loaded or failed."""
+    import importlib
+
+    for module in _REGISTRIES:  # each loads its group(s) when first imported
+        importlib.import_module(module)
     return [p.to_dict() for p in PLUGINS]

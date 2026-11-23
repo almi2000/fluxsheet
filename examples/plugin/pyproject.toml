@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "fluxsheet-example-plugin"
-version = "0.1.0"
+version = "0.2.0"
 description = "Example Fluxsheet plug-in: a dew-point cooler, the regular-solution model and a naphtha cut"
 requires-python = ">=3.11"
 dependencies = ["fluxsheet"]
@@ -17,6 +17,9 @@ regular_solution = "fluxsheet_example_plugin.thermo:REGULAR_SOLUTION"
 
 [project.entry-points."fluxsheet.components"]
 naphtha = "fluxsheet_example_plugin.compounds:COMPOUNDS"
+
+[project.entry-points."fluxsheet.dynamic_models"]
+cooler_lag = "fluxsheet_example_plugin.dynamics:MODELS"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/fluxsheet_example_plugin"]

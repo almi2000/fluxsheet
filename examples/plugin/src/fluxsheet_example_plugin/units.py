@@ -1,4 +1,7 @@
-"""A unit operation: cool (or heat) a vapor to its dew point plus a margin."""
+"""A unit operation: cool (or heat) a vapor to its dew point plus a margin.
+
+It prices its own equipment (``estimate_cost``); its dynamic model is in dynamics.py.
+"""
 
 from fluxsheet.stream import Stream
 from fluxsheet.units.base import (
@@ -41,3 +44,11 @@ class DewPointCooler(UnitOperation):
         out = Stream.from_flash(pkg, s.flows, T=T, P=P)
         self.results["duty"] = out.enthalpy_flow - s.enthalpy_flow
         return {"out": out}
+
+    @staticmethod
+    def estimate_cost(c):
+        """Equipment cost (a flowsheet with a costing section): a shell-and-tube exchanger
+        sized as A = |Q| / (U LMTD) against the cheapest cooling utility, and that
+        utility's cost, as Fluxsheet costs a Heater. ``c`` is a fluxsheet.costing.UnitCosting.
+        """
+        c.heat("exchanger", c.results.get("duty"))

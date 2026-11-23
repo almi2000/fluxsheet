@@ -1,0 +1,22 @@
+{
+  "format": "fluxsheet/1",
+  "name": "Hydrogen separator with the regular-solution model (plug-in)",
+  "description": "Needs the example plug-in (examples/plugin), which provides the regular-solution property method. Hydrogen and methane over n-heptane and toluene are separated at 40 °C and 10 bar. The two gases are Henry components: they dissolve by Henry's law, and the regular-solution model describes the hydrocarbon liquid alone.",
+  "components": ["hydrogen", "methane", "n-heptane", "toluene"],
+  "property_method": "regular-solution",
+  "units": [
+    {"id": "FEED", "type": "Feed", "ui": {"x": 40, "y": 120},
+     "params": {"T": "40 degC", "P": "10 bar",
+                "flows": {"hydrogen": "30 kmol/h", "methane": "10 kmol/h",
+                          "n-heptane": "30 kmol/h", "toluene": "30 kmol/h"}}},
+    {"id": "SEP", "type": "Flash", "ui": {"x": 260, "y": 120},
+     "params": {"T": "40 degC", "P": "10 bar"}},
+    {"id": "GAS", "type": "Product", "ui": {"x": 480, "y": 60}},
+    {"id": "OIL", "type": "Product", "ui": {"x": 480, "y": 190}}
+  ],
+  "streams": [
+    {"id": "F1", "from": "FEED.out", "to": "SEP.in"},
+    {"id": "G1", "from": "SEP.vapor", "to": "GAS.in"},
+    {"id": "L1", "from": "SEP.liquid", "to": "OIL.in"}
+  ]
+}

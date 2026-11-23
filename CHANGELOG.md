@@ -18,6 +18,16 @@ format or API).
   the static head of the level. Pumps with a curve deliver against the line. Valves start
   at the opening that passes the steady-state flow, so an undisturbed run stays put. The
   flow-driven mode stays the default. Example: `flash_drum_pressure_control.json`.
+- **Plug-ins everywhere.** A new entry-point group `fluxsheet.dynamic_models` gives plug-in
+  units (or built-in units without one) a dynamic model, with the same rules as the other
+  groups: no replacing an existing model, failures reported in `fluxsheet plugins` and
+  `GET /api/plugins`. Plug-in units can price their equipment with an `estimate_cost`
+  method on `costing.UnitCosting` (Turton correlations, utilities, electricity); units
+  without it keep the utility-only estimate. Plug-in activity methods with `henry=True` get
+  Henry components: `gibbs_excess` receives the solvents only. The example plug-in uses all
+  three (version 0.2.0): its dew-point cooler costs its exchanger and has a first-order lag,
+  and the regular-solution method dissolves hydrogen and methane by Henry's law
+  (`examples/plugin/hydrogen_separator.json`).
 
 ## [0.3.0] - 2026-11-23
 

@@ -108,22 +108,25 @@ The editor picks up the new unit automatically from `/api/unit-types`.
 
 ### Plug-ins (`plugins.py`)
 
-Another installed package can add unit operations, property methods and compounds without
-changing Fluxsheet. It names them in entry points of its `pyproject.toml`:
+Another installed package can add unit operations, property methods, compounds and dynamic
+models without changing Fluxsheet. It names them in entry points of its `pyproject.toml`:
 
 | Entry-point group | Value | Registered in |
 | --- | --- | --- |
 | `fluxsheet.units` | a module of `UnitOperation` subclasses, a class, or a list | `units.UNIT_TYPES` |
 | `fluxsheet.property_methods` | a `plugins.ActivityMethod` or `plugins.EquationOfState`, or a list | `thermo_package.METHODS` |
 | `fluxsheet.components` | custom-compound definitions (as in a flowsheet's `custom_compounds`) | `thermo_package.PLUGIN_COMPOUNDS` |
+| `fluxsheet.dynamic_models` | a dict `{unit type: DynamicModel subclass}`, or a list of them | `dynamics.units.DYNAMIC_MODELS` |
 
 A value may also be a function without arguments that returns one of these. Plug-ins load
-when `fluxsheet.units` and `fluxsheet.thermo_package` are first imported, after Fluxsheet's
-own entries.
+when `fluxsheet.units`, `fluxsheet.thermo_package` and `fluxsheet.dynamics.units` are first
+imported, after Fluxsheet's own entries; `plugins.report()` imports all three, so
+`fluxsheet plugins` lists every group.
 
 - **No replacements.** A plug-in cannot replace a built-in or another plug-in. A unit
-  type, method key or compound name that is already taken rejects that whole entry point. A
-  plug-in compound cannot reuse a name the compound database knows. A flowsheet's own
+  type, method key, compound name or unit type with a dynamic model that is already taken
+  rejects that whole entry point. A plug-in compound cannot reuse a name the compound
+  database knows. A flowsheet's own
   `custom_compounds` still override a plug-in compound of the same name.
 - **Failures are reported.** An entry point that fails to import or register is skipped,
   and Fluxsheet keeps running. The reason appears in `fluxsheet plugins` (exit code 1),
@@ -132,7 +135,11 @@ own entries.
 - **Activity methods** provide only the excess Gibbs energy:
   `gibbs_excess(consts, indices)` returns a `thermo` `GibbsExcess` model. Fluxsheet adds the
   ideal gas (with carboxylic-acid dimers), vapor pressures, liquid enthalpies and the flash,
-  as for NRTL. Henry components are not available with a plug-in method.
+  as for NRTL. With `henry=True` light gases become Henry components as with NRTL
+  (`henry.py`): `gibbs_excess` then gets the indices of the solvents only, possibly a single
+  one, and Fluxsheet wraps the model it returns in `HenryDilutedModel`. Without it,
+  `henry_components` is ignored with a warning and `gibbs_excess` gets every index. A model
+  of another size than the indices given is an error.
 - **Equations of state** name a `thermo` mixture class such as `PRMIX`, the `kijs` and any
   extra keyword arguments. They get no volume translation. `thermo_package.is_eos` treats
   them like Peng-Robinson, for example for phase envelopes and the activity basis of
@@ -141,14 +148,35 @@ own entries.
   plug-in unit declares its energy terms in `energy_results`, the result fields carrying
   heat or work into the unit (W), for example `("duty",)`. Without it the unit's energy
   balance is reported as not checkable.
+- **Dynamic models.** `fluxsheet.dynamic_models` maps a unit type, a plug-in's or a
+  built-in one without a model (Pump, Mixer, ...), to a `DynamicModel` subclass (see "To give
+  another unit a dynamic model" above). The unit type must be registered when the dynamic
+  models load, so a plug-in's own unit type comes from its `fluxsheet.units` entry point.
+  `BUILTIN_MODELS` reserves Fluxsheet's own types, the column's included; `PLUGIN_MODELS`
+  records which plug-in gave which. The model is used in flow- and pressure-driven runs; in
+  a pressure-driven one it ends a line as a non-vessel model (no pressure node). The editor
+  gets its settings and results from `/api/unit-types` (`dynamic`) like the built-in ones.
+- **Costing.** Fluxsheet costs its own units by type (`costing._HANDLERS`). A unit type
+  without a handler may price itself with a class or static method `estimate_cost(c)`; `c` is
+  a `costing.UnitCosting` with the unit's results, inlet and outlet streams, material,
+  pressure, temperatures, U and parameters, and adds `equipment(...)` with a Turton
+  `Correlation` (`VESSEL`, `EXCHANGER`, `PUMP`, ...) and a bare-module factor, `heat(...)`
+  (utility and, by default, a shell-and-tube exchanger sized as for a Heater),
+  `electricity(...)` and `note(...)`. The costing section's CEPCI, material, U, prices and
+  hours apply as for built-in units. A failure in the method is reported as the unit's
+  costing error. A unit without `estimate_cost` keeps the utility of its `duty` only
+  ("equipment not costed"), one whose method adds nothing is listed as not costed. A class
+  hook rather than another entry-point group: the cost belongs to the unit and needs nothing
+  to register.
 - **The editor** lists plug-in units in their category of the palette with a "plug-in"
   tag, and plug-in methods with "(plug-in)". A unit without its own symbol in
   `web/src/icons/` is drawn as a plain box.
 
 Plug-ins are imported into the Fluxsheet process (and the server) with its permissions;
 only installed packages can register one. [`examples/plugin/`](../examples/plugin/) is a
-complete one, with a unit, an activity method, a compound and two flowsheets that use them.
-Dynamic models, costing and DWSIM import do not see plug-in units yet.
+complete one, with a unit that prices itself and has a dynamic model, an activity method
+with Henry components, a compound, and three flowsheets that use them. The DWSIM importer
+does not know plug-in units.
 
 ## Web editor (`web/`)
 
