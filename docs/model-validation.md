@@ -285,6 +285,36 @@ the stage equations themselves are correct; that is verified separately in
 `tests/test_column_side_streams.py`, where the activities on every reactive stage
 are recomputed from the NRTL model and meet K(T) to a relative 1e-8.
 
+## Film coefficients
+
+No measurement has been compared with the film coefficients (`U_from`); the checks in
+`tests/test_film_coefficients.py` are verification only:
+
+- **Published worked examples.** Kraume (Transportvorgänge in der Verfahrenstechnik,
+  Example 5.12): the Reynolds numbers of the inner tube and the annulus of a double pipe and
+  the overall coefficient from his film coefficients (415 and 847 W/m²K). Kraume
+  Example 18.2: Reynolds, Prandtl and Nusselt numbers, film coefficient (2640 W/m²K) and
+  overall coefficient (347 W/m²K) of a glass-lined stirred vessel. Kern's tabulated
+  equivalent diameters for square pitch. Kraume's own correlations differ from
+  Gnielinski's in the transition region, so his U is not reproduced: in his double pipe
+  Fluxsheet gives 193 W/m²K, he 415.
+- **Textbook values and independent correlations.** Laminar Nu = 3.66 and 4.36;
+  Gnielinski within 8 % of Petukhov's equation for Re 10⁵ to 10⁶ and Pr 0.7 to 100, and
+  Dittus-Boelter within its known 25 % of Gnielinski; Mostinski's nucleate boiling within
+  5 % of Cooper's correlation for water at 1 atm (the two scatter by a factor of two for
+  organics).
+- **Independent solutions of the same equations.** Nusselt film condensation against
+  Nusselt's film equations integrated for a vertical wall and around a horizontal tube.
+  Each correlation and each unit's U worked by hand from the package's properties. A
+  double pipe rated from its geometry against the effectiveness-NTU closed form for the U it
+  derives, a steam heater against the exponential approach, the reactor's local U and its
+  integrated wall duty.
+
+Limits: the reactor's inside correlation is for an empty tube, not a packed bed. A
+two-phase process stream is rated as its larger phase. Kern's method has no leakage or
+bypass corrections, the LMTD no multipass correction. Liquid utilities are rated as water.
+The batch reactor and the thin-film evaporator do not support `U_from`.
+
 ## Dynamic column and batch reactor costing
 
 No experimental reference has been registered for these two features. The checks

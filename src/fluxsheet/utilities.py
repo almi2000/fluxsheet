@@ -216,9 +216,20 @@ def attach(unit, utilities: dict[str, Utility]) -> None:
         raise SimulationError(f"unknown utility {name!r}", where=unit.id,
                               hint=f"define it in the flowsheet's utilities ({known})")
     unit.utility = utilities[name]
-    if unit.p.get("area") is not None and not unit.p.get("U"):
+    films = unit.p.get("U_from") is not None and "area" in unit.p  # not a tubular reactor
+    if films and unit.p.get("U"):
+        raise SimulationError("over-specified: U is given and U from film coefficients is set",
+                              where=unit.id, hint="clear one of them")
+    if unit.p.get("area") is not None and not unit.p.get("U") and not films:
         raise SimulationError("the heat transfer area is given but not U", where=unit.id,
-                              hint="set the heat transfer coefficient U")
+                              hint="set the heat transfer coefficient U, or U from film "
+                              "coefficients")
+    if films and unit.utility is None:  # e.g. a batch reactor rates its jacket over time
+        raise SimulationError(f"U from film coefficients is not available for the {unit.label}",
+                              where=unit.id, hint="give U")
+    if films and unit.p["U_from"] in ("jacket", "coil") and unit.process_side != "mixed":
+        raise SimulationError("the stirred-vessel film coefficients need a well-mixed unit",
+                              where=unit.id, hint="give U")
 
 
 def calculate(unit, pkg, inlets):
@@ -237,15 +248,37 @@ def calculate(unit, pkg, inlets):
         outputs = unit.calculate(pkg, inlets)
         return outputs, _outlet_T(unit, outputs)
 
+    rating = None
+    if unit.p.get("U_from") is not None and "area" in unit.p:
+        from .film_rating import FilmRating
+
+        rating = FilmRating(unit, ut, flow)
+
+    def U_at(outputs, T_out: float, Q: float) -> float:
+        """U at the process outlet temperature ``T_out`` and duty ``Q``."""
+        if rating is None:
+            return unit.p["U"]
+        return rating.overall(pkg, outputs, feeds[0], T_in if plug else T_out, T_out, Q).U
+
     area = unit.p.get("area")
     if area is not None:
-        UA = unit.p["U"] * area
         try:
             outputs, T_out = run(0.0)
-            q0 = ut.rate(UA, T_in if plug else T_out, T_out, arrangement, flow)
+            q0 = ut.rate(U_at(outputs, T_out, 0.0) * area, T_in if plug else T_out, T_out,
+                         arrangement, flow)
+            if rating is not None:
+                # A liquid utility's flow, and with it its film coefficient, follows from the
+                # duty: the heat passed at the unit's own temperature is found by iteration.
+                for _ in range(50):
+                    q1 = ut.rate(U_at(outputs, T_out, q0) * area, T_in if plug else T_out,
+                                 T_out, arrangement, flow)
+                    if abs(q1 - q0) <= 1e-9 * abs(q1):
+                        break
+                    q0 = q1
             if q0 != 0.0:
                 def residual(Q: float) -> float:
-                    T = run(Q)[1]
+                    outs, T = run(Q)
+                    UA = U_at(outs, T, Q) * area
                     return Q - ut.rate(UA, T_in if plug else T, T, arrangement, flow)
 
                 lo, hi = _bracket(residual, q0)
@@ -268,13 +301,17 @@ def calculate(unit, pkg, inlets):
         ex = ut.for_duty(Q, T_in if plug else T_out, T_out, arrangement, flow)
     except SimulationError as exc:
         raise exc.located(unit.id)
+    U = U_at(outputs, T_out, Q) if rating is not None or unit.p.get("U") else None
     if area is not None:
-        UA = unit.p["U"] * area
+        UA = U * area
     else:  # the UA (and with U the area) this duty needs
         UA = abs(Q) / ex.LMTD if ex.LMTD else None
-        area = UA / unit.p["U"] if UA and unit.p.get("U") else None
+        area = UA / U if UA and U else None
     unit.results.update(utility_flow=abs(ex.flow), utility_T_out=ex.T_out, LMTD=ex.LMTD,
                         UA=UA, heat_transfer_area=area)
+    if rating is not None:
+        unit.results.update(rating.results())
+        unit.notes.extend(n for n in rating.notes if n not in unit.notes)
     return outputs
 
 

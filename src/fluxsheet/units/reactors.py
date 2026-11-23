@@ -41,7 +41,21 @@ from .base import (
     empty_stream,
     single_inlet,
 )
-from .heat_transfer import AREA, HEAT_PARAMS, HEAT_RESULTS, UTILITY, UTILITY_FLOW
+from .heat_transfer import (
+    ANNULUS_DIAMETER,
+    AREA,
+    FOULING_MEDIUM,
+    FOULING_PROCESS,
+    H_MEDIUM,
+    HEAT_PARAMS,
+    HEAT_RESULTS,
+    TUBE_CORRELATION,
+    UTILITY,
+    UTILITY_FLOW,
+    WALL_CONDUCTIVITY,
+    WALL_THICKNESS,
+    u_from,
+)
 
 T_SPEC = Param("T", "Outlet temperature", "temperature", min=0.0,
                help="Isothermal operation at this temperature.")
@@ -560,6 +574,15 @@ WALL_U = Param(
     help="Overall coefficient through the tube wall, on the heat transfer area. With a "
     "medium and neither temperature nor duty, the heat exchanged along the tube follows "
     "from U, the area and the local temperatures of both sides.")
+PFR_U_FROM = u_from(
+    ("tube", "double_pipe"),
+    "The reacting stream in an empty tube of the given diameter (Gnielinski; not for a "
+    "packed bed, give U for that). Outside: tube: a given medium-side film coefficient, or "
+    "condensing steam; double_pipe: the medium flows in the annulus around the tube (a "
+    "liquid utility as water, or the medium stream). U is evaluated at the local "
+    "temperatures along the tube and referred to the inner tube surface π·D.")
+PFR_FILM_PARAMS = (PFR_U_FROM, TUBE_CORRELATION, WALL_THICKNESS, WALL_CONDUCTIVITY,
+                   ANNULUS_DIAMETER, FOULING_PROCESS, FOULING_MEDIUM, H_MEDIUM)
 AREA_PER_LENGTH = Param(
     "area_per_length", "Heat transfer area per length", "length", min=0.0, requires="U",
     help="Wall area per metre of tube in m²/m, entered as a length. Defaults to the tube "
@@ -605,9 +628,9 @@ class PFR(KineticReactor):
         Param("diameter", "Diameter", "length", min=0.0,
               help="Tube inner diameter, used with the length."),
         PHASE, KEY, T_SPEC, DUTY_SPEC, MEDIUM, UTILITY, UTILITY_FLOW, WALL_U, AREA_PER_LENGTH,
-        WALL_ARRANGEMENT, P_OUT, DP,
+        *PFR_FILM_PARAMS, WALL_ARRANGEMENT, P_OUT, DP,
     )
-    exclusive_groups = (("V", "length"), ("T", "duty"), ("P", "dP"))
+    exclusive_groups = (("V", "length"), ("T", "duty"), ("P", "dP"), ("U", "U_from"))
     required_groups = (("V", "length"),)
     result_fields = (T_OUT, DUTY, CONVERSION, RESIDENCE_TIME, WALL_DUTY, T_HOT_SPOT,
                      HOT_SPOT_AT, *HEAT_RESULTS)
@@ -628,14 +651,19 @@ class PFR(KineticReactor):
             raise SimulationError("the medium is a process stream, but a utility is chosen too",
                                   where=self.id, hint="clear the utility, or set the medium "
                                   "side to utility")
-        if stream and p["U"] is None and p["T"] is None and p["duty"] is None:
+        has_U = p["U"] is not None or p["U_from"] is not None
+        if stream and not has_U and p["T"] is None and p["duty"] is None:
             raise SimulationError(
                 "the medium stream exchanges heat through the tube wall, which needs U",
                 where=self.id, hint="give U (with the length and diameter), or a temperature "
                 "or duty for the medium stream to take up")
+        if p["U_from"] is not None and p["area_per_length"] is not None:
+            raise SimulationError(
+                "U from film coefficients is referred to the inner tube surface π·D",
+                where=self.id, hint="clear the area per length")
         # The wall is rated along the tube: the duty follows from U, the area and the local
         # temperatures. Otherwise a utility reports its consumption for the given T or duty.
-        self._rated = (p["U"] is not None and p["T"] is None and p["duty"] is None
+        self._rated = (has_U and p["T"] is None and p["duty"] is None
                        and (stream or p["utility"] is not None))
         if not stream:  # no medium stream: the reactor has one inlet and one outlet
             self.inlets, self.outlets = (IN,), (OUT,)
@@ -709,7 +737,15 @@ class PFR(KineticReactor):
                 "the heat exchanged along the tube needs its length", where=self.id,
                 hint="give the length and diameter instead of the volume")
         area = (self.p["area_per_length"] or math.pi * self.p["diameter"]) * L if wall else 0.0
-        UA_v = self.p["U"] * area / V if wall else 0.0  # W/(m³ K)
+        films = ut = None
+        if wall and self.p["U_from"] is not None:  # U at the local temperatures
+            from ..film_rating import TubeWall
+
+            ut = self._utility
+            films = TubeWall(self, pkg, s, ut, self._coolant)
+            a_v = area / V
+        fluid_ut = ut is not None and ut.kind == "fluid"
+        UA_v = self.p["U"] * area / V if wall and films is None else 0.0  # W/(m³ K)
 
         def rhs(vol, y, medium, Q_tot):
             xi = y[:m] * scale
@@ -725,9 +761,14 @@ class PFR(KineticReactor):
                 return r / scale
             if medium is None:
                 q = q_v
-            else:
+            elif films is None:
                 Q = y[m + 1] * e_scale
                 q = UA_v * (medium.T(Q_tot - Q if counter else Q) - T)
+            else:
+                Q = y[m + 1] * e_scale
+                T_m = medium.T(Q_tot - Q if counter else Q)
+                m_ut = (medium.C or 0.0) / ut.cp if fluid_ut else None
+                q = films.overall(T, P, flows, T_m, m_ut).U * a_v * (T_m - T)
             # dH/dV = q: split into dH/dT dT/dV + sum_j dH/dxi_j r_j + dH/dP dP/dV. The heat
             # capacity by a central difference: a forward one is off by about 3e-5, which
             # shifts the temperature profile by a millikelvin.
@@ -789,7 +830,11 @@ class PFR(KineticReactor):
             T_medium = np.array([medium.T(Q_tot - q if counter else q) for q in Q_wall])
             extra = {"Medium temperature": ("temperature", [float(t) for t in T_medium]),
                      "Heat through the wall": ("power", [float(q) for q in Q_wall])}
-            self._wall_results(medium, duty, area, T_profile, T_medium)
+            U_mean = None
+            if films is not None:
+                U_mean = self._film_profile(films, medium, grid, V, T_profile, T_medium,
+                                            flows_profile, P_in, dPdV, extra)
+            self._wall_results(medium, duty, area, T_profile, T_medium, U_mean)
         out = self.finish(pkg, s, flows_profile[-1], P_out, hf, duty)
         if fixed_T is None:
             self._hot_spot(sol, m, V, L)
@@ -880,8 +925,35 @@ class PFR(KineticReactor):
                    xtol=1e-10 * max(abs(a), abs(b)) + 1e-9 * e_scale)
         return medium_for(Q), Q
 
-    def _wall_results(self, medium: WallMedium, Q: float, area: float, T, T_medium) -> None:
-        UA = self.p["U"] * area
+    def _film_profile(self, films, medium: WallMedium, grid, V: float, T, T_medium, flows,
+                      P_in: float, dPdV: float, extra: dict) -> float:
+        """U and the film coefficients along the tube; their length averages (the wall
+        temperature: its highest value) go into the results. Returns the mean U."""
+        ut = self._utility
+        m_ut = (medium.C or 0.0) / ut.cp if ut is not None and ut.kind == "fluid" else None
+        rows = [films.overall(float(t), P_in + dPdV * float(v), f, float(tm), m_ut)
+                for v, t, tm, f in zip(grid, T, T_medium, flows)]
+
+        def mean(values) -> float | None:
+            if any(x is None for x in values):
+                return None
+            return float(np.trapezoid(values, grid) / V)
+
+        extra["U"] = ("heat_transfer_coefficient", [float(o.U) for o in rows])
+        self.results.update(
+            U=mean([o.U for o in rows]), h_process=mean([o.inner.h for o in rows]),
+            h_medium=mean([o.outer.h for o in rows]),
+            Re_process=mean([o.inner.Re for o in rows]),
+            Nu_process=mean([o.inner.Nu for o in rows]),
+            Re_medium=mean([o.outer.Re for o in rows]),
+            Nu_medium=mean([o.outer.Nu for o in rows]),
+            T_wall=max(o.T_wall_inner for o in rows))
+        self.notes.extend(n for n in films.notes if n not in self.notes)
+        return self.results["U"]
+
+    def _wall_results(self, medium: WallMedium, Q: float, area: float, T, T_medium,
+                      U_mean: float | None = None) -> None:
+        UA = (self.p["U"] if U_mean is None else U_mean) * area
         self.results.update(wall_duty=Q, UA=UA, heat_transfer_area=area,
                             LMTD=abs(Q) / UA if UA > 0.0 else None)
         if self._coolant is not None:

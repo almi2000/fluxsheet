@@ -25,6 +25,8 @@
 | `stream.py` | `Stream`: component molar flows plus a `PhaseState`. |
 | `reactions.py` | Reaction sets: stoichiometry checks, kinetics, equilibrium constants. |
 | `utilities.py` | Heating and cooling media; rates jackets and coils (U·A) together with a unit's energy balance. |
+| `film_coefficients.py` | Film-coefficient correlations (tubes, annuli, Kern's shell side, stirred vessels, condensation, boiling) and the overall U from the two films, fouling and the wall, with the wall temperatures iterated where a film depends on them. Pure functions, SI. |
+| `film_rating.py` | Builds both sides of a unit's wall for `film_coefficients` from its geometry parameters (`U_from`), its streams (properties from `PropertyPackage.transport_properties`) and its utility (rated as water). Used by `utilities.py`, the two-sided exchanger and the PFR. |
 | `units/` | Unit operations, one module per family (`streams`, `mixers`, `heat`, `separators`, `columns`, `reactors`, `pressure*`, ...). Each declares ports and parameters as data (`Param`, `Port`); the same schema validates input and generates the editor's forms. |
 | `columns/` | The equilibrium-stage solver (MESH equations by Newton, Naphtali-Sandholm) and the shortcut method. |
 | `solver.py` | Sequential-modular solver: builds the graph, tears recycles (DFS back edges), orders units topologically, iterates tears with Wegstein or Broyden acceleration, checks the mass balance. `solve_flowsheet` is one solve with the calculator blocks. |

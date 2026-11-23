@@ -136,6 +136,20 @@ _UNITS: dict[str, dict[str, tuple[float, float]]] = {
         "gj": (1e9, 0.0),
         "kwh": (3.6e6, 0.0),
     },
+    # Fouling resistance of a heat transfer surface.
+    "fouling_resistance": {
+        "m2k/w": (1.0, 0.0),
+        "m2k/kw": (1e-3, 0.0),
+    },
+    "thermal_conductivity": {
+        "w/mk": (1.0, 0.0),
+    },
+    # Revolutions per time, e.g. of an impeller.
+    "rotational_speed": {
+        "1/s": (1.0, 0.0),
+        "rpm": (1.0 / 60.0, 0.0),
+        "1/min": (1.0 / 60.0, 0.0),
+    },
     # Energy per mass, e.g. the head of a compressor.
     "specific_energy": {
         "j/kg": (1.0, 0.0),

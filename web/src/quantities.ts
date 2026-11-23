@@ -93,6 +93,15 @@ export const UNITS: Record<string, { value: string; label: string }[]> = {
     { value: "kJ/kg", label: "kJ/kg" },
     { value: "J/kg", label: "J/kg" },
   ],
+  fouling_resistance: [
+    { value: "m2K/W", label: "m²K/W" },
+    { value: "m2K/kW", label: "m²K/kW" },
+  ],
+  thermal_conductivity: [{ value: "W/mK", label: "W/m·K" }],
+  rotational_speed: [
+    { value: "rpm", label: "rpm" },
+    { value: "1/s", label: "1/s" },
+  ],
   energy: [
     { value: "MJ", label: "MJ" },
     { value: "kJ", label: "kJ" },
@@ -122,6 +131,9 @@ const SI_UNIT: Record<string, string> = {
   volumetric_flow: "m3/s",
   specific_energy: "J/kg",
   energy: "J",
+  fouling_resistance: "m2K/W",
+  thermal_conductivity: "W/mK",
+  rotational_speed: "1/s",
 };
 
 /** Split a stored value ("80 degC" or 353.15) into number text and unit. */
@@ -172,6 +184,9 @@ const DISPLAY: Record<string, [number, number, string]> = {
   volumetric_flow: [3600, 0, "m³/h"],
   specific_energy: [1e-3, 0, "kJ/kg"],
   energy: [1e-6, 0, "MJ"],
+  fouling_resistance: [1, 0, "m²K/W"],
+  thermal_conductivity: [1, 0, "W/m·K"],
+  rotational_speed: [60, 0, "rpm"],
 };
 
 /** Display unit label for a quantity ("" for dimensionless). */
