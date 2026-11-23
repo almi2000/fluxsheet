@@ -134,7 +134,8 @@ G1, G2, G3, C2 gegen Referenzdaten in die bestehende Kampagne aufnehmen
 - Zwei ChatGPT-Stashes in `main` (`chatgpt-wip-before-…`, je 15 Dateien) sind nicht
   vollständig gemergt: behalten, anwenden oder löschen?
 - 8 alte Worktrees unter `.claude/worktrees/` und gemergte `claude/*`-Branches aufräumen.
-- Release 0.2.0 (Tag, GitHub-Release, PyPI) und Online-Demo: bewusst angehalten.
+- Release 0.3.0 ist vorbereitet (Version, CHANGELOG); Tag, GitHub-Release, PyPI und
+  Online-Demo erst auf ausdrücklichen Wunsch. 0.2.0 wurde nie veröffentlicht.
 
 ## Übersicht
 

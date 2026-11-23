@@ -7,6 +7,18 @@ format or API).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-23
+
+The first published release; the prepared 0.2.0 was never published and is included here.
+New since 0.2.0: dynamic simulation (vessels, reactors, heaters and the rigorous column,
+with PID controllers and events), batch reactors, columns with side draws, pumparounds and
+kinetic or equilibrium reactive stages, a Gibbs reactor on fugacities, equipment costing and
+optimization, pump and compressor curves, logic blocks, Henry components and user-defined
+compounds, Excel and HTML reports, DWSIM import and plug-ins for units, property methods and
+compounds. Several results change through corrections listed under Fixed: liquid densities
+of the cubic equations, heats of vaporization of the activity methods, carboxylic-acid vapor
+and two-phase pipe flow.
+
 ### Added
 
 - **Plug-ins:** other installed packages can add unit operations, property methods
@@ -243,4 +255,6 @@ ideal property methods with an automatic suggestion, feeds, mixers, splitters, h
 drums, valves, pumps and compressors, recycle tearing with Wegstein acceleration, readable JSON
 flowsheets with units, CLI, HTTP API and a React Flow editor.
 
-[0.2.0]: https://github.com/almi2000/fluxsheet/releases/tag/v0.2.0
+[Unreleased]: https://github.com/almi2000/fluxsheet/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/almi2000/fluxsheet/releases/tag/v0.3.0
+[0.2.0]: https://github.com/almi2000/fluxsheet/blob/v0.3.0/CHANGELOG.md#020---2026-10-30

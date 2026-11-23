@@ -1,6 +1,6 @@
 name: Release
 
-# Push a tag like v0.2.0 to build the editor, wheel and sdist, attach them to a GitHub
+# Push a tag like v0.3.0 to build the editor, wheel and sdist, attach them to a GitHub
 # release and (once PyPI trusted publishing is set up) publish to PyPI.
 #
 # PyPI setup, once: on pypi.org add a "pending publisher" for project `fluxsheet` with

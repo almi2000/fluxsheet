@@ -55,6 +55,7 @@ include = ["src/fluxsheet", "web/dist", "examples", "tests", "hatch_build.py", "
            "LICENSE", "CHANGELOG.md",
            "scripts", "docs/*.json"]  # the validation scripts and manifests the tests use
 artifacts = ["web/dist"]  # git-ignored build output, but part of the source distribution
+exclude = ["web/node_modules"]  # npm's packages, whose license files would be picked up
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
