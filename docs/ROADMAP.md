@@ -163,7 +163,7 @@ Kondensation/Sieden vereinfacht) plus Foulingwiderstände, statt U als feste Zah
 - Dateien: `src/fluxsheet/utilities.py`, `src/fluxsheet/units/heat_transfer.py`,
   `src/fluxsheet/units/heat.py` (nur U-Herkunft), `tests/test_film_coefficients.py`
 
-### G8 – Restpunkte G1b und G4 · **ChatGPT** (übernommen von Claude) · Status: in Arbeit
+### G8 – Restpunkte G1b und G4 · **ChatGPT** (übernommen von Claude) · Status: gemergt
 Reaktive Gleichgewichtskolonnen mit Boilup-Spezifikation konvergieren lassen und die
 Rücklauf-Fortsetzung beschleunigen (früher Abbruch, weniger Schritte); Import-Test mit einer
 echten DWSIM-Datei, sofern eine mit passender Lizenz verfügbar ist.

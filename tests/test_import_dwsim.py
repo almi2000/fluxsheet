@@ -1,7 +1,9 @@
 """DWSIM import (importers/dwsim.py): sample files in tests/data/dwsim, see the README there."""
 
+import hashlib
 import io
 import json
+import os
 import zipfile
 from pathlib import Path
 
@@ -365,3 +367,62 @@ def test_api_import(monkeypatch):
     monkeypatch.setattr(limits, "DEMO", True)
     monkeypatch.setattr(limits, "MAX_BODY_BYTES", 500)
     assert client.post("/api/import/dwsim", content=data).status_code == 413
+
+
+# ---- DWSIM's own layout and real DWSIM files ---------------------------------------------------
+
+
+def test_members_written_twice_are_read_from_the_one_with_data():
+    # DWSIM writes a phase's Properties and Compounds twice: a type name first, the data after.
+    xml = (DATA / "heater_flash.dwxml").read_text(encoding="utf-8")
+    doubled = (xml.replace("<Properties>", "<Properties>DWSIM.Thermodynamics.BaseClasses."
+                           "PhaseProperties</Properties>\n<Properties>")
+               .replace("<Compounds>\n            <Compound>",
+                        "<Compounds>System.Collections.Generic.Dictionary</Compounds>\n"
+                        "<Compounds>\n            <Compound>"))
+    assert doubled.count("PhaseProperties</Properties>") == xml.count("<Properties>")
+    assert import_dwsim(doubled.encode("utf-8")) == import_dwsim(xml.encode("utf-8"))
+
+
+REAL = json.loads((DATA / "real-samples.json").read_text(encoding="utf-8"))
+REAL_DIR = os.environ.get("FLUXSHEET_DWSIM_SAMPLES")
+# Fluxsheet against the states DWSIM stored: temperature (K), relative molar flow, mole
+# fraction. Peng-Robinson's interaction parameters differ between the two programs.
+REAL_LIMITS = {
+    "Cavett's Problem.dwxmz": (1.5, 0.10, 0.01),
+    "Three Phase Separator.dwxmz": (0.1, 0.03, 0.01),
+    "Gibbs and Equilibrium Reactors.dwxml": (0.01, 1e-3, 1e-3),
+}
+
+
+@pytest.mark.skipif(not REAL_DIR, reason="set FLUXSHEET_DWSIM_SAMPLES to the folder "
+                    "scripts/fetch_dwsim_samples.py filled")
+@pytest.mark.parametrize("sample", REAL["samples"], ids=lambda s: s["file"])
+def test_a_real_dwsim_file_solves_like_dwsim(sample):
+    path = Path(REAL_DIR) / sample["file"]
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == sample["sha256"]
+    model, warnings = import_dwsim(path)
+    stored = dwsim.stored_streams(path)
+    result = _solve(model)
+    dT, dF, dx = REAL_LIMITS[sample["file"]]
+    compared = 0
+    for sid, st in result.streams.items():
+        ref = stored.get(sid)
+        if ref is None or ref["T"] is None:  # streams the import adds
+            continue
+        compared += 1
+        assert st["T"] == pytest.approx(ref["T"], abs=dT), sid
+        assert st["P"] == pytest.approx(ref["P"], rel=1e-6), sid
+        if not ref["molar_flow"]:
+            assert st["molar_flow"] == pytest.approx(0.0, abs=1e-9), sid
+            continue
+        assert st["molar_flow"] == pytest.approx(ref["molar_flow"], rel=dF), sid
+        for c in model["components"]:
+            assert st["mole_fractions"][c] == pytest.approx(
+                ref["mole_fractions"].get(c, 0.0), abs=dx), (sid, c)
+    assert compared >= 3
+    assert all(c["status"] == "ok" for c in result.balance_checks)
+    if sample["file"].startswith("Three Phase"):
+        assert any("UNIFAC for its phase split" in w for w in warnings)
+    if sample["file"].startswith("Gibbs"):
+        assert _units(model)["RG-000"]["params"]["fugacities"] == "property_method"

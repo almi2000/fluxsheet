@@ -771,7 +771,8 @@ def solve_column(pkg: PropertyPackage, setup: ColumnSetup,
     previous pass of a recycle loop), replaces the start estimate: Newton then usually needs
     two or three iterations instead of building the estimate from bubble points. If Newton
     gets nowhere from there, the column is solved again from its own estimate. Equilibrium
-    reactive columns can also continue from a solution at lower reflux."""
+    reactive columns with a reflux or boilup ratio can also continue from a solution at a
+    moderate reflux (``_continue_ratio``); a direct solve that stalls then gives up early."""
     for pa in setup.pumparounds:
         if (pa.rate == 0.0 or pa.fraction == 0.0) and (pa.duty or pa.T is not None):
             raise SimulationError(
@@ -793,49 +794,94 @@ def solve_column(pkg: PropertyPackage, setup: ColumnSetup,
             except SimulationError:
                 pass
     x = _initial(m)
+    ratio = _continuation_spec(m)
     try:
-        return _newton(m, x, setup.max_iterations)
+        # With a way round, a direct solve that gets nowhere is not run to the end.
+        return _newton(m, x, setup.max_iterations,
+                       give_up_after=_GIVE_UP_AFTER if ratio else None)
     except SimulationError:
-        sol = _continue_reflux(m)
+        sol = _continue_ratio(m, ratio) if ratio else None
         if sol is not None:
             return sol
         raise
 
 
-def _continue_reflux(target: _Model) -> ColumnSolution | None:
-    """Follow a steady solution to the specified reflux, shrinking failed steps."""
-    setup = target.setup
-    reflux = setup.specs.get("reflux_ratio")
-    if not target.equilibrium or reflux is None or not 0.0 < reflux < np.inf:
-        return None
+# A direct solve of an equilibrium reactive column that has not reduced its residual tenfold
+# after this many iterations is abandoned for the continuation; successful direct solves of
+# these columns converge in about ten.
+_GIVE_UP_AFTER = 20
 
-    def model_at(ratio: float) -> _Model:
-        return _Model(target.pkg, replace(setup, specs={**setup.specs, "reflux_ratio": ratio}))
+
+def _continuation_spec(m: _Model) -> str | None:
+    """The ratio spec an equilibrium reactive column can be continued in, if any."""
+    if not m.equilibrium:
+        return None
+    for name in ("reflux_ratio", "boilup_ratio"):
+        value = m.setup.specs.get(name)
+        if value is not None and 0.0 < value < np.inf:
+            return name
+    return None
+
+
+def _continue_ratio(target: _Model, spec: str) -> ColumnSolution | None:
+    """Reach the target's reflux or boilup ratio from a column solved at a moderate reflux.
+
+    A moderate reflux keeps the cold estimate's internal flows small, so Newton converges from
+    it. That solution then follows the specified ratio in steps that grow after a success and
+    shrink after a failure. A boilup ratio is first imposed at the boilup the seed reached,
+    which is the same steady state.
+    """
+    setup = target.setup
+    goal = setup.specs[spec]
+    others = {k: v for k, v in setup.specs.items() if k not in ("reflux_ratio", "boilup_ratio")}
+
+    def model_at(name: str, value: float) -> _Model:
+        return _Model(target.pkg, replace(setup, specs={**others, name: value}))
 
     iterations = max(setup.max_iterations // 3, 1)
-    # A moderate reflux keeps the cold estimate's internal flows small even for a high target.
-    seed_fraction = min(2.0 / reflux, 2.0 / 3.0)
-    for fraction in (seed_fraction, seed_fraction / 2):
-        seed = model_at(reflux * fraction)
+    if spec == "reflux_ratio":
+        first = goal * min(2.0 / goal, 2.0 / 3.0)
+        seeds = [first, first / 2]
+    else:
+        seeds = [2.0, 1.0]
+    for reflux in seeds:
+        seed = model_at("reflux_ratio", reflux)
         try:
             sol = _newton(seed, _initial(seed), setup.max_iterations)
         except SimulationError:
             continue
-
-        step = 1.0 - fraction
-        smallest = step / 16
-        while step >= smallest:
-            next_fraction = min(1.0, fraction + step)
-            trial = target if next_fraction == 1.0 else model_at(reflux * next_fraction)
+        start = reflux
+        if spec == "boilup_ratio":
+            B = float(sol.bottoms.sum())
+            if not target.has_reb or B <= 0.0:
+                return None
+            start = float(sol.V[-1]) / B
             try:
-                next_sol = _newton(trial, sol.restart[1], iterations)
+                sol = _newton(model_at(spec, start), sol.restart[1], iterations)
             except SimulationError:
-                step *= 0.5
                 continue
-            if trial is target:
-                return next_sol
-            fraction, sol = next_fraction, next_sol
-            step *= 2
+        found = _follow(target, spec, start, goal, sol, model_at, iterations)
+        if found is not None:
+            return found
+    return None
+
+
+def _follow(target, spec, start, goal, sol, model_at, iterations) -> ColumnSolution | None:
+    """Follow ``sol`` from ``spec`` = start to goal (the target's own value)."""
+    done, step = 0.0, 1.0
+    smallest = step / 16
+    while step >= smallest:
+        reach = min(1.0, done + step)
+        trial = target if reach == 1.0 else model_at(spec, start + reach * (goal - start))
+        try:
+            next_sol = _newton(trial, sol.restart[1], iterations)
+        except SimulationError:
+            step *= 0.5
+            continue
+        if trial is target:
+            return next_sol
+        done, sol = reach, next_sol
+        step *= 2
     return None
 
 
@@ -846,10 +892,16 @@ def _restart_key(m: _Model) -> tuple:
             tuple(m.equilibrium), m.setup.equilibrium_basis, tuple(r.id for r in m.reactions))
 
 
-def _newton(m: _Model, x, max_iterations: int) -> ColumnSolution:
+def _newton(m: _Model, x, max_iterations: int,
+            give_up_after: int | None = None) -> ColumnSolution:
+    """Newton's method on the MESH equations. ``give_up_after``: stop early if the residual
+    has not fallen tenfold after that many iterations."""
     props = m.all_props(x)
     r = m.residual(x, props)
+    start_norm = np.linalg.norm(r)
     for iteration in range(1, max_iterations + 1):
+        if iteration - 1 == give_up_after and np.linalg.norm(r) > 0.1 * start_norm:
+            raise SimulationError(f"the column made no progress in {give_up_after} iterations")
         J = m.jacobian(x, props, r)
         with np.errstate(all="ignore"):
             dx = spsolve(J, -r)

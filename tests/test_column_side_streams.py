@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from fluxsheet import solve
+from fluxsheet import FlowsheetModel, solve
 from fluxsheet.columns import ColumnSetup, Pumparound, SideDraw, solve_column, stages
 from fluxsheet.reactions import Kinetics, RateLaw, Reaction
 from fluxsheet.stream import Stream
@@ -419,6 +419,49 @@ def test_methyl_acetate_column_converges_from_scratch(methyl_acetate_model, basi
     assert {c["scope"] for c in r.balance_checks} == {"COLUMN", "flowsheet"}
     assert {c["quantity"] for c in r.balance_checks} == {"mass", "element", "energy"}
     assert all(c["status"] == "ok" for c in r.balance_checks)
+
+
+@pytest.mark.parametrize("basis", ["activity", "mole_fraction"])
+@pytest.mark.parametrize("boilup", [2, 3, 5])
+def test_methyl_acetate_column_converges_on_a_boilup_ratio(methyl_acetate_model, basis, boilup):
+    column = next(u for u in methyl_acetate_model["units"] if u["id"] == "COLUMN")
+    column["params"].pop("reflux_ratio")
+    column["params"].update(boilup_ratio=boilup, equilibrium_basis=basis)
+    r = solve(methyl_acetate_model)
+    assert r.ok, r.error
+    u = r.units["COLUMN"]
+    assert u["boilup_ratio"] == pytest.approx(boilup, rel=1e-8)
+    assert r.streams["DIST"]["molar_flow"] == pytest.approx(10.2 / 3600, rel=1e-8)
+    # The same steady state as the column specified by the reflux it ends up with.
+    by_reflux = json.loads(json.dumps(methyl_acetate_model))
+    params = next(u for u in by_reflux["units"] if u["id"] == "COLUMN")["params"]
+    params.pop("boilup_ratio")
+    params["reflux_ratio"] = u["reflux_ratio"]
+    other = solve(by_reflux)
+    assert other.ok, other.error
+    for stream, comp in (("DIST", "methyl acetate"), ("BOTT", "water")):
+        assert r.streams[stream]["mole_fractions"][comp] == pytest.approx(
+            other.streams[stream]["mole_fractions"][comp], abs=1e-7)
+    assert all(c["status"] == "ok" for c in r.balance_checks)
+
+
+def test_a_stalled_direct_solve_gives_up_early(methyl_acetate_model):
+    column = next(u for u in methyl_acetate_model["units"] if u["id"] == "COLUMN")
+    column["params"]["reflux_ratio"] = 4
+    model = FlowsheetModel.model_validate(methyl_acetate_model)
+    calls = []
+    original = stages._newton
+
+    def counted(m, x, max_iterations, give_up_after=None):
+        calls.append(give_up_after)
+        return original(m, x, max_iterations, give_up_after)
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(stages, "_newton", counted)
+        r = solve(model)
+    assert r.ok, r.error
+    # The direct solve was bounded, the continuation's steps were not.
+    assert calls[0] == stages._GIVE_UP_AFTER and set(calls[1:]) == {None}
 
 
 # --- input checks and schema ------------------------------------------------------------------

@@ -182,12 +182,13 @@ def _local(tag: str) -> str:
 
 
 def _child(el: Element | None, name: str) -> Element | None:
+    """The child called ``name``. DWSIM writes some members twice, a type name first and the
+    data after it (a phase has ``<Properties>DWSIM...PhaseProperties</Properties>`` and then
+    ``<Properties><temperature>...``), so one with children of its own wins."""
     if el is None:
         return None
-    for c in el:
-        if _local(c.tag) == name:
-            return c
-    return None
+    found = [c for c in el if _local(c.tag) == name]
+    return next((c for c in found if len(c)), found[0] if found else None)
 
 
 def _children(el: Element | None, name: str) -> list[Element]:
@@ -396,6 +397,7 @@ class _State:
     x: dict[str, float]  # Fluxsheet component -> mole fraction
     vf: float | None
     spec: str
+    density: float | None = None  # kg/m3 of the whole stream
 
 
 @dataclass
@@ -457,7 +459,7 @@ class _Importer:
         self._objects()
         self._connections()
         self._collapse_recycles()
-        methods = self._property_packages()
+        methods = self.methods = self._property_packages()
         converted = self._convert_units()
         model = self._assemble(converted, methods)
         from ..flowsheet import FlowsheetModel  # validate what we built
@@ -585,7 +587,8 @@ class _Importer:
         if total > 0:
             x = {k: v / total for k, v in x.items()}
         vf = _f(_child(phase(2), "Properties"), "molarfraction")
-        return _State(T, P, flow, x, vf, _s(o.el, "SpecType") or "Temperature_and_Pressure")
+        return _State(T, P, flow, x, vf, _s(o.el, "SpecType") or "Temperature_and_Pressure",
+                      _f(props, "density"))
 
     def _connections(self) -> None:
         edges = set()
@@ -771,7 +774,7 @@ class _Importer:
                 if o.graphic:
                     u["ui"] = {"x": o.graphic.x + 120 * k, "y": o.graphic.y}
                 if ref in methods and methods[ref] != method:
-                    u["property_method"] = methods[ref]
+                    u.setdefault("property_method", methods[ref])
                 middle.append(u)
             streams.extend(unit.streams)
         for o in self.objects.values():
@@ -851,7 +854,8 @@ class _Importer:
         for section, what in (("OptimizationCases", "optimization cases"),
                               ("SensitivityAnalysis", "sensitivity studies"),
                               ("ScriptItems", "scripts"), ("ChartItems", "charts")):
-            n = len(list(_child(self.root, section) or ()))
+            section_el = _child(self.root, section)
+            n = 0 if section_el is None else len(section_el)
             if n:
                 self.warn(f"{n} DWSIM {what} left out")
         return model
@@ -1068,9 +1072,22 @@ def _vessel(imp: _Importer, o: _Obj) -> _Unit:
         p["P"] = imp.stored_outlet_P(o, "vessel pressure from the average or maximum inlet")
     inlets = {i: "in" for i in range(6)}
     if 2 in imp.attached_outlets(o):  # a second liquid outlet: three-phase separator
-        imp.warn(f"{o.label}: three-phase vessel imported as a Decanter (liquid 1 -> light, "
-                 "liquid 2 -> heavy)")
-        return _unit(o, "Decanter", p, inlets, {0: "vapor", 1: "light", 2: "heavy"})
+        # DWSIM numbers its liquids, Fluxsheet orders them by density: the denser stored
+        # outlet is the heavy one.
+        rho = [getattr(imp.outlet_state(o, i), "density", None) for i in (1, 2)]
+        swap = None not in rho and rho[0] > rho[1]
+        unit = _unit(o, "Decanter", p, inlets, {0: "vapor", 1: "heavy" if swap else "light",
+                                                 2: "light" if swap else "heavy"})
+        imp.warn(f"{o.label}: three-phase vessel imported as a Decanter (liquid 1 -> "
+                 + ("heavy, liquid 2 -> light, by their stored densities)" if swap else
+                    "light, liquid 2 -> heavy)"))
+        if getattr(imp, "methods", {}).get(_s(el, "PropertyPackage")) in ("peng-robinson", "srk"):
+            # DWSIM's cubic equations find two liquids; Fluxsheet's do not.
+            unit.units[0]["property_method"] = "unifac"
+            imp.warn(f"{o.label}: Fluxsheet's equations of state find no second liquid, so the "
+                     "decanter uses UNIFAC for its phase split (DWSIM: a three-phase flash with "
+                     "the cubic equation)")
+        return unit
     return _unit(o, "Flash", p, inlets, {0: "vapor", 1: "liquid"})
 
 
@@ -1323,9 +1340,12 @@ def _gibbs_reactor(imp: _Importer, o: _Obj) -> _Unit:
         p["products"] = products
     phase = _enum(el, "ReactivePhaseBehavior", ("CalculateEquilibrium", "Vapor", "Liquid",
                                                 "Solid"), "CalculateEquilibrium")
-    if phase != "Vapor":
-        imp.warn(f"{o.label}: Fluxsheet's Gibbs reactor treats the reacting mixture as an "
-                 f"ideal gas (DWSIM: {phase})")
+    # Like DWSIM, minimize on the property method's fugacities, with the vapor and liquid
+    # phases the mixture forms.
+    p["fugacities"] = "property_method"
+    if phase in ("Liquid", "Solid"):
+        imp.warn(f"{o.label}: DWSIM's {phase.lower()}-only reacting phase has no Fluxsheet "
+                 "counterpart; the reactor lets the mixture form the phases it prefers")
     _reactor_mode(imp, o, p)
     return _reactor_outlets(imp, o, _unit(o, "GibbsReactor", p))
 
@@ -1351,11 +1371,7 @@ _KNOWN_CLASSES = {*_CONVERTERS, *_UNSUPPORTED, *_LOGICAL, "MaterialStream", "Ene
                   "Recycle"}
 
 
-def import_dwsim(source: str | Path | bytes, *, name: str | None = None
-                 ) -> tuple[dict, list[str]]:
-    """Read a DWSIM simulation (path to, or bytes of, a .dwxml or .dwxmz file) and return
-    the Fluxsheet flowsheet as a JSON dict plus the list of warnings about what was left
-    out or approximated. Raises :class:`DwsimImportError` for files that cannot be read."""
+def _importer(source: str | Path | bytes, name: str | None) -> _Importer:
     data, filename = _read_source(source)
     notes: list[str] = []
     if data[:4] == b"PK\x03\x04":
@@ -1364,4 +1380,24 @@ def import_dwsim(source: str | Path | bytes, *, name: str | None = None
         raise DwsimImportError("not a valid .dwxmz file: the zip archive is damaged")
     root = _parse(data)
     title = name or (Path(filename).stem if filename else "Imported DWSIM flowsheet")
-    return _Importer(root, title, notes).run()
+    return _Importer(root, title, notes)
+
+
+def stored_streams(source: str | Path | bytes) -> dict[str, dict]:
+    """The material streams as DWSIM last computed them, by the label the imported flowsheet
+    gives each stream: ``T`` (K), ``P`` (Pa), ``molar_flow`` (mol/s), ``mole_fractions`` and
+    ``vapor_fraction``, for comparing a Fluxsheet solve with DWSIM's."""
+    imp = _importer(source, None)
+    imp._compounds()
+    imp._objects()
+    return {imp.objects[name].label: {"T": st.T, "P": st.P, "molar_flow": st.flow,
+                                      "mole_fractions": dict(st.x), "vapor_fraction": st.vf}
+            for name, st in imp.states.items()}
+
+
+def import_dwsim(source: str | Path | bytes, *, name: str | None = None
+                 ) -> tuple[dict, list[str]]:
+    """Read a DWSIM simulation (path to, or bytes of, a .dwxml or .dwxmz file) and return
+    the Fluxsheet flowsheet as a JSON dict plus the list of warnings about what was left
+    out or approximated. Raises :class:`DwsimImportError` for files that cannot be read."""
+    return _importer(source, name).run()
