@@ -351,3 +351,30 @@ def test_pressure_machine_small_pressure_change_conserves_energy(unit, component
         assert power >= -1e-6
     elif unit == "Turbine":
         assert power <= 1e-6
+
+
+@pytest.mark.parametrize("components", [["water"], ["water", "ethanol"]])
+def test_a_flash_drum_boils_a_pure_compound_with_its_heat_of_vaporization(components):
+    # 0.1 mol/s of water at 99 °C and 2 kW at 1 atm: the duty heats it to the boiling point
+    # and evaporates the rest. Its vapor product leaves as saturated vapor, not relabelled
+    # liquid, so the energy balance closes (it used to miss almost the whole duty).
+    from fluxsheet.thermo_package import get_package
+
+    model = {"components": components, "property_method": "ideal",
+             "units": [{"id": "F", "type": "Feed", "params": {
+                 "T": "99 degC", "P": "1 atm", "flows": {"water": "0.1 mol/s"}}},
+                 {"id": "D", "type": "Flash", "params": {"duty": "2 kW", "P": "1 atm"}},
+                 {"id": "V", "type": "Product"}, {"id": "L", "type": "Product"}],
+             "streams": [{"id": "S1", "from": "F.out", "to": "D.in"},
+                         {"id": "SV", "from": "D.vapor", "to": "V.in"},
+                         {"id": "SL", "from": "D.liquid", "to": "L.in"}]}
+    r = solve(model)
+    assert r.ok, r.error
+    pure = get_package(("water",), "ideal")
+    feed = pure.flash([1.0], T=372.15, P=101325.0)
+    sat_l, sat_v = pure.flash([1.0], P=101325.0, VF=0.0), pure.flash([1.0], P=101325.0, VF=1.0)
+    vf = (feed.H + 2000.0 / 0.1 - sat_l.H) / (sat_v.H - sat_l.H)
+    assert r.units["D"]["vapor_fraction"] == pytest.approx(vf, rel=1e-6)
+    assert r.streams["SV"]["molar_flow"] == pytest.approx(0.1 * vf, rel=1e-6)
+    assert r.streams["SV"]["vapor_fraction"] == 1.0 and r.streams["SL"]["vapor_fraction"] == 0.0
+    assert all(c["status"] == "ok" for c in r.balance_checks)

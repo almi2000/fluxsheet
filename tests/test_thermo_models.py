@@ -305,3 +305,32 @@ def test_three_phase_flash_with_vapor_splits_per_mole_of_mixture():
     np.testing.assert_allclose(s.VF * np.array(s.y) + light * np.array(s.x_light)
                                + s.heavy_fraction * np.array(s.x_heavy), z, atol=1e-9)
     assert s.x_heavy[1] > 0.99  # the water phase is the heavy one
+
+
+@pytest.mark.parametrize("method", ["ideal", "peng-robinson", "nrtl"])
+def test_a_pure_compound_boils_like_one_among_absent_components(method):
+    # Water alone, and water with ethanol and methane at zero flow: the same compound, so the
+    # same boiling point and heat of vaporization. The multicomponent flash used to snap to
+    # all liquid or all vapor, losing up to half the heat of vaporization here.
+    pure = get_package(("water",), method)
+    many = get_package(("water", "ethanol", "methane"), method)
+    zs = [1.0, 0.0, 0.0]
+    P = 101325.0
+    sat_l, sat_v = many.flash(zs, P=P, VF=0.0), many.flash(zs, P=P, VF=1.0)
+    alone = pure.flash([1.0], P=P, VF=0.0), pure.flash([1.0], P=P, VF=1.0)
+    # (With NRTL, methane is a Henry component, which moves water's boiling point by 1 mK.)
+    assert sat_l.T == pytest.approx(alone[0].T, abs=2e-3)
+    assert sat_v.H - sat_l.H == pytest.approx(alone[1].H - alone[0].H, rel=1e-4)
+    for vf in (0.1, 0.5, 0.9):
+        H = sat_l.H + vf * (sat_v.H - sat_l.H)
+        s = many.flash(zs, P=P, H=H)
+        assert (s.T, s.VF, s.H) == pytest.approx((sat_l.T, vf, H), rel=1e-6, abs=1e-6)
+        assert s.phase == "two-phase" and s.x == s.y == (1.0, 0.0, 0.0)
+        S = sat_l.S + vf * (sat_v.S - sat_l.S)
+        by_S = many.flash(zs, P=P, S=S)
+        assert (by_S.T, by_S.VF) == pytest.approx((sat_l.T, vf), rel=1e-6)
+        assert by_S.H == pytest.approx(H, rel=1e-6)
+    # Outside the boiling region the ordinary flash answers, as for the pure package.
+    for T in (350.0, 400.0):
+        s = many.flash(zs, P=P, H=pure.flash([1.0], T=T, P=P).H)
+        assert s.T == pytest.approx(T, abs=1e-6) and s.VF in (0.0, 1.0)

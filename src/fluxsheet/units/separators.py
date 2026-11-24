@@ -57,12 +57,24 @@ class Flash(UnitOperation):
         liquid = [F * (1.0 - st.VF) * x for x in st.x] if st.x else [0.0] * pkg.n
         out = {}
         for port, flows, vf in (("vapor", vapor, 1.0), ("liquid", liquid, 0.0)):
-            out[port] = (
-                Stream.from_flash(pkg, flows, T=st.T, P=P) if sum(flows) > 1e-12 * F
-                else empty_stream(pkg, st.T, P)
-            )
-            # Pin each product to its phase: at saturation, a T-P flash may land on either side.
-            out[port] = Stream(out[port].flows, _with_phase(out[port].state, vf, flows))
+            total = sum(flows)
+            if total <= 1e-12 * F:
+                out[port] = empty_stream(pkg, st.T, P)
+                out[port] = Stream(out[port].flows, _with_phase(out[port].state, vf, flows))
+            elif vf == 0.0 and pkg.supports_lle:
+                # A T-P flash keeps a liquid-liquid split for the units downstream; at the
+                # boiling point it may still land on the vapor side, so the liquid is
+                # evaluated as such then.
+                flashed = Stream.from_flash(pkg, flows, T=st.T, P=P)
+                state = flashed.state if flashed.state.VF == 0.0 else pkg.phase_state(
+                    "liquid", st.T, P, [f / total for f in flows])
+                out[port] = Stream(flashed.flows, state)
+            else:
+                # Each product in the phase it has in the drum, with that phase's enthalpy. A
+                # T-P flash at the boiling point may land on either side (always for a pure
+                # compound), and relabelling its result kept the wrong phase's enthalpy.
+                out[port] = Stream(flows, pkg.phase_state(
+                    "vapor" if vf == 1.0 else "liquid", st.T, P, [f / total for f in flows]))
         self.results.update(duty=duty, vapor_fraction=st.VF)
         return out
 
