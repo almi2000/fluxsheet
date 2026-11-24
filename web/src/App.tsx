@@ -33,6 +33,7 @@ import { Palette } from "./Palette";
 import { pluginProblems } from "./plugins";
 import { UnitMethodField } from "./PropertyMethods";
 import { ResultsPanel } from "./ResultsPanel";
+import { SolveStatus } from "./SolveStatus";
 import { ShortcutHelp } from "./Shortcuts";
 import { StreamEdge } from "./StreamEdge";
 import { DynamicsSettings } from "./DynamicsEditor";
@@ -1048,6 +1049,7 @@ function Editor() {
             {result.error.hint && <div className="hint">💡 {result.error.hint}</div>}
           </div>
         )}
+        {result && <SolveStatus result={result} />}
         {layoutOffer && (
           <div className="banner info">
             This flowsheet has no saved positions.

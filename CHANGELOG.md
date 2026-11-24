@@ -63,6 +63,11 @@ format or API).
 
 ### Fixed
 
+- **Pressure–enthalpy flash and heat duty checks.** Near-pure condensing streams can
+  resolve narrow boiling ranges by vapor fraction. A returned flash state must satisfy
+  the requested enthalpy. Fixed heater and heat exchanger duties are checked against
+  their stream enthalpy changes. The CLI, API and editor report calculation status,
+  duty specification checks and balance checks separately.
 - **A pure compound boiling:** in a flowsheet with several components, a stream of one of
   them (the others at zero flow) flashed at a given enthalpy or entropy inside its boiling
   range came out all liquid or all vapor, losing up to the whole heat of vaporization, and

@@ -1,4 +1,4 @@
-"""Independent material and energy checks on the converged flowsheet."""
+"""Independent material, energy and equipment specification checks."""
 
 from __future__ import annotations
 
@@ -11,6 +11,11 @@ _NO_DUTY = {"Mixer", "Splitter", "Valve", "HeatExchanger"}
 _DUTY = {"Heater", "Flash", "ComponentSplitter", "MixingTank", "Decanter",
          "ThinFilmEvaporator", "ExtractionColumn", "Pipe", "YieldReactor"} | _REACTORS
 _MACHINES = {"Pump", "Compressor", "Turbine", "MultistageCompressor"}
+_DUTY_SIDES = {
+    "Heater": (("process", "in", "out", 1.0),),
+    "HeatExchanger": (("hot", "hot_in", "hot_out", -1.0),
+                      ("cold", "cold_in", "cold_out", 1.0)),
+}
 
 
 def _reactive(unit):
@@ -162,4 +167,41 @@ def check_balances(solver, pkg, streams, crossings):
         _record(checks, "flowsheet", "energy", None,
                 [_energy(s, formation) for s in inputs] + duties + crossings_energy,
                 [_energy(s, formation) for s in outputs], "W", 0.1)
+    return checks
+
+
+def _duty_check(scope, side, target, actual):
+    check = {"scope": scope, "quantity": "duty", "side": side, "unit": "W",
+             "target": float(target) if math.isfinite(target) else None,
+             "actual": None, "residual": None, "tolerance": None, "status": "not_checkable"}
+    if actual is None or not math.isfinite(actual):
+        return check
+    check["actual"] = float(actual)
+    if check["target"] is None:
+        return check
+    residual = actual - target
+    tolerance = 0.1 + 1e-5 * max(abs(target), abs(actual))
+    check.update(residual=float(residual), tolerance=float(tolerance),
+                 status="ok" if abs(residual) <= tolerance else "warning")
+    return check
+
+
+def check_specifications(solver, _pkg, streams):
+    """Compare fixed duties against the enthalpy change on each equipment side."""
+    checks = []
+    by_source = {(c.src_unit, c.src_port): c.id for c in solver.connections}
+    for uid, unit in solver.units.items():
+        sides = _DUTY_SIDES.get(unit.type)
+        target = unit.p.get("duty")
+        if sides is None or target is None or uid not in solver.balance_io:
+            continue
+        # Recorded inlets have already been flashed with this unit's property method.
+        inputs, _ = solver.balance_io[uid]
+        inlets = {port.name: stream for port, stream in zip(unit.inlets, inputs)}
+        for side, inlet, outlet, sign in sides:
+            feed = inlets.get(inlet)
+            product = streams.get(by_source.get((uid, outlet), f"{uid}.{outlet}"))
+            actual = (sign * (product.enthalpy_flow - feed.enthalpy_flow)
+                      if feed is not None and product is not None else None)
+            checks.append(_duty_check(uid, side, target, actual))
     return checks

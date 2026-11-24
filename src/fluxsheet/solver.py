@@ -53,9 +53,22 @@ class SolveResult:
     design_specs: list[dict] = field(default_factory=list)  # filled by specs.py
     calculators: list[dict] = field(default_factory=list)  # filled by calculator.py
     costing: dict | None = None  # filled by costing.py
+    specification_checks: list[dict] = field(default_factory=list)
+    specification_status: str = "not_run"
+    balance_status: str = "not_run"
 
     def to_dict(self) -> dict[str, Any]:
         return self.__dict__.copy()
+
+
+def _check_status(checks: list[dict]) -> str:
+    """Summarize a completed check pass, prioritizing a known violation."""
+    statuses = {check["status"] for check in checks}
+    if "warning" in statuses:
+        return "warning"
+    if "not_checkable" in statuses:
+        return "not_checkable"
+    return "ok" if checks else "not_applicable"
 
 
 class Solver:
@@ -239,9 +252,12 @@ class Solver:
             self.warnings.extend(p.henry_validity(states))
         result.warnings = self.warnings
         self.sections.annotate(result, streams, self.connections)
-        from .balances import check_balances
+        from .balances import check_balances, check_specifications
 
         result.balance_checks = check_balances(self, pkg, streams, result.property_crossings)
+        result.balance_status = _check_status(result.balance_checks)
+        result.specification_checks = check_specifications(self, pkg, streams)
+        result.specification_status = _check_status(result.specification_checks)
         for check in result.balance_checks:
             if check["status"] == "warning":
                 name = f" ({check['component']})" if check["component"] else ""
@@ -249,6 +265,15 @@ class Solver:
                     f"{check['scope']}: {check['quantity']}{name} balance residual "
                     f"{check['residual']:.6g} {check['unit']} exceeds "
                     f"{check['tolerance']:.6g} {check['unit']}")
+        for check in result.specification_checks:
+            if check["status"] == "warning":
+                unit_of_measure = check["unit"]
+                self.warnings.append(
+                    f"{check['scope']}: {check['side']} duty specification "
+                    f"target {check['target']:.6g} {unit_of_measure}, "
+                    f"actual {check['actual']:.6g} {unit_of_measure}, "
+                    f"residual {check['residual']:.6g} {unit_of_measure} "
+                    f"(tolerance {check['tolerance']:.6g} {unit_of_measure})")
         if self.model.costing is not None:
             from .costing import estimate  # sizes and prices the solved equipment
 
