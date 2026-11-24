@@ -1043,7 +1043,42 @@ class PropertyPackage:
 
     def flash(self, zs: list[float], **spec: float) -> PhaseState:
         """Flash at two of T, P, H, S, VF (SI, molar basis)."""
+        if self.n > 1 and set(spec) in ({"P", "H"}, {"P", "S"}):
+            boiling = self._pure_boiling(list(zs), spec)
+            if boiling is not None:
+                return boiling
         return self._state(self._flash_raw(list(zs), spec)[0], zs)
+
+    def _pure_boiling(self, zs: list[float], spec: dict) -> PhaseState | None:
+        """A single compound in a package of several (the others at zero flow) that boils at
+        the given enthalpy or entropy, or None.
+
+        A pure compound boils at one temperature, so its enthalpy fixes the vapor fraction,
+        not the temperature. The multicomponent flash cannot see that: it snaps to all
+        liquid or all vapor, losing up to the whole heat of vaporization, and takes seconds.
+        Here the saturated liquid and vapor are evaluated at the boiling point and mixed.
+        """
+        if max(zs) < 1.0 - 1e-12 or sum(1 for z in zs if z > 0.0) == len(zs):
+            return None
+        P, by = spec["P"], "H" if "H" in spec else "S"
+        try:
+            T = float(self._flash_raw(zs, {"P": P, "VF": 0.0})[0].T)
+            liquid = self.phase_state("liquid", T, P, zs)
+            vapor = self.phase_state("vapor", T, P, zs)
+        except (SimulationError, ValueError, ArithmeticError):
+            return None
+        lo, hi = getattr(liquid, by), getattr(vapor, by)
+        if not lo < spec[by] < hi:
+            return None  # one phase: the ordinary flash finds it
+        vf = (spec[by] - lo) / (hi - lo)
+
+        def mixed(a, b):
+            return None if a is None or b is None else (1.0 - vf) * a + vf * b
+
+        return PhaseState(
+            T=T, P=P, VF=vf, H=mixed(liquid.H, vapor.H), S=mixed(liquid.S, vapor.S),
+            phase="two-phase", x=tuple(zs), y=tuple(zs), V=mixed(liquid.V, vapor.V),
+            H_reactive=mixed(liquid.H_reactive, vapor.H_reactive))
 
     def saturation_point(self, zs: list[float], kind: str, *, T: float | None = None,
                          P: float | None = None, guess: float | None = None) -> Saturation:

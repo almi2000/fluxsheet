@@ -47,6 +47,14 @@ format or API).
 
 ### Fixed
 
+- **A pure compound boiling:** in a flowsheet with several components, a stream of one of
+  them (the others at zero flow) flashed at a given enthalpy or entropy inside its boiling
+  range came out all liquid or all vapor, losing up to the whole heat of vaporization, and
+  took seconds. It now boils at its boiling point with the vapor fraction its enthalpy
+  gives. A flash drum's products, and the gas a compressor's intercooler knocks out, are
+  evaluated in the phase they leave in: at the boiling point a T-P flash may land on either
+  side, and the drum kept the enthalpy of the wrong one, so a drum boiling a pure compound
+  missed almost its whole duty in the energy balance.
 - **Three-phase flash with vapor:** with a vapor and two liquids, the heavy-liquid fraction
   was the heavy liquid's share of the liquid instead of the mixture, so decanters with a gas
   phase put too much into their heavy outlet. Found by the DWSIM comparison below.

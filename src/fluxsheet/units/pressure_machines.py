@@ -157,7 +157,10 @@ class MultistageCompressor(UnitOperation):
                     where=self.id, hint="raise the intercooler temperature")
             vapor = mix.total_flow * st.VF * np.array(st.y)
             liquid = np.maximum(np.array(mix.flows) - vapor, 0.0)
-            gas = Stream.from_flash(pkg, list(vapor), T=st.T, P=P)
+            # The knocked-out gas is the cooler's vapor, at its dew point: evaluated as a vapor,
+            # since a T-P flash there may land on the liquid side (always for a pure gas).
+            gas = Stream(list(vapor), pkg.phase_state("vapor", st.T, P,
+                                                      list(vapor / vapor.sum())))
             drained += liquid
             H_drained += mix.enthalpy_flow - gas.enthalpy_flow
         if drained.sum() > 1e-12 * s.total_flow:
