@@ -157,7 +157,7 @@ Mantelmedium (zweiter Strom am Reaktor).
 - Dateien: `src/fluxsheet/units/reactors.py` (nur PFR), `src/fluxsheet/utilities.py`,
   `tests/test_pfr_cooled.py`, ein Beispiel in `examples/`
 
-### G7 – Wärmedurchgang aus Filmkoeffizienten · **Claude** (übernommen von ChatGPT, Session) · Status: fertig, nicht gemergt (Branch `claude/sweet-moser-0a8dc4`)
+### G7 – Wärmedurchgang aus Filmkoeffizienten · **Claude** (übernommen von ChatGPT, Session) · Status: gemergt
 U aus Geometrie und Korrelationen (Rohr innen: Gnielinski/Dittus-Boelter, Mantel, Rührkessel,
 Kondensation/Sieden vereinfacht) plus Foulingwiderstände, statt U als feste Zahl.
 - Dateien: `src/fluxsheet/utilities.py`, `src/fluxsheet/units/heat_transfer.py`,
