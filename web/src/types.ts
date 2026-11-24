@@ -202,6 +202,20 @@ export interface BalanceCheck {
   status: "ok" | "warning" | "not_checkable";
 }
 
+export type CheckStatus = "ok" | "warning" | "not_checkable" | "not_applicable" | "not_run";
+
+export interface SpecificationCheck {
+  scope: string;
+  quantity: "duty";
+  side: "process" | "hot" | "cold";
+  target: number | null;
+  actual: number | null;
+  residual: number | null;
+  tolerance: number | null;
+  unit: "W";
+  status: "ok" | "warning" | "not_checkable";
+}
+
 export interface SolveResult {
   ok: boolean;
   streams: Record<string, StreamResult>;
@@ -209,6 +223,9 @@ export interface SolveResult {
   property_method: string | null;
   property_method_reason: string | null;
   balance_checks?: BalanceCheck[];
+  balance_status?: CheckStatus;
+  specification_checks?: SpecificationCheck[];
+  specification_status?: CheckStatus;
   property_crossings?: unknown[]; // streams re-flashed between methods; see PropertyMethods.tsx
   // Where each binary parameter set came from ("ThermoML fit", "ChemSep", "UNIFAC estimate",
   // "none (ideal)"); `method` is set for pairs of a per-unit method other than the default.

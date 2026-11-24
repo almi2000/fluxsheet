@@ -34,6 +34,14 @@ def _fmt_table(result) -> str:
     return "\n".join(lines)
 
 
+def _print_run_status(result, *, file=None):
+    calculation = "converged" if result.converged else "not completed"
+    specifications = result.specification_status.replace("_", " ")
+    balances = result.balance_status.replace("_", " ")
+    print(f"Calculation: {calculation} | Duty specifications: {specifications} | "
+          f"Balances: {balances}", file=file)
+
+
 def _run(args) -> int:
     result = solve(FlowsheetModel.load(args.file))
     if args.json:
@@ -45,6 +53,7 @@ def _run(args) -> int:
               file=sys.stderr)
         if err["hint"]:
             print(f"  hint: {err['hint']}", file=sys.stderr)
+        _print_run_status(result, file=sys.stderr)
         return 1
     print(f"Property method: {result.property_method}")
     if result.property_method_reason:
@@ -91,6 +100,7 @@ def _run(args) -> int:
     for spec in result.design_specs:
         print(f"design spec {spec['id']}: {spec['target']} = {spec['achieved']:.6g} with "
               f"{spec['vary']} = {spec['vary_value']:.6g} ({spec['iterations']} solves)")
+    _print_run_status(result)
     for w in result.warnings:
         print(f"warning: {w}")
     return 0

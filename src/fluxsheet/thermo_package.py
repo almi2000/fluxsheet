@@ -1108,11 +1108,78 @@ class PropertyPackage:
 
     def flash(self, zs: list[float], **spec: float) -> PhaseState:
         """Flash at two of T, P, H, S, VF (SI, molar basis)."""
-        if self.n > 1 and set(spec) in ({"P", "H"}, {"P", "S"}):
-            boiling = self._pure_boiling(list(zs), spec)
+        zs = list(zs)
+        if spec.keys() == {"P", "H"}:
+            return self._flash_ph(zs, spec["P"], spec["H"])
+        if self.n > 1 and spec.keys() == {"P", "S"}:
+            boiling = self._pure_boiling(zs, spec)
             if boiling is not None:
                 return boiling
-        return self._state(self._flash_raw(list(zs), spec)[0], zs)
+        return self._state(self._flash_raw(zs, spec)[0], zs)
+
+    def _flash_ph(self, zs: list[float], P: float, H: float) -> PhaseState:
+        active_components = sum(z > 0.0 for z in zs)
+        if self.n > 1 and active_components == 1:
+            boiling = self._pure_boiling(zs, {"P": P, "H": H})
+            if boiling is not None and _enthalpy_matches(boiling.H - H, H):
+                return boiling
+
+        standard = (
+            lambda: self._flasher.flash(zs=zs, P=P, H=H),
+            lambda: self._by_temperature(zs, P, H),
+        )
+        by_fraction = (lambda: self._ph_by_vapor_fraction(zs, P, H),)
+        # Narrow boiling bands defeat the default temperature iteration. With
+        # composition-independent K values the fraction search is especially fast,
+        # so try it first for a dominant component without dropping any traces.
+        narrow = (active_components > 1 and max(zs) > 1.0 - 1e-6
+                  and getattr(self._flasher, "K_composition_independent", False))
+        attempts = by_fraction + standard if narrow else standard + by_fraction
+
+        closest_H = None
+        last_error = None
+        for flash in attempts:
+            try:
+                raw = flash()
+                actual_H = float(raw.H())
+                if _enthalpy_matches(actual_H - H, H):
+                    return self._state(raw, zs)
+                if math.isfinite(actual_H) and (
+                    closest_H is None or abs(actual_H - H) < abs(closest_H - H)
+                ):
+                    closest_H = actual_H
+            except Exception as exc:  # noqa: BLE001 - thermo raises several exception types
+                last_error = exc
+
+        details = "no enthalpy candidate available"
+        if closest_H is not None:
+            details = f"calculated H={closest_H:.9g} J/mol, residual={closest_H - H:+.9g} J/mol"
+        raise SimulationError(
+            f"pressure-enthalpy flash did not converge at P={P:.6g} Pa: "
+            f"requested H={H:.9g} J/mol, {details}",
+            hint="check the specified duty or pressure and whether the property method "
+            "supports the phases at this condition",
+        ) from last_error
+
+    def _ph_by_vapor_fraction(self, zs: list[float], P: float, H: float):
+        """Resolve latent heat when the equilibrium is too narrow for a temperature search.
+
+        At fixed P, a vapor-fraction flash uses the actual composition of both phases,
+        including traces. This avoids replacing a barely separated mixture with a pure
+        compound or interpolating between unrelated T-P states across a phase boundary.
+        """
+        def at_fraction(vf: float):
+            return self._flasher.flash(zs=zs, P=P, VF=vf)
+
+        vf = brentq(lambda vf: float(at_fraction(vf).H()) - H, 0.0, 1.0, xtol=1e-12)
+        result = at_fraction(vf)
+        # A fixed-VF flash searches for vapor-liquid equilibrium. Reject its candidate
+        # if a phase split missed by that search has lower Gibbs energy at the same T/P.
+        if self.supports_lle:
+            stable = self._flasher.flash(zs=zs, P=P, T=float(result.T))
+            if result.G() > stable.G() + 1e-3:
+                raise ValueError("vapor-fraction flash found a metastable equilibrium")
+        return result
 
     def _pure_boiling(self, zs: list[float], spec: dict) -> PhaseState | None:
         """A single compound in a package of several (the others at zero flow) that boils at
@@ -1169,10 +1236,9 @@ class PropertyPackage:
                 try:
                     res = self._flasher.flash(zs=zs, **spec)
                 except Exception:
-                    if set(spec) not in ({"P", "H"}, {"P", "S"}):
+                    if spec.keys() != {"P", "S"}:
                         raise
-                    by = "H" if "H" in spec else "S"
-                    res = self._by_temperature(zs, spec["P"], spec[by], by)
+                    res = self._by_temperature(zs, spec["P"], spec["S"], "S")
                 incipient = _incipient(res, spec.get("VF"), self.n)
         except Exception as exc:
             spec_text = ", ".join(f"{k}={v:.6g}" for k, v in spec.items())
@@ -1227,13 +1293,13 @@ class PropertyPackage:
 
         try:
             T0, (f0, res) = T_guess, h(T_guess)
-            if abs(f0) <= 1e-7 * abs(H) + 1e-3:
+            if _enthalpy_matches(f0, H):
                 return self._state(res, zs)
             T1 = T0 + (1.0 if f0 < 0.0 else -1.0)
             lo = hi = None
             for _ in range(40):
                 f1, res = h(T1)
-                if abs(f1) <= 1e-7 * abs(H) + 1e-3:
+                if _enthalpy_matches(f1, H):
                     return self._state(res, zs)
                 if f1 < 0.0:
                     lo = T1 if lo is None or T1 > lo else lo
@@ -1409,6 +1475,13 @@ class PropertyPackage:
             H_reactive=self._h_reactive(float(res.H()), zs),
             **split,
         )
+
+
+def _enthalpy_matches(residual: float, target: float) -> bool:
+    # Same molar tolerance as the nearby-temperature iteration: an absolute floor
+    # at the enthalpy reference, plus a relative term for states far from it.
+    return (math.isfinite(target) and math.isfinite(residual)
+            and abs(residual) <= 1e-3 + 1e-7 * abs(target))
 
 
 def _vapor_fraction(res) -> float:
