@@ -1,6 +1,6 @@
 # Fluxsheet – Roadmap und Arbeitsteilung (Claude / ChatGPT)
 
-Stand: 2026-11-25 · Basis: `main` @ `23a8204`
+Stand: 2026-11-25 · Ausgangsbasis der Welle 5: `main` @ `23a8204`
 
 Diese Datei verteilt die offenen Features auf zwei Agenten, die **gleichzeitig** arbeiten:
 **Claude** (Claude Code) und **ChatGPT**. Die Pakete sind so geschnitten, dass in jeder
@@ -10,9 +10,7 @@ wenn beide Pakete in `main` gemergt sind; erst dann beginnt die nächste.
 Status-Werte: `offen` · `in Arbeit` · `Review` · `gemergt`. Wer ein Paket beginnt oder
 abschließt, ändert nur die Statuszeile **seines** Pakets.
 
-**Nächster Start ist G10 in Welle 5.** Welle 5 hat Vorrang vor allen weiteren
-Implementierungsarbeiten. G9 bis G12 werden in dieser Reihenfolge umgesetzt, abgenommen
-und gemergt. Erst danach beginnen weitere Roadmap-Pakete oder neue Apparatefeatures.
+**Welle 5 ist abgeschlossen.**
 
 ---
 
@@ -69,7 +67,7 @@ Abweichungen werden für jeden betroffenen Wärmetauscher ausgewiesen.
   `src/fluxsheet/balances.py`, `src/fluxsheet/solver.py`, Ergebnisdarstellung in
   CLI, API und Editor, zugehörige Regressionstests.
 
-### G10 – Stoffdaten je Fließbild und sichtbare Ersatzannahmen · **ChatGPT** · Status: Review
+### G10 – Stoffdaten je Fließbild und sichtbare Ersatzannahmen · **ChatGPT** · Status: gemergt
 
 Binäre Literaturparameter und UNIFAC-Gruppenzuordnungen im Fließbild deklarieren können.
 Bei einer Ergänzung der Gruppen gelten die vorhandenen Reinstoffkorrelationen weiter.
@@ -85,7 +83,7 @@ an separaten ternären Messpunkten prüfen.
 - Dateien: `src/fluxsheet/flowsheet.py`, `src/fluxsheet/thermo_package.py`,
   `src/fluxsheet/fitting/store.py`, Stoffmethoden-Einstellungen im Editor und Tests.
 
-### G11 – Stationäre geschlossene Kreisläufe · **ChatGPT** · Status: Review
+### G11 – Stationäre geschlossene Kreisläufe · **ChatGPT** · Status: gemergt
 
 Eine unabhängige Umlaufspezifikation auf einer internen Leitung zulassen. Den
 numerischen Startwert für einen aufgetrennten Rückführstrom separat angeben können.
@@ -100,7 +98,7 @@ Diagnose. Bestehende Rückführungsmodelle mit Zulauf laufen weiterhin.
 - Dateien: `src/fluxsheet/flowsheet.py`, `src/fluxsheet/solver.py`,
   Spezifikationseingabe im Editor und Rückführungs-Regressionstests.
 
-### G12 – Schnittstellen für zusätzliche Phasen und Apparatezustände · **ChatGPT** · Status: Review
+### G12 – Schnittstellen für zusätzliche Phasen und Apparatezustände · **ChatGPT** · Status: gemergt
 
 Für Feststoffphasen, reaktive Elektrolyte, zeitabhängige Adsorberbeladungen und
 Polymer-Kettenmomente festlegen, welche Größen ein Stoffstrom transportiert und welche
@@ -278,4 +276,4 @@ echten DWSIM-Datei, sofern eine mit passender Lizenz verfügbar ist.
 | 2 | C2 Dynamische Kolonne | G3 Batch-Kosten, G4 DWSIM-Import |
 | 3 | C4 Plug-ins | G5 Validierungskampagne |
 | 4 | C5 Druckgetriebene Dynamik, C6 Plug-ins überall | G6 Gekühlter Rohrreaktor, G7 Filmkoeffizienten, G8 Restpunkte G1b/G4 |
-| 5 · als Nächstes | | G9 Flash und Ergebnisprüfung → G10 Stoffdaten → G11 geschlossene Kreisläufe → G12 Modellzustände |
+| 5 · abgeschlossen | | G9 Flash und Ergebnisprüfung → G10 Stoffdaten → G11 geschlossene Kreisläufe → G12 Modellzustände |
