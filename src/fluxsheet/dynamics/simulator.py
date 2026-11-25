@@ -36,6 +36,7 @@ from ..quantities import UnitError, to_si
 from ..solver import Solver
 from ..specs import STREAM_PROPERTIES, Variable
 from ..stream import Stream
+from ..thermo_package import WATER_ICE
 from ..units.base import mix_streams
 from .controllers import Controller
 from .models import ControllerModel, EventModel, ManipulatedParam
@@ -93,6 +94,12 @@ class Simulator(Solver):
     # ---- setup -------------------------------------------------------------------------
 
     def _setup(self) -> None:
+        if WATER_ICE in self.sections.methods.values():
+            raise SimulationError(
+                "the water-ice reference method supports only steady-state simulation",
+                where="dynamics",
+                hint="run the model in steady state to preserve its liquid and solid fractions",
+            )
         dyn = self.model.dynamics
         self.t_end = _si(dyn.t_end, "time", "dynamics", "end time")
         if self.t_end <= 0.0:

@@ -38,6 +38,63 @@
 | `errors.py` | `SimulationError` with `where` and `hint`. |
 | `server.py`, `cli.py` | HTTP API for the editor; command-line interface. |
 
+### Additional phases and equipment state
+
+A stream transports component molar flows (mol/s) and a thermodynamic state. The
+property method supplies the phase amounts and compositions in component order,
+together with the mixture enthalpy on the ideal-gas reference at 298.15 K. Phase
+fractions are moles of each phase per mole of the stream. The weighted phase
+compositions recover the overall component flows. The mixture molar enthalpy
+includes sensible and latent contributions, so the existing unit and flowsheet
+balances use total component flows and total enthalpy flow without a separate
+phase-change energy term.
+
+The `water-ice` reference method implements one solid phase and one liquid phase for
+pure water at 0.9 to 1.1 bar and 263.15 to 293.15 K. At 273.15 K a T–P flash
+returns liquid by convention. A P–H flash uses the latent heat to determine the
+liquid and solid fractions at the same temperature. The near-melting model uses
+constant molar heat capacities (37.8 J/(mol·K) for ice and 76.0 J/(mol·K) for liquid),
+liquid enthalpy from the existing ideal method at melting, and 6.01 kJ/mol of fusion
+from the existing compound constants. It uses the liquid molar volume at melting
+and a constant ice density of 917 kg/m³. The [IAPWS ice Ih release](https://iapws.org/technical-guidance/release/Ice-2009)
+and the [liquid water release](https://iapws.org/technical-guidance/release/LiquidWater)
+provide the near-melting reference for the rounded heat capacities and density.
+
+Use the reference method in steady-state models with Feed, Product, and Heater
+with a specified temperature or duty. Stream crossings between this method and another method are rejected
+because a temperature–pressure re-flash can discard a solid fraction at melting.
+The example [water_ice_freezing.json](../examples/water_ice_freezing.json) cools
+1 mol/s of water from 278.15 K and freezes half of it with a duty of −3.385 kW.
+The independent check is 1 mol/s × (76.0 J/(mol·K) × 5 K + 0.5 × 6010 J/mol) of
+heat removal. The stream table shows liquid and solid fractions. When a stream
+carries a solid, the result adds `liquid_fraction`, `solid_fraction`, and
+`solid_composition` to the existing fields. Read the complete result with
+`fluxsheet run examples/water_ice_freezing.json --json` or `POST /api/solve`.
+
+The following interfaces define the inputs, outputs and acceptance criteria
+for future phase and equipment models.
+
+| Model | Stream and equipment ownership | Property method and balance contract | Proposed acceptance case |
+| --- | --- | --- | --- |
+| Solid phases | The stream carries each transported phase fraction and component flow. A retained crystal inventory or particle size distribution belongs to the equipment that evolves it. | A solid-capable property method returns phase compositions and a common-reference enthalpy including latent heat. Unit balances include retained inventory changes if applicable. | Repeat the water/ice calculation in both directions and compare the phase fractions and duty against the lever rule and an independent sensible/latent heat calculation. |
+| Reactive electrolytes | The stream carries conserved analytical component flows and, as a calculated phase result, amounts of each aqueous species. A unit owns its electrical boundary conditions and any retained electrolyte inventory. | An electrolyte method receives analytical totals, species stoichiometry and charges, and returns activities, speciation and enthalpy on a declared standard-state basis. Check conserved elements, charge and energy. | In a closed aqueous acid dissociation case, compare pH and species molalities against an independent solution of mass action and electroneutrality, and check a charge residual below 1e-9 mol/L. |
+| Dynamic adsorber | Gas or liquid streams carry mobile components. The bed owns adsorbed loading (mol/kg of dry adsorbent) and its thermal and mobile-phase inventories. | A bed model uses fluid properties and a separate isotherm/kinetics model with a declared adsorption heat. Integrated inlet minus outlet component and energy transfers account for accumulation in the bed. | For an isothermal step in one adsorbate, compare time to 50% breakthrough with an independent integration and close inlet minus outlet against stored adsorbate within 1% of the admitted amount. |
+| Polymer chain moments | A stream carrying polymer transports chain moment fluxes with orders and basis declared. The apparatus owns the corresponding moments of the chains in its hold-up. | A kinetics model supplies moment production rates. With chain length counted in repeat units, order zero tracks chain count and order one tracks repeat-unit amount. Map the latter and any end groups to material and energy balances. | For an idealized chain-length distribution, compare moment-derived number- and weight-average molecular weights against explicit summation of the distribution and close the repeat-unit balance. |
+
+Future flowsheet inputs should store property method and parameters with the
+basis and units they use. Persist equipment initial conditions under that unit
+or its dynamics configuration. Stream results should store derived phase
+amounts, species or moment fluxes under named optional fields with a versioned
+basis. Include stable component identifiers or the moment order and definition
+so a receiving unit can check compatibility before using the data.
+
+A future solid or electrolyte method can extend `fluxsheet.property_methods`
+with an explicit capability for its extra phase data. The current
+`ActivityMethod` and `EquationOfState` hooks describe fluid phases. Equipment
+implementations use `fluxsheet.units`, with dynamic state integrated through
+`fluxsheet.dynamic_models`. A consuming unit must report a capability mismatch
+when a stream contains phase data or moment fluxes it cannot use.
+
 ### Dynamic simulation (`dynamics/`)
 
 - `models.py`: the `"dynamics"` section of the file: end time, the units with a hold-up and

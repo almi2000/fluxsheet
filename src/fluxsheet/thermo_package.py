@@ -58,6 +58,10 @@ from .henry import (
     ideal_solvent_model,
 )
 
+WATER_ICE = "water-ice"
+_ICE_MELTING_T = 273.15  # K, rounded near atmospheric pressure
+_ICE_MIN_T, _ICE_MAX_T = 263.15, 293.15  # K
+
 
 @dataclass(frozen=True)
 class Method:
@@ -115,6 +119,11 @@ METHODS: dict[str, Method] = {
             "ideal",
             "Ideal (Raoult's law)",
             "Ideal liquid and ideal gas. Fast, and fine for similar molecules at low pressure.",
+        ),
+        Method(
+            WATER_ICE,
+            "Water / ice reference",
+            "Pure water and ice near atmospheric pressure. Temperature or enthalpy specifications.",
         ),
     )
 }
@@ -207,7 +216,7 @@ class PhaseState:
     VF: float
     H: float  # J/mol, relative to ideal gas at 298.15 K (no formation enthalpy)
     S: float  # J/mol/K
-    phase: str  # "vapor", "liquid" or "two-phase"
+    phase: str  # "vapor", "liquid", "two-phase", "solid" or "liquid-solid"
     x: tuple[float, ...] | None  # liquid mole fractions
     y: tuple[float, ...] | None  # vapor mole fractions
     V: float  # molar volume, m3/mol
@@ -221,6 +230,12 @@ class PhaseState:
     heavy_fraction: float = 0.0  # mol heavy liquid per mol mixture; light = 1 - VF - this
     rho_light: float | None = None  # kg/m3
     rho_heavy: float | None = None  # kg/m3
+    solid_fraction: float = 0.0  # mol solid per mol mixture
+    x_solid: tuple[float, ...] | None = None
+
+    @property
+    def liquid_fraction(self) -> float:
+        return max(1.0 - self.VF - self.solid_fraction, 0.0)
 
     @property
     def liquid_split(self) -> bool:
@@ -228,7 +243,7 @@ class PhaseState:
 
     @property
     def light_fraction(self) -> float:
-        return max(1.0 - self.VF - self.heavy_fraction, 0.0) if self.liquid_split else 0.0
+        return max(self.liquid_fraction - self.heavy_fraction, 0.0) if self.liquid_split else 0.0
 
 
 @dataclass(frozen=True)
@@ -492,6 +507,13 @@ def _estimate_binary(method: str, cas_a: str, cas_b: str):
     return (*(float(v) for v in fit.x), alpha_value)
 
 
+def _water_ice_specification_error() -> SimulationError:
+    return SimulationError(
+        "the water-ice reference method supports only T-P and P-H flashes",
+        hint="specify temperature or enthalpy with pressure, or select a fluid property method",
+    )
+
+
 class PropertyPackage:
     def __init__(self, components: list[str], method: str, prefer_fitted: bool = True,
                  henry_components: tuple[str, ...] | None = None,
@@ -521,6 +543,11 @@ class PropertyPackage:
                 "the component list contains the same compound twice",
                 hint="different names can refer to the same compound (e.g. 'ethanol' "
                 "and 'ethyl alcohol'); remove one",
+            )
+        if self.method == WATER_ICE and cas != ("7732-18-5",):
+            raise SimulationError(
+                "the water-ice property method requires pure water",
+                hint="set water as the only component or choose another property method",
             )
         self.consts, self.props = _constants(cas)
         # Where each binary parameter set came from, and warnings worth showing with results.
@@ -953,6 +980,8 @@ class PropertyPackage:
         """Reference fugacities of the liquid: vapor pressures, the Henry constant in this
         liquid for Henry components, and for a dimerizing acid the monomer pressure of its
         saturated vapor."""
+        if self.method == WATER_ICE:
+            raise _water_ice_specification_error()
         if not any(self.henry):
             return [vp(T) for vp in self._liquid_vps]
         return list(self._liquid_template().to(T=T, P=101325.0, zs=list(zs)).Psats())
@@ -1058,6 +1087,8 @@ class PropertyPackage:
         return TransportProps(rho=rho, cp=cp, mu=values[0], k=values[1])
 
     def _single_phase(self, kind: str, T: float, P: float, zs: list[float], evaluate):
+        if self.method == WATER_ICE:
+            raise _water_ice_specification_error()
         if kind == "vapor":
             template = self._flasher.gas
         elif kind == "liquid":
@@ -1109,6 +1140,8 @@ class PropertyPackage:
     def flash(self, zs: list[float], **spec: float) -> PhaseState:
         """Flash at two of T, P, H, S, VF (SI, molar basis)."""
         zs = list(zs)
+        if self.method == WATER_ICE:
+            return self._water_ice_flash(zs, spec)
         if spec.keys() == {"P", "H"}:
             return self._flash_ph(zs, spec["P"], spec["H"])
         if self.n > 1 and spec.keys() == {"P", "S"}:
@@ -1116,6 +1149,79 @@ class PropertyPackage:
             if boiling is not None:
                 return boiling
         return self._state(self._flash_raw(zs, spec)[0], zs)
+
+    def _water_ice_flash(self, zs: list[float], spec: dict[str, float]) -> PhaseState:
+        """Equilibrium between one liquid and one solid, neglecting the melting curve's slope."""
+        if spec.keys() not in ({"P", "T"}, {"P", "H"}):
+            raise _water_ice_specification_error()
+        if zs != [1.0]:
+            raise SimulationError(
+                "the water-ice reference method requires a pure water mole fraction of 1",
+                hint="pass the normalized water composition",
+            )
+        P = spec["P"]
+        if not 90_000.0 <= P <= 110_000.0:
+            raise SimulationError(
+                f"water-ice pressure {P:.6g} Pa is outside the reference range",
+                hint="use a pressure between 0.9 and 1.1 bar",
+            )
+
+        T = spec.get("T")
+        if T is not None and not _ICE_MIN_T <= T <= _ICE_MAX_T:
+            raise SimulationError(
+                f"water-ice temperature {T:.6g} K is outside the reference range",
+                hint=f"use a temperature between {_ICE_MIN_T} and {_ICE_MAX_T} K",
+            )
+
+        tm = _ICE_MELTING_T
+        # Anchor both phases to the existing ideal-gas reference via liquid water at melting.
+        liquid = self._flasher.flash(T=tm, P=P, zs=zs)
+        h_liquid, s_liquid, v_liquid = liquid.H(), liquid.S(), liquid.V()
+        fusion = self.consts.Hfus_Tms[0]  # J/mol
+        h_solid = h_liquid - fusion
+        s_solid = s_liquid - fusion / tm
+        v_solid = self.mws[0] / (1e3 * 917.0)  # m3/mol, ice Ih near melting
+        cp_solid, cp_liquid = 37.8, 76.0  # J/(mol K), rounded near-melting values
+
+        if T is None:
+            H = spec["H"]
+            minimum = h_solid + cp_solid * (_ICE_MIN_T - tm)
+            maximum = h_liquid + cp_liquid * (_ICE_MAX_T - tm)
+            if not minimum <= H <= maximum:
+                raise SimulationError(
+                    f"water-ice enthalpy {H:.6g} J/mol is outside the reference range",
+                    hint=f"use an enthalpy between {minimum:.6g} and {maximum:.6g} J/mol",
+                )
+            if H <= h_solid:
+                solid = 1.0
+                T = max(_ICE_MIN_T, tm + (H - h_solid) / cp_solid)
+            elif H >= h_liquid:
+                solid = 0.0
+                T = min(_ICE_MAX_T, tm + (H - h_liquid) / cp_liquid)
+            else:
+                T = tm
+                solid = (h_liquid - H) / fusion
+        elif T < tm:
+            solid = 1.0
+            H = h_solid + cp_solid * (T - tm)
+        else:
+            # At melting T and P do not fix the phase split. T-P returns liquid.
+            solid = 0.0
+            H = h_liquid + cp_liquid * (T - tm)
+
+        if solid == 1.0:
+            phase = "solid"
+        elif solid == 0.0:
+            phase = "liquid"
+        else:
+            phase = "liquid-solid"
+        heat_capacity = solid * cp_solid + (1.0 - solid) * cp_liquid
+        entropy = solid * s_solid + (1.0 - solid) * s_liquid + heat_capacity * math.log(T / tm)
+        return PhaseState(
+            T=T, P=P, VF=0.0, H=H, S=entropy, phase=phase, x=tuple(zs) if solid < 1.0 else None,
+            y=None, V=solid * v_solid + (1.0 - solid) * v_liquid, H_reactive=self._h_reactive(H, zs),
+            solid_fraction=solid, x_solid=tuple(zs) if solid > 0.0 else None,
+        )
 
     def _flash_ph(self, zs: list[float], P: float, H: float) -> PhaseState:
         active_components = sum(z > 0.0 for z in zs)
@@ -1219,6 +1325,8 @@ class PropertyPackage:
         ``guess`` (the unknown T or P, e.g. the neighbouring point of a diagram) speeds up
         mixtures that may split into two liquids.
         """
+        if self.method == WATER_ICE:
+            raise _water_ice_specification_error()
         spec = {"VF": 0.0 if kind == "bubble" else 1.0, **({"T": T} if T is not None else {}),
                 **({"P": P} if P is not None else {})}
         res, incipient = self._flash_raw(list(zs), spec, guess)
@@ -1287,6 +1395,9 @@ class PropertyPackage:
         good start: secant steps on H(T), kept inside a bracket, need a few T-P flashes,
         much less than a full PH flash. Falls back to ``flash`` if they do not settle.
         """
+        if self.method == WATER_ICE:
+            return self.flash(zs, P=P, H=H)
+
         def h(T: float):
             res = self._flasher.flash(zs=zs, T=T, P=P)
             return float(res.H()) - H, res

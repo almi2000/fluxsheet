@@ -30,6 +30,7 @@ from .flowsheet import FlowsheetModel
 from .stream import Stream
 from .thermo_package import (
     METHODS,
+    WATER_ICE,
     PropertyPackage,
     Suggestion,
     get_package,
@@ -98,6 +99,25 @@ class PropertySections:
                     and self.sources[c.dst_unit] == "flowsheet"):
                 self.methods[c.dst_unit] = self.methods[c.src_unit]
                 self.sources[c.dst_unit] = "inlet"
+        for uid, method in self.methods.items():
+            if method != WATER_ICE:
+                continue
+            unit = units[uid]
+            if unit.type not in ("Feed", "Heater", "Product") or unit.p.get("area") is not None:
+                raise SimulationError(
+                    f"the water-ice reference method does not support {unit.type} in this mode",
+                    where=uid,
+                    hint="use Feed, Product and Heater with a specified duty or temperature",
+                )
+        for conn in connections:
+            source = self.methods[conn.src_unit]
+            dest = self.methods[conn.dst_unit] if conn.dst_unit is not None else source
+            if source != dest and WATER_ICE in (source, dest):
+                raise SimulationError(
+                    "the water-ice reference method cannot re-flash across a method boundary",
+                    where=conn.id,
+                    hint=f"use {WATER_ICE} on both connected units to retain the solid fraction",
+                )
         self.packages: dict[str, PropertyPackage] = {default.method: default}
         for method in sorted(set(self.methods.values()) - {default.method}):
             self.packages[method] = get_package(components, method, **package_options(model))

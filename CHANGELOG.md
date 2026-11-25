@@ -9,6 +9,9 @@ format or API).
 
 ### Added
 
+- **Liquid/solid reference case:** pure water can freeze or melt near atmospheric
+  pressure with the `water-ice` method. Results show both phase fractions and the
+  existing balances include latent heat. See `examples/water_ice_freezing.json`.
 - **Pressure-driven dynamics** (`"pressure_driven": true` under `dynamics`): flows between
   vessels, feeds and products follow from their pressures. Valves get a flow coefficient
   (`Cv` or `Kv`), an opening that controllers and events move, a linear, equal-percentage or

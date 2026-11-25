@@ -100,7 +100,7 @@ Diagnose. Bestehende Rückführungsmodelle mit Zulauf laufen weiterhin.
 - Dateien: `src/fluxsheet/flowsheet.py`, `src/fluxsheet/solver.py`,
   Spezifikationseingabe im Editor und Rückführungs-Regressionstests.
 
-### G12 – Schnittstellen für zusätzliche Phasen und Apparatezustände · **ChatGPT** · Status: offen
+### G12 – Schnittstellen für zusätzliche Phasen und Apparatezustände · **ChatGPT** · Status: Review
 
 Für Feststoffphasen, reaktive Elektrolyte, zeitabhängige Adsorberbeladungen und
 Polymer-Kettenmomente festlegen, welche Größen ein Stoffstrom transportiert und welche
