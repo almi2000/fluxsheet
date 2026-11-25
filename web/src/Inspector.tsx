@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { StreamSettings, Value } from "./types";
 import { methodLabel } from "./plugins";
 import { api } from "./api";
 import { CustomCompoundForm } from "./CustomCompoundForm";
@@ -19,7 +20,7 @@ export function QuantityInput({
   quantity: string | null;
   value: unknown;
   placeholder?: string;
-  onChange: (v: unknown) => void;
+  onChange: (v: Value | null) => void;
 }) {
   const units = quantity ? UNITS[quantity] : undefined;
   const { num, unit } = splitValue(value, quantity ?? "");
@@ -645,7 +646,66 @@ export function UnitInspector({
 
 // ---- stream results ----------------------------------------------------------------------
 
-export function StreamInspector({ id, result }: { id: string; result?: StreamResult }) {
+function RecycleFields({ components, settings, onChange }: {
+  components: string[];
+  settings: StreamSettings;
+  onChange: (v: StreamSettings) => void;
+}) {
+  const { circulation, recycle_guess: guess = {} } = settings;
+  const updateGuess = (patch: StreamSettings["recycle_guess"]) => {
+    const next = { ...guess, ...patch };
+    onChange({ circulation, recycle_guess: next.T != null || next.P != null || next.flows ? next : undefined });
+  };
+  const componentNames = (values?: Record<string, Value>) => [...new Set([...components, ...Object.keys(values ?? {})])];
+  return (
+    <>
+      <h3>Circulation specification</h3>
+      <label className="field">
+        <span className="field-label">Circulating mass flow</span>
+        <QuantityInput quantity="mass_flow" value={circulation?.mass_flow} onChange={(mass_flow) =>
+          onChange({ ...settings, circulation: mass_flow == null ? undefined : { ...circulation, mass_flow } })}
+        />
+      </label>
+      {circulation && (components.length > 1 || circulation.mole_fractions) && (
+        <div className="field">
+          <span className="field-label">Circulating mole fractions</span>
+          <ComponentTable components={componentNames(circulation.mole_fractions)} value={circulation.mole_fractions ?? {}}
+            quantity="fraction" onChange={(values) => onChange({
+              ...settings, circulation: {
+                ...circulation, mole_fractions: Object.keys(values).length ? values as Record<string, number> : undefined,
+              },
+            })}
+          />
+        </div>
+      )}
+      <h3>Recycle starting values</h3>
+      <p className="muted small">Optional estimates for the first iteration.</p>
+      {([["T", "Temperature", "temperature"], ["P", "Pressure", "pressure"]] as const).map(([key, label, quantity]) => (
+        <label className="field" key={key}>
+          <span className="field-label">{label}</span>
+          <QuantityInput quantity={quantity} value={guess[key]} onChange={(v) => updateGuess({ [key]: v ?? undefined })} />
+        </label>
+      ))}
+      <div className="field">
+        <span className="field-label">Starting component flows</span>
+        <ComponentTable components={componentNames(guess.flows)} value={guess.flows ?? {}}
+          quantity="molar_flow" onChange={(values) => updateGuess({
+            flows: Object.keys(values).length ? values as Record<string, Value> : undefined,
+          })}
+        />
+      </div>
+    </>
+  );
+}
+
+export function StreamInspector({ id, result, components, settings = {}, editable, onChange }: {
+  id: string;
+  result?: StreamResult;
+  components: string[];
+  settings?: StreamSettings;
+  editable: boolean;
+  onChange: (v: StreamSettings) => void;
+}) {
   return (
     <div className="inspector-body">
       <header className="inspector-head">
@@ -654,6 +714,12 @@ export function StreamInspector({ id, result }: { id: string; result?: StreamRes
           <h2>{id}</h2>
         </div>
       </header>
+      {(editable || settings.circulation || settings.recycle_guess) && (
+        <>
+          {!editable && <p className="callout warn">Reconnect the recycle loop or clear its settings.</p>}
+          <RecycleFields components={components} settings={settings} onChange={onChange} />
+        </>
+      )}
       {!result ? (
         <p className="muted">Run the simulation to see this stream's conditions.</p>
       ) : (

@@ -1,0 +1,34 @@
+{
+  "format": "fluxsheet/1",
+  "name": "R744 refrigeration with closed recycle",
+  "description": "A transcritical CO2 refrigeration loop with a flash-gas bypass and a specified circulation of 0.10 kg/s. Operating conditions are based on Santini et al. (2019), DOI 10.1016/j.egypro.2019.02.097. The compressor efficiency of 0.72 is assumed. The outlet temperatures of the evaporator and gas cooler are fixed.",
+  "components": ["carbon dioxide"],
+  "property_method": "peng-robinson",
+  "units": [
+    {"id": "HP_VENTIL", "type": "Valve", "params": {"P": "34.8 bar"}, "ui": {"x": 280, "y": 200}},
+    {"id": "RECEIVER", "type": "Flash", "ui": {"x": 500, "y": 200}},
+    {"id": "EE_VENTIL", "type": "Valve", "params": {"P": "25.3 bar"}, "ui": {"x": 720, "y": 330}},
+    {"id": "VERDAMPFER", "type": "Heater", "params": {"T": "4.75 degC"}, "ui": {"x": 940, "y": 330}},
+    {"id": "BYPASS_VENTIL", "type": "Valve", "params": {"P": "25.3 bar"}, "ui": {"x": 940, "y": 80}},
+    {"id": "MISCHUNG", "type": "Mixer", "ui": {"x": 1160, "y": 200}},
+    {"id": "VERDICHTER", "type": "Compressor", "params": {"P": "90.9 bar", "efficiency": 0.72}, "ui": {"x": 1380, "y": 200}},
+    {"id": "GASKUEHLER", "type": "Heater", "params": {"T": "36.5 degC"}, "ui": {"x": 1600, "y": 200}}
+  ],
+  "streams": [
+    {"id": "RECEIVER_EIN", "from": "HP_VENTIL.out", "to": "RECEIVER.in"},
+    {"id": "RECEIVER_FLUESSIG", "from": "RECEIVER.liquid", "to": "EE_VENTIL.in"},
+    {"id": "RECEIVER_DAMPF", "from": "RECEIVER.vapor", "to": "BYPASS_VENTIL.in"},
+    {"id": "VERDAMPFER_EIN", "from": "EE_VENTIL.out", "to": "VERDAMPFER.in"},
+    {"id": "VERDAMPFER_AUS", "from": "VERDAMPFER.out", "to": "MISCHUNG.in"},
+    {"id": "BYPASS_AUS", "from": "BYPASS_VENTIL.out", "to": "MISCHUNG.in"},
+    {"id": "SAUGGAS", "from": "MISCHUNG.out", "to": "VERDICHTER.in"},
+    {"id": "DRUCKGAS", "from": "VERDICHTER.out", "to": "GASKUEHLER.in"},
+    {
+      "id": "GASKUEHLERAUSGANG",
+      "from": "GASKUEHLER.out",
+      "to": "HP_VENTIL.in",
+      "circulation": {"mass_flow": "0.10 kg/s"},
+      "recycle_guess": {"T": "36.5 degC", "P": "90.9 bar"}
+    }
+  ]
+}

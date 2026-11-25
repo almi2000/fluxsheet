@@ -97,4 +97,21 @@ describe("renameComponent", () => {
   it("finds the components the units use", () => {
     expect([...componentsUsed(model, schemas)].sort()).toEqual(["my-ester", "water"]);
   });
+
+  it("preserves component references in copied recycle settings", () => {
+    const loop: FlowsheetModel = {
+      ...model, units: [], streams: [{
+        id: "RETURN", from: "C.out", to: "H.in",
+        circulation: { mass_flow: "0.10 kg/s", mole_fractions: { "my-ester": 0.2, water: 0.8 } },
+        recycle_guess: { P: "1 bar", flows: { ethanol: "2 mol/s" } },
+      }],
+    };
+    expect([...componentsUsed(loop, schemas)].sort()).toEqual(["ethanol", "my-ester", "water"]);
+    expect(renameComponent(loop, "my-ester", "ester-B", schemas).streams[0].circulation).toEqual({
+      mass_flow: "0.10 kg/s", mole_fractions: { "ester-B": 0.2, water: 0.8 },
+    });
+    expect(renameComponent(loop, "ethanol", "EtOH", schemas).streams[0].recycle_guess).toEqual({
+      P: "1 bar", flows: { EtOH: "2 mol/s" },
+    });
+  });
 });

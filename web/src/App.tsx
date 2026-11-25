@@ -39,7 +39,7 @@ import { StreamEdge } from "./StreamEdge";
 import { DynamicsSettings } from "./DynamicsEditor";
 import { StudiesSettings } from "./StudiesEditor";
 import { OptimizationSettings } from "./OptimizationEditor";
-import type { Costing, CustomCompound, DesignSpec, Dynamics, Example, FlowsheetModel, Method, Optimization, OptimizationResult, Params, Reaction, SensitivityStudy, SolveResult, UnitResult, UnitType, Utility } from "./types";
+import type { Costing, CustomCompound, DesignSpec, Dynamics, Example, FlowsheetModel, Method, Optimization, OptimizationResult, Params, Reaction, SensitivityStudy, SolveResult, StreamSettings, UnitResult, UnitType, Utility } from "./types";
 import { UtilitiesEditor } from "./UtilitiesEditor";
 import { UnitNode, type UnitFlowNode } from "./UnitNode";
 import { loadOverlay, OVERLAYS, saveOverlay, streamLabel, unitWarnings, type Overlay } from "./overlays";
@@ -108,12 +108,14 @@ function nextId(prefix: string, taken: Set<string>) {
   return `${prefix}${i}`;
 }
 
-function edgeStyle(e: Edge): Edge {
+type StreamFlowEdge = Edge<StreamSettings>;
+
+function edgeStyle(e: StreamFlowEdge): StreamFlowEdge {
   return { ...e, type: "stream", markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 } };
 }
 
 /** Everything undo/redo restores. */
-type Doc = { meta: Meta; nodes: UnitFlowNode[]; edges: Edge[] };
+type Doc = { meta: Meta; nodes: UnitFlowNode[]; edges: StreamFlowEdge[] };
 
 /** Canvas nodes and edges for a model's units and streams (used by Open and by Paste). */
 function modelToCanvas(model: FlowsheetModel, schemas: Record<string, UnitType>) {
@@ -137,9 +139,22 @@ function modelToCanvas(model: FlowsheetModel, schemas: Record<string, UnitType>)
   const edges = streams.map((s) => {
     const [source, sourceHandle] = s.from.split(".");
     const [target, targetHandle] = s.to!.split(".");
-    return edgeStyle({ id: s.id, source, sourceHandle, target, targetHandle, label: s.id });
+    return edgeStyle({
+      id: s.id, source, sourceHandle, target, targetHandle, label: s.id,
+      data: { circulation: s.circulation, recycle_guess: s.recycle_guess },
+    });
   });
   return { nodes, edges, positioned: units.every((u) => u.ui) };
+}
+
+/** Any stream on a cycle can be selected as the tear. */
+function isRecycleStream(stream: StreamFlowEdge, edges: StreamFlowEdge[]): boolean {
+  const reached = new Set([stream.target]);
+  for (const unit of reached) {
+    if (unit === stream.source) return true;
+    for (const edge of edges) if (edge.source === unit) reached.add(edge.target);
+  }
+  return false;
 }
 
 /** Keyboard shortcuts stay out of the way while the user types in a field. */
@@ -167,7 +182,7 @@ function Editor() {
 
   const [meta, setMeta] = useState<Meta>(EMPTY_META);
   const [nodes, setNodes, onNodesChange] = useNodesState<UnitFlowNode>([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<StreamFlowEdge>([]);
   const [selection, setSelection] = useState<Selection>(null);
   const [result, setResult] = useState<SolveResult | null>(null);
   const [stale, setStale] = useState(false);
@@ -258,6 +273,8 @@ function Editor() {
         id: e.id,
         from: `${e.source}.${e.sourceHandle}`,
         to: `${e.target}.${e.targetHandle}`,
+        circulation: e.data?.circulation,
+        recycle_guess: e.data?.recycle_guess,
       })),
     }),
     [meta, nodes, edges],
@@ -550,6 +567,11 @@ function Editor() {
     const renamed = renameComponent(toModel(), from, to, schemas);
     const params = new Map(renamed.units.map((u) => [u.id, u.params]));
     setNodes((ns) => ns.map((n) => (params.get(n.id) === n.data.params ? n : { ...n, data: { ...n.data, params: params.get(n.id) ?? {} } })));
+    const streamSettings = new Map(renamed.streams.map((s) => [s.id, s]));
+    setEdges((es) => es.map((e) => {
+      const s = streamSettings.get(e.id);
+      return e.data ? { ...e, data: { circulation: s?.circulation, recycle_guess: s?.recycle_guess } } : e;
+    }));
     setMeta((m) => ({
       ...m,
       components: renamed.components,
@@ -905,6 +927,7 @@ function Editor() {
   );
 
   const selectedNode = selection?.kind === "unit" ? nodes.find((n) => n.id === selection.id) : undefined;
+  const selectedStream = selection?.kind === "stream" ? edges.find((e) => e.id === selection.id) : undefined;
   const selectedCount = nodes.reduce((k, n) => k + (n.selected ? 1 : 0), 0);
   const selectedIdle = selectedNode ? idleOutlets(selectedNode) : [];
   const mod = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl+";
@@ -1156,8 +1179,20 @@ function Editor() {
                 onChange={(m) => setUnitMethod(selectedNode.id, m)}
               />
             </UnitInspector>
-          ) : selection?.kind === "stream" ? (
-            <StreamInspector id={selection.id} result={stale ? undefined : result?.streams[selection.id]} />
+          ) : selectedStream ? (
+            <StreamInspector
+              key={selectedStream.id}
+              id={selectedStream.id}
+              result={stale ? undefined : result?.streams[selectedStream.id]}
+              components={meta.components}
+              settings={selectedStream.data}
+              editable={isRecycleStream(selectedStream, edges)}
+              onChange={(data) => {
+                history.commit(`stream:${selectedStream.id}`);
+                setEdges((es) => es.map((e) => e.id === selectedStream.id ? { ...e, data } : e));
+                touch();
+              }}
+            />
           ) : (
             <FlowsheetInspector
               key={epoch}

@@ -85,7 +85,7 @@ an separaten ternären Messpunkten prüfen.
 - Dateien: `src/fluxsheet/flowsheet.py`, `src/fluxsheet/thermo_package.py`,
   `src/fluxsheet/fitting/store.py`, Stoffmethoden-Einstellungen im Editor und Tests.
 
-### G11 – Stationäre geschlossene Kreisläufe · **ChatGPT** · Status: offen
+### G11 – Stationäre geschlossene Kreisläufe · **ChatGPT** · Status: Review
 
 Eine unabhängige Umlaufspezifikation auf einer internen Leitung zulassen. Den
 numerischen Startwert für einen aufgetrennten Rückführstrom separat angeben können.

@@ -79,6 +79,15 @@ export function renameComponent(model: FlowsheetModel, from: string, to: string,
       const schema = schemas[u.type]?.params;
       return schema && u.params ? { ...u, params: renameParams(schema, u.params, from, to) } : u;
     }),
+    streams: model.streams.map((s) => ({
+      ...s,
+      ...(s.circulation?.mole_fractions && { circulation: {
+        ...s.circulation, mole_fractions: renameKey(s.circulation.mole_fractions, from, to),
+      } }),
+      ...(s.recycle_guess?.flows && { recycle_guess: {
+        ...s.recycle_guess, flows: renameKey(s.recycle_guess.flows, from, to),
+      } }),
+    })),
     reactions: model.reactions?.map((r) => renameReaction(r, from, to)),
     design_specs: renameRefs(model.design_specs, from, to),
     sensitivity: renameRefs(model.sensitivity, from, to),
@@ -99,15 +108,15 @@ export function renameComponent(model: FlowsheetModel, from: string, to: string,
 }
 
 /**
- * The components the parameters of `units` refer to, found the way `renameComponent` finds
- * them: a component renamed to a fresh name shows up as that name.
+ * The components used by the units and recycle settings in this fragment.
  */
 export function componentsUsed(model: FlowsheetModel, schemas: Record<string, UnitType>): Set<string> {
   const used = new Set<string>();
   const marker = "\u0000used\u0000";
   for (const c of model.components) {
-    const units = renameComponent({ ...model, reactions: undefined, dynamics: undefined }, c, marker, schemas).units;
-    if (JSON.stringify(units) !== JSON.stringify(model.units)) used.add(c);
+    const renamed = renameComponent({ ...model, reactions: undefined, dynamics: undefined }, c, marker, schemas);
+    if (JSON.stringify(renamed.units) !== JSON.stringify(model.units) ||
+        JSON.stringify(renamed.streams) !== JSON.stringify(model.streams)) used.add(c);
   }
   return used;
 }
