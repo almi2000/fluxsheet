@@ -285,7 +285,16 @@ def suggest_method(components: list[str], custom: tuple[CustomCompound, ...] = (
             f"equilibrium: it uses {consts.names[0]}'s own vapor-pressure correlation. Switch to "
             "Peng-Robinson for high pressures or near the critical point.",
         )
+    consts = _with_groups(consts, components, group_assignments)
+    polar = [
+        name
+        for name, dipole in zip(consts.names, consts.dipoles)
+        if dipole is not None and dipole >= 1.0
+    ]
+    splits = _liquid_liquid_pairs(consts, polar, bool(group_assignments))
     for method, table in _GE_TABLES.items():
+        if splits and method not in LLE_METHODS:
+            continue
         local = {frozenset(p.components) for p in binary_parameters if p.method == method}
         if local and all(
             frozenset((components[i], components[j])) in local
@@ -295,13 +304,6 @@ def suggest_method(components: list[str], custom: tuple[CustomCompound, ...] = (
         ) and (method != "uniquac" or None not in (*consts.UNIFAC_Rs, *consts.UNIFAC_Qs)):
             return Suggestion(method, f"{METHODS[method].label} uses the flowsheet's local "
                               "binary parameters and has data for every pair.")
-    consts = _with_groups(consts, components, group_assignments)
-    polar = [
-        name
-        for name, dipole in zip(consts.names, consts.dipoles)
-        if dipole is not None and dipole >= 1.0
-    ]
-    splits = _liquid_liquid_pairs(consts, polar, bool(group_assignments))
     if splits:
         pairs = " and ".join(f"{a}/{b}" for a, b, _, _ in splits)
         verb = "forms" if len(splits) == 1 else "form"

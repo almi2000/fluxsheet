@@ -12,7 +12,7 @@ from scipy.optimize import least_squares
 from thermo import NRTL
 
 from fluxsheet.flowsheet import BinaryParameterModel, FlowsheetModel
-from fluxsheet.thermo_package import get_package, package_options
+from fluxsheet.thermo_package import default_package, get_package
 
 COELHO = "10.1016/j.jct.2011.06.016"
 ZAOUI = "10.1016/j.jct.2013.09.046"
@@ -22,6 +22,7 @@ HASHES = {
     ZAOUI: "b34691b5195ff97d1507095a16aca72153e9ebc2601ff59b8cbd4e48da222ceb",
     ZHANG: "7c1df83928f553b787f4db345d23dae44e51943552dce2fbea0ebc245e102aae",
 }
+EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "glycerol_local_property_data.json"
 COMPONENTS = ("ethanol", "water", "glycerol")
 ALPHA = 0.2  # Coelho et al., Table 6
 # Screening thresholds applied to the entire held-out ternary series.
@@ -68,7 +69,11 @@ def fit_pair(component: str, points: list[tuple[float, float, float]]) -> Binary
 
 
 def holdout(model: FlowsheetModel, tables: list[dict]) -> dict:
-    pkg = get_package(COMPONENTS, "nrtl", **package_options(model))
+    if tuple(model.components) != COMPONENTS:
+        raise ValueError(f"expected example components in the order {COMPONENTS}")
+    pkg, _ = default_package(model)
+    if model.property_data and model.property_data.strict:
+        pkg.require_property_data("Flowsheet")
     mwe, mww, mwg = pkg.mws
     errors = {"T_K": [], "y_ethanol": []}
     for row, (temperature, vapor) in enumerate(zip(rows(tables[2]), rows(tables[1]), strict=True), 1):
@@ -96,8 +101,7 @@ def main() -> int:
     pairs = [fit_pair(component, [(T, 1000 * P, x) for x, P, T in rows(coelho[i])]
                       + [(T, 1000 * P, x) for T, x, P in rows(zaoui[j])])
              for component, i, j in (("ethanol", 6, 9), ("water", 5, 10))]
-    model = FlowsheetModel(components=list(COMPONENTS), property_method="nrtl", units=[],
-                           property_data={"binary_parameters": pairs})
+    model = FlowsheetModel.load(EXAMPLE)
     prediction = holdout(model, zhang)
     print(json.dumps({"parameters": [p.model_dump(mode="json") for p in pairs],
                       "holdout": prediction,

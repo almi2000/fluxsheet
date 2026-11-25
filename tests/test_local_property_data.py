@@ -129,6 +129,27 @@ def test_local_priority_and_order_against_independent_nrtl_equations():
         assert (sat.y[::-1] if reverse else sat.y) == pytest.approx(expected_y, abs=1e-6)
 
 
+def test_auto_keeps_a_liquid_split_model_when_local_wilson_data_exists():
+    model = FlowsheetModel(
+        components=["water", "1-butanol"], property_method="auto", units=[],
+        property_data={"binary_parameters": [{
+            "method": "wilson", "components": ["water", "1-butanol"], "convention": "thermo",
+            "source": "Synthetic regression case", "T_range_K": [290, 400], "a": [0.1, 0.2],
+        }]},
+    )
+    report = check_property_data(model)
+    assert report["ok"] and report["sections"][0]["method"] == "nrtl"
+    with TestClient(app) as client:
+        suggestion = client.post("/api/methods/suggest", json=model.model_dump(mode="json")).json()
+    assert suggestion["method"] == "nrtl"
+    assert "two liquid phases" in suggestion["reason"]
+
+    model.property_method = "wilson"
+    report = check_property_data(model)
+    assert report["ok"] and report["sections"][0]["method"] == "wilson"
+    assert report["sections"][0]["parameter_sources"][0]["source"] == "Flowsheet"
+
+
 @pytest.mark.parametrize(("change", "message"), [
     ({"T_range_K": [400, 300]}, "validity range"),
     ({"convention": "aspen"}, "thermo"),

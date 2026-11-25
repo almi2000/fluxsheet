@@ -160,8 +160,9 @@ uncertainties. This comparison covers the reported ternary series at 100 kPa.
 
 Download the three JSON files from the articles' ThermoML pages and run
 `python scripts/validate_glycerol_vle.py COELHO.json ZAOUI.json ZHANG.json`.
-The script checks each SHA-256, refits using the binary tables, and reports both predictions
-against the held-out ternary data. It exits with code 1 if a screening limit is exceeded.
+The script checks each SHA-256, prints the coefficients refitted from the binary tables,
+and evaluates the checked-in example against the held-out ternary data with and without
+its local data. It exits with code 1 if a screening limit is exceeded.
 
 ## Water/1-butanol liquid-liquid equilibrium
 
