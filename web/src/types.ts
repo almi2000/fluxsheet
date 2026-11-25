@@ -99,7 +99,11 @@ export interface StreamModel {
   id: string;
   from: string;
   to?: string;
+  circulation?: { mass_flow: Value; mole_fractions?: Record<string, number> };
+  recycle_guess?: { T?: Value; P?: Value; flows?: Record<string, Value> };
 }
+
+export type StreamSettings = Pick<StreamModel, "circulation" | "recycle_guess">;
 
 /** Power law r = k0 exp(-Ea/RT) prod(c_i^order_i), per unit volume; SI units. */
 export interface RateLaw {

@@ -59,6 +59,11 @@ format or API).
   conductivity (W/m·K) and rotational speed (rpm). Example:
   `examples/double_pipe_from_geometry.json`.
 
+- **Closed steady-state recycles.** Set `circulation.mass_flow` on a stream in the loop
+  and supply `circulation.mole_fractions` for a feedless mixture. Optional `recycle_guess`
+  temperature, pressure and component flows initialize the iteration. The solver checks the
+  calculated return against the specification. Example: `r744_closed_recycle.json`.
+
 ### Changed
 
 - The plug flow reactor takes its heat capacity by a central difference, which moves

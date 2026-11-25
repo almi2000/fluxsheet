@@ -21,6 +21,8 @@ A flowsheet is plain JSON, meant to be read, diffed and versioned like source co
     }
 
 Values with units are optional: plain numbers are read as SI (K, Pa, mol/s, W).
+On a recycle line, ``circulation`` sets the steady mass flow and, when needed,
+its mole fractions. ``recycle_guess`` supplies starting values for the tear iteration.
 """
 
 from __future__ import annotations
@@ -70,12 +72,29 @@ class UnitModel(BaseModel):
         return v
 
 
+class CirculationModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mass_flow: float | str
+    mole_fractions: dict[str, float] | None = None
+
+
+class RecycleGuessModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    T: float | str | None = None
+    P: float | str | None = None
+    flows: dict[str, float | str] | None = None
+
+
 class StreamModel(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     id: str
     source: str = Field(alias="from")
     target: str | None = Field(default=None, alias="to")
+    circulation: CirculationModel | None = None
+    recycle_guess: RecycleGuessModel | None = None
 
     @field_validator("source", "target")
     @classmethod

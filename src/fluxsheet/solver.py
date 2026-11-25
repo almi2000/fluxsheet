@@ -7,21 +7,31 @@ the guess matches what comes back around the loop (Wegstein or Broyden accelerat
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass, field
+from math import isfinite
 from typing import Any
 
 import numpy as np
 
 from . import utilities
 from .errors import SimulationError
-from .flowsheet import FlowsheetModel
+from .flowsheet import CirculationModel, FlowsheetModel, RecycleGuessModel
 from .limits import check_deadline
 from .property_sections import PropertySections
+from .quantities import UnitError, to_si
 from .reactions import parse_reactions
 from .stream import Stream
 from .thermo_package import PropertyPackage, default_package
 from .units import UNIT_TYPES, UnitOperation
 from .units.base import mix_streams
+
+# These unit sides exchange heat across a wall, so the ports share calculation
+# dependencies while their material paths stay separate.
+_SEPARATE_SIDES = {
+    "HeatExchanger": {"hot_out": "hot_in", "cold_out": "cold_in"},
+    "PFR": {"out": "in", "coolant_out": "coolant_in"},
+}
 
 
 @dataclass
@@ -31,6 +41,32 @@ class _Connection:
     src_port: str
     dst_unit: str | None
     dst_port: str | None
+    circulation: CirculationModel | None
+    recycle_guess: RecycleGuessModel | None
+
+
+def _mass_flow(flows, mws) -> float:
+    return sum(flow * mw for flow, mw in zip(flows, mws)) / 1000.0
+
+
+def _ancestors(predecessors: dict[str, set[str]], targets: set[str]) -> set[str]:
+    seen, todo = set(targets), list(targets)
+    while todo:
+        for upstream in predecessors[todo.pop()] - seen:
+            seen.add(upstream)
+            todo.append(upstream)
+    return seen
+
+
+@dataclass
+class _Circulation:
+    mass_flow: float
+    mole_fractions: list[float] | None
+
+    def flows_for(self, flows: list[float], mws) -> list[float]:
+        basis = self.mole_fractions if self.mole_fractions is not None else flows
+        scale = self.mass_flow / _mass_flow(basis, mws)
+        return [flow * scale for flow in basis]
 
 
 @dataclass
@@ -111,7 +147,8 @@ class Solver:
                     hint="an outlet feeds exactly one stream; add a Splitter to divide it",
                 )
             used[(src_unit, src_port)] = sm.id
-            self.connections.append(_Connection(sm.id, src_unit, src_port, dst_unit, dst_port))
+            self.connections.append(_Connection(sm.id, src_unit, src_port, dst_unit, dst_port,
+                                                 sm.circulation, sm.recycle_guess))
 
         for unit in self.units.values():
             for port in unit.inlets:
@@ -128,10 +165,6 @@ class Solver:
             for port in unit.outlets:
                 if (unit.id, port.name) not in used and port.name not in _idle_outlets(unit):
                     self.warnings.append(f"{unit.id}: outlet {port.name!r} is not connected")
-
-        if not any(u.type == "Feed" for u in self.units.values()):
-            raise SimulationError("the flowsheet has no feed",
-                                  hint="add a Feed to bring material into the process")
 
     def _check_endpoint(self, sid: str, unit_id: str, port: str, side: str) -> None:
         unit = self.units.get(unit_id)
@@ -157,12 +190,22 @@ class Solver:
             if c.dst_unit is not None:
                 out_edges[c.src_unit].append(c)
 
-        tears: set[str] = set()
+        preferred = {c.id for c in self.connections
+                     if c.circulation is not None or c.recycle_guess is not None}
+        for c in self.connections:
+            if c.id in preferred and c.dst_unit not in self._upstream_of({c.src_unit}):
+                raise SimulationError("stream is not part of a recycle loop", where=c.id,
+                                      hint="use circulation and recycle guesses on a stream "
+                                      "with a path back from its destination to its source")
+
+        tears = set(preferred)
         state: dict[str, int] = {}  # 1 = on stack, 2 = done
 
         def visit(u: str) -> None:
             state[u] = 1
             for c in out_edges[u]:
+                if c.id in preferred:
+                    continue
                 if state.get(c.dst_unit) == 1:
                     tears.add(c.id)  # back edge closes a loop
                 elif c.dst_unit not in state:
@@ -174,6 +217,9 @@ class Solver:
             if u not in state:
                 visit(u)
 
+        if not roots and not tears:
+            raise SimulationError("the flowsheet has no feed",
+                                  hint="add a Feed to bring material into the process")
         indegree = {u: 0 for u in self.units}
         for c in self.connections:
             if c.dst_unit is not None and c.id not in tears:
@@ -191,12 +237,51 @@ class Solver:
                     ready.append(c.dst_unit)
         return order, tears
 
+    def _recycle_material_ancestors(self, tears: set[str]) -> dict[str, set[str]]:
+        if not tears:
+            return {}
+        incoming: dict[str, list[_Connection]] = {uid: [] for uid in self.units}
+        for c in self.connections:
+            if c.dst_unit is not None:
+                incoming[c.dst_unit].append(c)
+        predecessors = {}
+        sources = set()
+        specified = set()
+        for c in self.connections:
+            unit = self.units[c.src_unit]
+            side = _SEPARATE_SIDES.get(unit.type, {}).get(c.src_port)
+            predecessors[c.id] = {s.id for s in incoming[c.src_unit]
+                                  if side is None or s.dst_port == side}
+            if unit.type == "Feed":
+                sources.add(c.id)
+            if c.circulation is not None:
+                specified.add(c.id)
+
+        anchors = sources | specified
+        ancestors = {sid: _ancestors(predecessors, predecessors[sid]) for sid in sorted(tears)}
+        for sid, upstream in ancestors.items():
+            if sid in specified and sid not in upstream:
+                raise SimulationError(
+                    "circulation specification requires a material recycle", where=sid,
+                    hint="use recycle_guess on a thermal return with no material circulation",
+                )
+            if sid in upstream and anchors.isdisjoint(upstream):
+                raise SimulationError(
+                    "closed recycle has no circulation mass-flow specification", where=sid,
+                    hint="set circulation.mass_flow on an internal recycle stream to define "
+                    "the circulating mass flow. recycle_guess supplies an initial estimate",
+                )
+        return ancestors
+
     # ---- solving -------------------------------------------------------------------------
 
     def solve(self) -> SolveResult:
         result = SolveResult(ok=False)
         try:
             self._build()
+            order, tears = self._order()
+            result.tear_streams = sorted(tears)
+            material_upstream = self._recycle_material_ancestors(tears)
             pkg, reason = self._package()
             result.property_method = pkg.method
             result.property_method_reason = reason
@@ -223,9 +308,7 @@ class Solver:
             for unit in self.units.values():
                 if "utility" in unit.p:  # units that can be heated or cooled by a utility
                     utilities.attach(unit, media)
-            order, tears = self._order()
-            result.tear_streams = sorted(tears)
-            streams = self._iterate(pkg, order, tears, result)
+            streams = self._iterate(pkg, order, tears, material_upstream, result)
             for uid, unit in self.units.items():  # from the converged calculation only
                 self.warnings.extend(f"{uid}: {note}" for note in unit.notes)
             self.pkg, self.streams = pkg, streams  # the solution, for dynamics/
@@ -312,8 +395,10 @@ class Solver:
         if unit.type == "Compressor" and inlets["in"][0].state.VF < 1.0 - 1e-6:
             self.warnings.append(f"{unit.id}: compressor inlet contains liquid")
 
-    def _sweep(self, pkg, order, streams) -> None:
+    def _sweep(self, pkg, order, streams, tears=frozenset()) -> None:
         by_source = {(c.src_unit, c.src_port): c.id for c in self.connections}
+        # Every consuming unit sees the original guess, even if the tear's producer ran first.
+        returned = {}
         for uid in order:
             unit = self.units[uid]
             for port, stream in self._run_unit(pkg, unit, streams).items():
@@ -328,20 +413,158 @@ class Solver:
                         if note not in self.warnings:  # once, not per recycle iteration
                             self.warnings.append(note)
                     sid = f"{uid}.{port}"
-                streams[sid] = stream
+                if sid in tears:
+                    returned[sid] = stream
+                else:
+                    streams[sid] = stream
+        streams.update(returned)
 
-    def _iterate(self, pkg, order, tears, result: SolveResult) -> dict[str, Stream]:
+    @staticmethod
+    def _recycle_quantity(value, quantity: str, sid: str, field: str, *, zero=False) -> float:
+        try:
+            number = to_si(value, quantity)
+        except UnitError as exc:
+            raise SimulationError(f"invalid {field}: {exc}", where=sid) from exc
+        if not isfinite(number) or number < 0 or (number == 0 and not zero):
+            bound = "nonnegative" if zero else "positive"
+            raise SimulationError(f"{field} must be finite and {bound}", where=sid)
+        return number
+
+    def _recycle_defaults(self, source: str, fields: dict[str, float]) -> dict[str, float]:
+        """Find the nearest specified T and P upstream of a tear without a feed state."""
+        pending = deque([source])
+        seen = {source}
+        values = {}
+        while pending and len(values) < len(fields):
+            uid = pending.popleft()
+            for key in fields.keys() - values.keys():
+                value = self.units[uid].p.get(key)
+                if isinstance(value, (int, float)) and value > 0:
+                    values[key] = value
+            for c in self.connections:
+                if c.dst_unit == uid and c.src_unit not in seen:
+                    seen.add(c.src_unit)
+                    pending.append(c.src_unit)
+        return {**fields, **values}
+
+    def _initialize_tears(self, pkg, tears, src_pkg, material_upstream):
+        streams: dict[str, Stream] = {}
+        circulations: dict[str, _Circulation] = {}
+        feed_units = {uid for uid, unit in self.units.items() if unit.type == "Feed"}
+        feeds = [unit.p for uid, unit in self.units.items() if uid in feed_units]
+        feed_state = {"T": (feeds[0]["T"] or 298.15) if feeds else 298.15,
+                      "P": max((p["P"] for p in feeds), default=1e5)}
+        composition_sources = {
+            c.id for c in self.connections if c.src_unit in feed_units
+            or (c.circulation is not None and c.circulation.mole_fractions is not None)
+        }
+        for c in self.connections:
+            sid = c.id
+            if sid not in tears:
+                continue
+            spec, guess = c.circulation, c.recycle_guess
+            flows = [0.0] * pkg.n
+            state = feed_state.copy()
+            if not feeds or spec is not None:
+                state = self._recycle_defaults(c.src_unit, state)
+            if spec is not None:
+                mass = self._recycle_quantity(spec.mass_flow, "mass_flow", sid,
+                                              "circulation.mass_flow")
+                fractions = spec.mole_fractions
+                composition = None
+                if fractions is not None:
+                    values = self._named_recycle_values(pkg, sid, "circulation.mole_fractions",
+                                                        fractions, "fraction")
+                    if abs(sum(values) - 1.0) > 1e-8:
+                        raise SimulationError("circulation mole fractions must sum to one",
+                                              where=sid, hint="enter mole fractions from 0 to 1")
+                    composition = values
+                    flows = values
+                elif pkg.n > 1 and composition_sources.isdisjoint(material_upstream[sid]):
+                    raise SimulationError(
+                        "closed recycle has no circulating composition specification",
+                        where=sid, hint="set circulation.mole_fractions for the mixture",
+                    )
+                else:
+                    flows = [1.0] * pkg.n
+                circulation = circulations[sid] = _Circulation(mass, composition)
+                flows = circulation.flows_for(flows, pkg.mws)
+            if guess is not None:
+                for field, quantity in (("T", "temperature"), ("P", "pressure")):
+                    value = getattr(guess, field)
+                    if value is not None:
+                        state[field] = self._recycle_quantity(value, quantity, sid,
+                                                              f"recycle_guess.{field}")
+                if guess.flows is not None:
+                    flows = self._named_recycle_values(pkg, sid, "recycle_guess.flows",
+                                                       guess.flows, "molar_flow")
+                    if spec is not None and sum(flows) == 0:
+                        raise SimulationError("a specified circulation needs a positive start flow",
+                                              where=sid, hint="give a positive recycle_guess.flows "
+                                              "or use the default from the circulation specification")
+            if not isfinite(sum(flows)):
+                raise SimulationError("recycle start flow is too large", where=sid,
+                                      hint="check the circulation and start flow units")
+            try:
+                streams[sid] = Stream.from_flash(src_pkg[sid], flows, **state)
+            except SimulationError as exc:
+                raise SimulationError(f"recycle start flash failed: {exc.message}", where=sid,
+                                      hint="adjust recycle_guess.T, recycle_guess.P or "
+                                      "recycle_guess.flows") from exc
+        return streams, circulations
+
+    def _named_recycle_values(self, pkg, sid, field, values, quantity) -> list[float]:
+        unknown = values.keys() - set(pkg.names)
+        if unknown:
+            raise SimulationError(f"{field} names unknown components: {', '.join(sorted(unknown))}",
+                                  where=sid, hint="use the flowsheet's component names")
+        return [self._recycle_quantity(values.get(name, 0.0), quantity, sid, field, zero=True)
+                for name in pkg.names]
+
+    def _project_circulation(self, pkg, spec, stream, previous, sid):
+        basis = stream.flows if stream.total_flow > 0 else previous.flows
+        flows = spec.flows_for(basis, pkg.mws)
+        total = sum(flows)
+        if all(abs(f / total - z) < 1e-14 for f, z in zip(flows, stream.zs)):
+            return Stream(flows, stream.state)
+        try:
+            return Stream.from_flash(pkg, flows, P=stream.P, H=stream.state.H)
+        except SimulationError as exc:
+            raise SimulationError(f"circulation iteration flash failed: {exc.message}", where=sid,
+                                  hint="check the specified composition and recycle guess") from exc
+
+    def _check_circulation_state(self, sid: str, upstream: set[str]) -> None:
+        units = [self.units[uid] for uid in {c.src_unit for c in self.connections if c.id in upstream}]
+        # These units only shift or pass on inlet pressure and either set outlet temperature
+        # or shift molar enthalpy at fixed circulation. A uniform shift can survive a sweep
+        # unchanged when no unit supplies the corresponding absolute condition.
+        simple_units = {"Heater", "Valve", "Mixer", "Splitter"}
+        if any(unit.type not in simple_units or unit.p.get("area") is not None for unit in units):
+            return
+        if len({self.sections.methods[unit.id] for unit in units}) > 1:
+            return  # a change in property method can change the enthalpy map
+        if all(unit.p.get("P") is None for unit in units):
+            raise SimulationError(
+                "closed recycle has no absolute pressure specification", where=sid,
+                hint="set an absolute outlet pressure on a unit in the loop; "
+                "recycle_guess.P only starts the iteration",
+            )
+        if all(unit.type != "Heater" or unit.p["duty"] is not None for unit in units):
+            raise SimulationError(
+                "closed recycle has no temperature (or enthalpy) specification", where=sid,
+                hint="specify a unit's outlet temperature or vapor fraction; "
+                "recycle_guess.T only starts the iteration",
+            )
+
+    def _iterate(self, pkg, order, tears, material_upstream, result: SolveResult) -> dict[str, Stream]:
         streams: dict[str, Stream] = {}
         if not tears:
             self._sweep(pkg, order, streams)
             result.iterations, result.converged = 1, True
             return streams
 
-        feed_T = next(u.p["T"] for u in self.units.values() if u.type == "Feed") or 298.15
-        feed_P = max(u.p["P"] for u in self.units.values() if u.type == "Feed")
-        src_pkg = {c.id: self.sections.package(c.src_unit) for c in self.connections}
-        for sid in tears:
-            streams[sid] = Stream.from_flash(src_pkg[sid], [0.0] * pkg.n, T=feed_T, P=feed_P)
+        src_pkg = {c.id: self.sections.package(c.src_unit) for c in self.connections if c.id in tears}
+        streams, circulations = self._initialize_tears(pkg, tears, src_pkg, material_upstream)
 
         # Only units that feed back into a tear stream take part in the iterations. Units
         # downstream of the loop (e.g. a column on the crude product) run once at the end, so
@@ -355,12 +578,37 @@ class Solver:
         prev_x: dict[str, list[float]] = {}
         prev_g: dict[str, list[float]] = {}
         for iteration in range(1, opts.max_iterations + 1):
+            previous = {sid: streams[sid] for sid in circulations}
             x = {sid: self._vector(streams[sid]) for sid in tears}
-            self._sweep(pkg, loop_order, streams)
+            self._sweep(pkg, loop_order, streams, tears)
+            returned = {sid: streams[sid] for sid in circulations}
+            for sid, spec in circulations.items():
+                streams[sid] = self._project_circulation(src_pkg[sid], spec, returned[sid],
+                                                         previous[sid], sid)
             g = {sid: self._vector(streams[sid]) for sid in tears}
 
             if all(self._close(x[s], g[s], opts.tolerance) for s in tears):
-                result.iterations, result.converged = iteration, True
+                # Verify the real return before replacing projected iterates with results.
+                for sid, spec in circulations.items():
+                    actual = _mass_flow(returned[sid].flows, pkg.mws)
+                    if abs(actual - spec.mass_flow) > opts.tolerance * spec.mass_flow:
+                        result.iterations = iteration
+                        raise SimulationError(
+                            f"circulation mass flow does not close (target {spec.mass_flow:.6g} "
+                            f"kg/s, returned {actual:.6g} kg/s)", where=sid,
+                            hint="check that the loop returns the specified flow and that any "
+                            "makeup and losses balance",
+                        )
+                    if not self._close(g[sid], self._vector(returned[sid]), opts.tolerance):
+                        result.iterations = iteration
+                        raise SimulationError("circulating composition does not close", where=sid,
+                                              hint="check the composition specification and "
+                                              "the component balances around the loop")
+                result.iterations = iteration
+                for sid in circulations:
+                    self._check_circulation_state(sid, material_upstream[sid])
+                streams.update(returned)
+                result.converged = True
                 self._sweep(pkg, [u for u in order if u not in loop], streams)
                 return streams
 
@@ -379,6 +627,9 @@ class Solver:
                     continue
                 if sum(vec[:-2]) <= 1e-14:
                     continue
+                spec = circulations.get(sid)
+                if spec is not None:
+                    vec = [*spec.flows_for(vec[:-2], pkg.mws), *vec[-2:]]
                 try:
                     streams[sid] = Stream.from_flash(src_pkg[sid], vec[:-2], H=vec[-2], P=vec[-1])
                 except (SimulationError, ValueError, OverflowError):
@@ -389,8 +640,9 @@ class Solver:
         raise SimulationError(
             f"recycle did not converge in {opts.max_iterations} iterations",
             where=", ".join(sorted(tears)),
-            hint="check that every component has a way out of the loop (a purge or product), "
-            "or raise solver.max_iterations",
+            hint=("check the circulation specifications and starting values, or raise "
+                  "solver.max_iterations" if circulations else "check that every component has "
+                  "a way out of the loop (a purge or product), or raise solver.max_iterations"),
         )
 
     def _upstream_of(self, targets: set[str]) -> set[str]:
@@ -399,13 +651,7 @@ class Solver:
         for c in self.connections:
             if c.dst_unit is not None:
                 feeds_into[c.dst_unit].add(c.src_unit)
-        seen, todo = set(targets), list(targets)
-        while todo:
-            for src in feeds_into[todo.pop()]:
-                if src not in seen:
-                    seen.add(src)
-                    todo.append(src)
-        return seen
+        return _ancestors(feeds_into, targets)
 
     @staticmethod
     def _vector(s: Stream) -> list[float]:
