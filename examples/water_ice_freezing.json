@@ -1,0 +1,57 @@
+{
+  "format": "fluxsheet/1",
+  "name": "Partial freezing of water",
+  "description": "Cool liquid water from 5 °C to its melting point and freeze half its flow.",
+  "components": [
+    "water"
+  ],
+  "property_method": "water-ice",
+  "units": [
+    {
+      "id": "FEED",
+      "type": "Feed",
+      "ui": {
+        "x": 40,
+        "y": 120
+      },
+      "params": {
+        "T": "5 degC",
+        "P": "1 bar",
+        "flows": {
+          "water": "1 mol/s"
+        }
+      }
+    },
+    {
+      "id": "COOLER",
+      "type": "Heater",
+      "ui": {
+        "x": 240,
+        "y": 120
+      },
+      "params": {
+        "duty": "-3.385 kW"
+      }
+    },
+    {
+      "id": "PRODUCT",
+      "type": "Product",
+      "ui": {
+        "x": 440,
+        "y": 120
+      }
+    }
+  ],
+  "streams": [
+    {
+      "id": "WATER",
+      "from": "FEED.out",
+      "to": "COOLER.in"
+    },
+    {
+      "id": "ICE_WATER",
+      "from": "COOLER.out",
+      "to": "PRODUCT.in"
+    }
+  ]
+}

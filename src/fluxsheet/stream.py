@@ -59,6 +59,11 @@ class Stream:
             "mole_fractions": dict(zip(pkg.names, self.zs)),
             "liquid_composition": dict(zip(pkg.names, st.x)) if st.x else None,
             "vapor_composition": dict(zip(pkg.names, st.y)) if st.y else None,
+            **({
+                "solid_fraction": st.solid_fraction,
+                "liquid_fraction": st.liquid_fraction,
+                "solid_composition": dict(zip(pkg.names, st.x_solid)),
+            } if st.x_solid is not None else {}),
             # Two liquid phases (VLLE): each with mol per mol of stream, composition, density.
             "liquid_split": {
                 "light": {"fraction": st.light_fraction,

@@ -18,6 +18,9 @@ from .units import UNIT_TYPES
 
 def _fmt_table(result) -> str:
     rows = [("Stream", "T [°C]", "P [bar]", "Vap. frac.", "Flow [kmol/h]", "Flow [kg/h]")]
+    show_solids = any("solid_fraction" in s for s in result.streams.values())
+    if show_solids:
+        rows[0] += ("Liq. frac.", "Solid frac.")
     for sid, s in result.streams.items():
         rows.append((
             sid,
@@ -27,6 +30,9 @@ def _fmt_table(result) -> str:
             f"{s['molar_flow'] * 3.6:.4g}",
             f"{s['mass_flow'] * 3600:.4g}",
         ))
+        if show_solids:
+            liquid = s.get("liquid_fraction", 1.0 - s["vapor_fraction"])
+            rows[-1] += (f"{liquid:.4f}", f"{s.get('solid_fraction', 0.0):.4f}")
     widths = [max(len(r[i]) for r in rows) for i in range(len(rows[0]))]
     lines = ["  ".join(c.rjust(w) if i else c.ljust(w) for i, (c, w) in enumerate(zip(r, widths)))
              for r in rows]

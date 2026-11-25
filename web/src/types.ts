@@ -189,6 +189,9 @@ export interface StreamResult {
   component_flows: Record<string, number>;
   mole_fractions: Record<string, number>;
   property_method?: string; // the method of the unit producing the stream
+  liquid_fraction?: number;
+  solid_fraction?: number;
+  solid_composition?: Record<string, number>;
 }
 
 export interface SimError {

@@ -50,10 +50,19 @@ export function ResultsPanel({
   const ids = Object.keys(result.streams);
   const components = ids.length ? Object.keys(result.streams[ids[0]].component_flows) : [];
   const split = (id: string) => (result.streams[id] as unknown as { liquid_split?: LiquidSplit }).liquid_split;
+  const solidRows: [string, (id: string) => string][] = ids.some((id) =>
+    result.streams[id].solid_fraction !== undefined) ? [
+      ["Liquid fraction", (id) => {
+        const stream = result.streams[id];
+        return fmt.frac(stream.liquid_fraction ?? 1 - stream.vapor_fraction);
+      }],
+      ["Solid fraction", (id) => fmt.frac(result.streams[id].solid_fraction ?? 0)],
+    ] : [];
   const rows: [string, (id: string) => string][] = [
     ["Temperature [°C]", (id) => fmt.T(result.streams[id].T)],
     ["Pressure [bar]", (id) => fmt.P(result.streams[id].P)],
     ["Vapor fraction", (id) => fmt.frac(result.streams[id].vapor_fraction)],
+    ...solidRows,
     ...(ids.some((id) => split(id))
       ? [["Heavy-liquid fraction", (id: string) => {
           const s = split(id);
