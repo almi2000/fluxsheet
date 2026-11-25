@@ -25,6 +25,7 @@ import difflib
 import re
 from dataclasses import dataclass
 
+from .compounds import UnknownCompoundError
 from .errors import SimulationError
 from .flowsheet import FlowsheetModel
 from .stream import Stream
@@ -32,6 +33,7 @@ from .thermo_package import (
     METHODS,
     PropertyPackage,
     Suggestion,
+    default_package,
     get_package,
     has_ip,
     package_options,
@@ -65,6 +67,46 @@ def check_method(method: str, where: str, default: str) -> str:
         hint=f"{hint}use one of: {', '.join(METHODS)}, or remove property_method to use "
         f"the flowsheet default ({default})",
     )
+
+
+def check_property_data(model: FlowsheetModel) -> dict:
+    """Inspect property packages without running units or requiring a complete graph."""
+    options = package_options(model)
+    strict = bool(model.property_data and model.property_data.strict)
+    sections: list[dict] = []
+    errors: list[dict] = []
+
+    def inspect(pkg: PropertyPackage, where: str) -> None:
+        sections.append({"method": pkg.method, "where": where,
+                         "parameter_sources": pkg.parameter_sources,
+                         "warnings": list(dict.fromkeys(pkg.warnings + pkg.assumptions)),
+                         "assumptions": pkg.assumptions})
+        if strict:
+            pkg.require_property_data(where)
+
+    default = None
+    try:
+        default, _ = default_package(model)
+        inspect(default, "Flowsheet")
+    except SimulationError as exc:
+        errors.append(exc.to_dict())
+    except UnknownCompoundError as exc:
+        errors.append(SimulationError(str(exc), hint="check the components list").to_dict())
+        return {"ok": False, "sections": sections, "errors": errors}
+    overrides: dict[str, list[str]] = {}
+    for unit in model.units:
+        if unit.property_method is not None:
+            overrides.setdefault(unit.property_method, []).append(unit.id)
+    for method, users in overrides.items():
+        if default is not None and method == default.method:
+            continue
+        where = ", ".join(users)
+        try:
+            check_method(method, where, default.method if default else model.property_method)
+            inspect(get_package(tuple(model.components), method, **options), where)
+        except SimulationError as exc:
+            errors.append(exc.located(where).to_dict())
+    return {"ok": not errors, "sections": sections, "errors": errors}
 
 
 @dataclass
@@ -252,7 +294,9 @@ def suggest_for_unit(pkg: PropertyPackage, inlets: list[Stream],
     present = [pkg.names[i] for i in range(pkg.n) if zs[i] >= TRACE]
     P = P_unit or max(s.P for s in inlets)
     T = max(s.T for s in inlets)
-    base = suggest_method(present, pkg.custom)
+    base = suggest_method(present, pkg.custom, binary_parameters=tuple(
+        p for p in pkg.binary_parameters if set(p.components) <= set(present)),
+        group_assignments=tuple(g for g in pkg.group_assignments if g.component in present))
 
     supercritical = [pkg.names[i] for i in range(pkg.n)
                      if zs[i] >= 0.01 and (pkg.consts.Tcs[i] or 0.0) < T]

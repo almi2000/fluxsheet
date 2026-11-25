@@ -4,9 +4,11 @@ import { api } from "./api";
 import { CustomCompoundForm } from "./CustomCompoundForm";
 import { UnitIcon } from "./icons";
 import { ProfileView } from "./ProfileView";
+import { PropertyDataEditor } from "./PropertyDataEditor";
 import { ReactionsEditor } from "./ReactionsEditor";
 import { UNITS, fmt, formatQuantity, joinValue, splitValue } from "./quantities";
 import type { Compound, CustomCompound, Method, ParamSchema, Params, Reaction, StreamResult, UnitResult, UnitType } from "./types";
+import type { FlowsheetModel, PropertyData } from "./types";
 
 // ---- generic inputs ----------------------------------------------------------------------
 
@@ -752,6 +754,7 @@ export function FlowsheetInspector({
   customCompounds = [],
   method,
   methods,
+  propertyModel,
   reactions,
   onChange,
   onRenameComponent,
@@ -763,6 +766,7 @@ export function FlowsheetInspector({
   customCompounds?: CustomCompound[];
   method: string;
   methods: Method[];
+  propertyModel: FlowsheetModel;
   reactions: Reaction[];
   onChange: (patch: {
     name?: string;
@@ -770,6 +774,7 @@ export function FlowsheetInspector({
     components?: string[];
     custom_compounds?: CustomCompound[];
     property_method?: string;
+    property_data?: PropertyData;
     reactions?: Reaction[];
   }) => void;
   /** A custom compound renamed: update every reference to it (feeds, reactions, specs, ...). */
@@ -785,13 +790,13 @@ export function FlowsheetInspector({
     let live = true;
     const used = customCompounds.filter((d) => components.includes(d.name));
     api
-      .suggestMethod(components, used.length ? used : undefined)
+      .suggestMethod(components, used.length ? used : undefined, propertyModel.property_data)
       .then((s) => live && setSuggestion(s))
       .catch(() => live && setSuggestion(null));
     return () => {
       live = false;
     };
-  }, [components, customCompounds]);
+  }, [components, customCompounds, propertyModel.property_data]);
 
   const label = (key: string) => methods.find((m) => m.key === key)?.label ?? key;
 
@@ -881,6 +886,7 @@ export function FlowsheetInspector({
           For these components, {label(suggestion.method)} is usually the better choice. {suggestion.reason}
         </p>
       )}
+      <PropertyDataEditor model={propertyModel} onChange={(property_data) => onChange({ property_data })} />
 
       <h3>Reactions</h3>
       <ReactionsEditor reactions={reactions} components={components} onChange={(r) => onChange({ reactions: r })} />

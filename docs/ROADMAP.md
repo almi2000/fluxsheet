@@ -69,7 +69,7 @@ Abweichungen werden für jeden betroffenen Wärmetauscher ausgewiesen.
   `src/fluxsheet/balances.py`, `src/fluxsheet/solver.py`, Ergebnisdarstellung in
   CLI, API und Editor, zugehörige Regressionstests.
 
-### G10 – Stoffdaten je Fließbild und sichtbare Ersatzannahmen · **ChatGPT** · Status: offen
+### G10 – Stoffdaten je Fließbild und sichtbare Ersatzannahmen · **ChatGPT** · Status: Review
 
 Binäre Literaturparameter und UNIFAC-Gruppenzuordnungen im Fließbild deklarieren können.
 Bei einer Ergänzung der Gruppen gelten die vorhandenen Reinstoffkorrelationen weiter.

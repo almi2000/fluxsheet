@@ -9,6 +9,11 @@ format or API).
 
 ### Added
 
+- **Flowsheet-local property data.** Declare binary NRTL, UNIQUAC or Wilson parameters and
+  Dortmund UNIFAC subgroup assignments with their provenance in the flowsheet. The editor and
+  `fluxsheet check-property-data` show data sources and fallback assumptions before solving.
+  An optional strict mode rejects these substitutions. Example: `glycerol_local_property_data.json`.
+
 - **Pressure-driven dynamics** (`"pressure_driven": true` under `dynamics`): flows between
   vessels, feeds and products follow from their pressures. Valves get a flow coefficient
   (`Cv` or `Kv`), an opening that controllers and events move, a linear, equal-percentage or

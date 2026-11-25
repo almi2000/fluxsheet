@@ -19,7 +19,7 @@ from .limits import check_deadline
 from .property_sections import PropertySections
 from .reactions import parse_reactions
 from .stream import Stream
-from .thermo_package import METHODS, PropertyPackage, get_package, package_options, suggest_method
+from .thermo_package import PropertyPackage, default_package
 from .units import UNIT_TYPES, UnitOperation
 from .units.base import mix_streams
 
@@ -146,15 +146,7 @@ class Solver:
             )
 
     def _package(self) -> tuple[PropertyPackage, str | None]:
-        method, reason = self.model.property_method, None
-        options = package_options(self.model)
-        if method == "auto":
-            suggestion = suggest_method(self.model.components, options["custom"])
-            method, reason = suggestion.method, suggestion.reason
-        elif method not in METHODS:
-            raise SimulationError(f"unknown property method {method!r}",
-                                  hint=f"use 'auto' or one of: {', '.join(METHODS)}")
-        return get_package(tuple(self.model.components), method, **options), reason
+        return default_package(self.model)
 
     # ---- ordering ------------------------------------------------------------------------
 
@@ -216,6 +208,13 @@ class Solver:
                 if other is not pkg:
                     result.parameter_sources.extend({**s, "method": method}
                                                     for s in other.parameter_sources)
+            if self.model.property_data and self.model.property_data.strict:
+                pkg.require_property_data("Flowsheet")
+                for method, other in self.sections.packages.items():
+                    if other is not pkg:
+                        users = (uid for uid, key in self.sections.methods.items()
+                                 if key == method and self.sections.sources[uid] == "unit")
+                        other.require_property_data(", ".join(users))
             reactions = parse_reactions(self.model.reactions, pkg)
             for unit in self.units.values():
                 if hasattr(unit, "reactions"):  # reactors run the flowsheet's reactions

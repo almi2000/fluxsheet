@@ -194,6 +194,7 @@ export function ResultsPanel({
             components={components}
             customCompounds={getModel?.().custom_compounds}
             henryComponents={getModel?.().henry_components}
+            propertyData={getModel?.().property_data}
             method={result.property_method}
             fractions={feed ? result.streams[feed].mole_fractions : null}
           />

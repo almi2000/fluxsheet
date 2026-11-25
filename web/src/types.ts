@@ -160,6 +160,7 @@ export interface FlowsheetModel {
   property_method: string;
   henry_components?: string[]; // dissolved gases of activity methods; absent = automatic
   custom_compounds?: CustomCompound[];
+  property_data?: PropertyData;
   units: UnitModel[];
   streams: StreamModel[];
   reactions?: Reaction[];
@@ -229,7 +230,7 @@ export interface SolveResult {
   property_crossings?: unknown[]; // streams re-flashed between methods; see PropertyMethods.tsx
   // Where each binary parameter set came from ("ThermoML fit", "ChemSep", "UNIFAC estimate",
   // "none (ideal)"); `method` is set for pairs of a per-unit method other than the default.
-  parameter_sources?: { pair: string; source: string; method?: string; kind?: "binary" | "henry" | "estimate" }[];
+  parameter_sources?: PropertySource[];
   tear_streams: string[];
   iterations: number;
   converged: boolean;
@@ -237,6 +238,49 @@ export interface SolveResult {
   error: SimError | null;
   design_specs?: DesignSpecResult[];
   costing?: CostingResult | null;
+}
+
+export interface BinaryParameter {
+  method: "nrtl" | "uniquac" | "wilson";
+  components: [string, string];
+  convention: "thermo";
+  source: string;
+  T_range_K: [number, number];
+  P_range_Pa?: [number, number];
+  a?: [number, number];
+  b?: [number, number];
+  alpha?: number;
+}
+
+export interface UnifacAssignment {
+  component: string;
+  convention: "dortmund";
+  source: string;
+  groups: Record<string, number>;
+}
+
+export interface PropertyData {
+  binary_parameters?: BinaryParameter[];
+  unifac_groups?: UnifacAssignment[];
+  strict?: boolean;
+}
+
+export interface PropertySource {
+  pair: string;
+  source: string;
+  kind?: "binary" | "henry" | "estimate" | "unifac";
+  method?: string;
+  reference?: string;
+  convention?: string;
+  equation?: string;
+  T_range_K?: [number, number] | null;
+  P_range_Pa?: [number, number] | null;
+}
+
+export interface PropertyDataCheck {
+  ok: boolean;
+  sections: { method: string; where: string; parameter_sources: PropertySource[]; warnings: string[]; assumptions: string[] }[];
+  errors: { message: string; where: string | null; hint: string | null }[];
 }
 
 export interface Example {

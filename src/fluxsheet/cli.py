@@ -72,6 +72,8 @@ def _run(args) -> int:
         shown = ", ".join(pairs) if len(pairs) <= 3 else f"{', '.join(pairs[:3])} and {len(pairs) - 3} more"
         if kinds[source] == "henry":  # dissolved gases, see henry.py
             print(f"  Henry constants, {source.removeprefix('Henry constant: ')}: {shown}")
+        elif kinds[source] == "unifac":
+            print(f"  Dortmund UNIFAC groups, {source}: {shown}")
         elif kinds[source] == "binary":
             print(f"  binary parameters, {source}: {shown}")
         else:  # estimated constants of user-defined compounds: "Tc: Joback group contribution"
@@ -340,6 +342,32 @@ def _plugins(args) -> int:
     return 1 if any(p["error"] for p in found) else 0
 
 
+def _check_property_data(args) -> int:
+    from .property_sections import check_property_data
+
+    report = check_property_data(FlowsheetModel.load(args.file))
+    if args.json:
+        print(json.dumps(report, indent=2))
+    else:
+        for section in report["sections"]:
+            print(f"{section['where']} · {section['method']}")
+            for src in section["parameter_sources"]:
+                detail = src.get("reference", src["source"])
+                print(f"  {src['pair']} · {detail}")
+                if src.get("equation"):
+                    print(f"    {src['equation']}")
+                for key, unit in (("T_range_K", "K"), ("P_range_Pa", "Pa")):
+                    if bounds := src.get(key):
+                        print(f"    {bounds[0]:g}–{bounds[1]:g} {unit}")
+            for warning in section["warnings"]:
+                print(f"  warning: {warning}")
+        for error in report["errors"]:
+            print(f"{error['where'] or 'Property data'}: {error['message']}", file=sys.stderr)
+            if error['hint']:
+                print(f"  hint: {error['hint']}", file=sys.stderr)
+    return 0 if report["ok"] else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="fluxsheet", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -347,6 +375,10 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("file")
     run.add_argument("--json", action="store_true", help="print full results as JSON")
     run.set_defaults(func=_run)
+    check = sub.add_parser("check-property-data", help="inspect property data before a run")
+    check.add_argument("file")
+    check.add_argument("--json", action="store_true", help="print the full preflight as JSON")
+    check.set_defaults(func=_check_property_data)
     rep = sub.add_parser("report", help="solve a flowsheet and write an Excel and/or HTML report")
     rep.add_argument("file")
     rep.add_argument("--xlsx", help="write an Excel workbook to this file")

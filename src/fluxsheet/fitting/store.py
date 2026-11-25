@@ -38,6 +38,12 @@ _COMMON = {
 }
 
 
+def equation(model: str) -> str:
+    if model == "wilson":
+        return "Lambda_ij = exp(a_ij + b_ij / T) (T in K), the thermo.Wilson convention"
+    return _HEADERS[model]["equation"]
+
+
 @dataclass(frozen=True)
 class FittedPair:
     """A stored parameter set, oriented to the order ``(cas_i, cas_j)`` it was asked for."""

@@ -151,16 +151,18 @@ export function ParameterSources({ result }: { result: SolveResult }) {
   if (sources.length === 0) return null;
   const binary: Record<string, string[]> = {};
   const henry: Record<string, string[]> = {};
+  const unifac: Record<string, string[]> = {};
   const estimated: Record<string, string[]> = {};
   for (const s of sources) {
     const pair = s.method ? `${s.pair} (${shortMethod(s.method)})` : s.pair;
     if (s.kind === "henry") (henry[s.source.replace(/^Henry constant: /, "")] ??= []).push(pair);
+    else if (s.kind === "unifac") (unifac[s.source] ??= []).push(`${pair} · ${s.reference ?? s.source}`);
     else if (s.kind !== "estimate") (binary[s.source] ??= []).push(pair);
     else (estimated[s.pair] ??= []).push(s.source);
   }
   // Measured data first, then estimates, then pairs without any parameters.
   const rank = (src: string) =>
-    src === "ThermoML fit" ? 0 : src === "ChemSep" ? 1 : src.startsWith("UNIFAC") ? 2 : 3;
+    src === "Flowsheet" || src === "ThermoML fit" ? 0 : src === "ChemSep" ? 1 : src.startsWith("UNIFAC") ? 2 : 3;
   const henryRank = (src: string) => (/predicted|none|25 °C value only/.test(src) ? 3 : 0);
   const group = (label: string, groups: Record<string, string[]>, warn: (src: string) => boolean, order = rank) => {
     const entries = Object.entries(groups).sort((a, b) => order(a[0]) - order(b[0]));
@@ -181,6 +183,7 @@ export function ParameterSources({ result }: { result: SolveResult }) {
     <span>
       {group("Binary parameters", binary, (src) => rank(src) >= 2)}
       {group("Henry constants", henry, (src) => henryRank(src) > 0, henryRank)}
+      {group("UNIFAC", unifac, () => false)}
       {Object.entries(estimated).map(([compound, props]) => (
         <span key={compound} className="warn-text" title={props.join("\n")}>
           {compound}: <b>{props.length}</b> estimated properties{" "}

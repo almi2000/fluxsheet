@@ -132,6 +132,37 @@ XML SHA-256
 Run `python scripts/validate_ethanol_water_holdout.py PATH_TO_XML --method nrtl`
 or pass `--method uniquac`.
 
+## Ethanol/water/glycerol vapor-liquid equilibrium
+
+[`glycerol_local_property_data.json`](../examples/glycerol_local_property_data.json) carries
+local NRTL parameters for ethanol/glycerol and water/glycerol, with unchanged pure-component
+correlations. The fit minimizes residuals in log bubble pressure using only interior binary
+points from the published Coelho and Zaoui-Djelloul-Daouadji series and fixes symmetric alpha
+at 0.2. It uses modified Raoult's law with ideal vapor. The ethanol/water pair uses the shipped
+ThermoML fit. The repository stores derived coefficients, following the [NIST license and
+ThermoML attribution](data-sources.md#binary-parameters-from-nist-thermoml). [Coelho et al.](https://trc.nist.gov/ThermoML/10.1016/j.jct.2011.06.016.html) · [Zaoui-Djelloul-Daouadji et al.](https://trc.nist.gov/ThermoML/10.1016/j.jct.2013.09.046.html)
+
+All 48 ternary points from Zhang et al. are held out. Calculations use the measured liquid
+composition and 100 kPa to predict bubble temperature and ethanol vapor mole fraction. The
+measured temperatures of 352.15–379.33 K lie within both binary data ranges. The ternary
+pressure is above the binary fit maxima of 96.776 kPa for ethanol/glycerol and 92.1 kPa for
+water/glycerol. This is a pressure extrapolation of the binary data coverage. [Zhang et al.](https://trc.nist.gov/ThermoML/10.1021/acs.jced.5b00116.html)
+
+| Quantity | Screening limits mean/max | Local pairs mean/max | Ideal Glycerol pairs mean/max |
+| --- | --- | --- | --- |
+| Absolute bubble temperature error | 2 / 5 K | 0.767 / 3.960 K | 4.262 / 17.190 K |
+| Absolute ethanol vapor mole-fraction error | 0.03 / 0.08 | 0.00981 / 0.07187 | 0.06913 / 0.20141 |
+
+Both screening limits hold with the local pairs. The maximum errors occur at rows 41
+(temperature) and 1 (vapor composition), whose published expanded uncertainties are
+0.30 K and 0.011 mole fraction, respectively. The deviations exceed those measurement
+uncertainties. This comparison covers the reported ternary series at 100 kPa.
+
+Download the three JSON files from the articles' ThermoML pages and run
+`python scripts/validate_glycerol_vle.py COELHO.json ZAOUI.json ZHANG.json`.
+The script checks each SHA-256, refits using the binary tables, and reports both predictions
+against the held-out ternary data. It exits with code 1 if a screening limit is exceeded.
+
 ## Water/1-butanol liquid-liquid equilibrium
 
 Pirahmadi et al., DOI

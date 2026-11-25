@@ -11,6 +11,7 @@ import math
 from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import lru_cache
+from itertools import combinations, permutations
 
 import numpy as np
 from fluids.numerics import OscillationError, UnconvergedError
@@ -50,6 +51,7 @@ from .compounds import Compound, UnknownCompoundError, lookup
 from .custom_compounds import CustomCompound
 from .errors import SimulationError
 from .fitting import store as fitted_store
+from .flowsheet import BinaryParameterModel
 from .henry import (
     HENRY_TC,
     HenryDilutedModel,
@@ -271,8 +273,9 @@ class Suggestion:
     reason: str
 
 
-def suggest_method(components: list[str],
-                   custom: tuple[CustomCompound, ...] = ()) -> Suggestion:
+def suggest_method(components: list[str], custom: tuple[CustomCompound, ...] = (), *,
+                   binary_parameters: tuple[BinaryParameterModel, ...] = (),
+                   group_assignments: tuple[GroupAssignment, ...] = ()) -> Suggestion:
     """Pick a sensible default method and say why, the way an experienced engineer would."""
     consts = _constants(tuple(c.cas for c in resolve(components, custom)))[0]
     if len(components) == 1:
@@ -282,12 +285,23 @@ def suggest_method(components: list[str],
             f"equilibrium: it uses {consts.names[0]}'s own vapor-pressure correlation. Switch to "
             "Peng-Robinson for high pressures or near the critical point.",
         )
+    for method, table in _GE_TABLES.items():
+        local = {frozenset(p.components) for p in binary_parameters if p.method == method}
+        if local and all(
+            frozenset((components[i], components[j])) in local
+            or has_ip(table, consts.CASs[i], consts.CASs[j], "bij")
+            or fitted_store.lookup(method, consts.CASs[i], consts.CASs[j]) is not None
+            for i, j in combinations(range(consts.N), 2)
+        ) and (method != "uniquac" or None not in (*consts.UNIFAC_Rs, *consts.UNIFAC_Qs)):
+            return Suggestion(method, f"{METHODS[method].label} uses the flowsheet's local "
+                              "binary parameters and has data for every pair.")
+    consts = _with_groups(consts, components, group_assignments)
     polar = [
         name
         for name, dipole in zip(consts.names, consts.dipoles)
         if dipole is not None and dipole >= 1.0
     ]
-    splits = _liquid_liquid_pairs(consts, polar)
+    splits = _liquid_liquid_pairs(consts, polar, bool(group_assignments))
     if splits:
         pairs = " and ".join(f"{a}/{b}" for a, b, _, _ in splits)
         verb = "forms" if len(splits) == 1 else "form"
@@ -391,6 +405,32 @@ HENRY_X_MAX = 0.03
 HENRY_P_MAX = 20e5
 
 
+@dataclass(frozen=True)
+class GroupAssignment:
+    component: str
+    groups: tuple[tuple[int, int], ...]
+    source: str
+
+
+def _with_groups(consts, names: list[str], assignments: tuple[GroupAssignment, ...]):
+    if not assignments:
+        return consts
+    groups = list(consts.UNIFAC_Dortmund_groups)
+    for assignment in assignments:
+        for group, _ in assignment.groups:
+            if group not in DOUFSG:
+                raise SimulationError(f"unknown Dortmund UNIFAC subgroup {group}",
+                                      where=assignment.component,
+                                      hint="use a subgroup ID from the Dortmund UNIFAC tables")
+        groups[names.index(assignment.component)] = dict(assignment.groups)
+    return consts.with_new_constants(UNIFAC_Dortmund_groups=groups)
+
+
+def _unifac_gaps(groups) -> list[tuple[int, int]]:
+    main = sorted({DOUFSG[i].main_group_id for counts in groups for i in (counts or {})})
+    return [(i, j) for i, j in permutations(main, 2) if j not in DOUFIP2016.get(i, {})]
+
+
 def _unifac(consts, T: float = 298.15, idx: list[int] | None = None):
     """UNIFAC (Dortmund) model for these compounds (or those at ``idx``), or None if a
     compound lacks groups."""
@@ -431,7 +471,10 @@ def _binary_splits(cas_a: str, cas_b: str, T: float = 298.15) -> bool:
     The Gibbs energy of mixing of a stable liquid is convex in composition; a region where it
     curves downward means the liquid lowers its energy by splitting.
     """
-    model = _unifac(_constants((cas_a, cas_b))[0], T)
+    return _unifac_splits(_unifac(_constants((cas_a, cas_b))[0], T), T)
+
+
+def _unifac_splits(model, T: float) -> bool:
     if model is None:
         return False
     g = []
@@ -441,13 +484,18 @@ def _binary_splits(cas_a: str, cas_b: str, T: float = 298.15) -> bool:
     return any(g[i - 1] - 2 * g[i] + g[i + 1] < -1e-9 for i in range(1, len(g) - 1))
 
 
-def _liquid_liquid_pairs(consts, polar: list[str]) -> list[tuple[str, str, str, str]]:
+def _liquid_liquid_pairs(consts, polar: list[str], local_groups: bool = False
+                         ) -> list[tuple[str, str, str, str]]:
     """Binary pairs (names, CAS numbers) likely to split; only pairs with a polar member."""
     out = []
     for i in range(consts.N):
         for j in range(i + 1, consts.N):
             a, b = consts.names[i], consts.names[j]
-            if (a in polar or b in polar) and _binary_splits(consts.CASs[i], consts.CASs[j]):
+            if a not in polar and b not in polar:
+                continue
+            split = (_unifac_splits(_unifac(consts, idx=[i, j]), 298.15) if local_groups
+                     else _binary_splits(consts.CASs[i], consts.CASs[j]))
+            if split:
                 out.append((a, b, consts.CASs[i], consts.CASs[j]))
     return out
 
@@ -460,7 +508,10 @@ def _estimate_binary(method: str, cas_a: str, cas_b: str):
     The fit covers the whole composition range at three temperatures spanning the two
     boiling points, so it reproduces UNIFAC's predictions, not measured data.
     """
-    consts = _constants((cas_a, cas_b))[0]
+    return _fit_unifac_binary(method, _constants((cas_a, cas_b))[0])
+
+
+def _fit_unifac_binary(method: str, consts):
     unifac = _unifac(consts)
     if unifac is None or (method == "uniquac" and None in (*consts.UNIFAC_Rs, *consts.UNIFAC_Qs)):
         return None
@@ -471,7 +522,7 @@ def _estimate_binary(method: str, cas_a: str, cas_b: str):
     target = [math.log(g) for T in temps for x in xs
               for g in unifac.to_T_xs(T, [x, 1.0 - x]).gammas()]
     # Renon and Prausnitz: alpha = 0.2 suits partially miscible pairs, 0.3 the others.
-    alpha_value = 0.2 if _binary_splits(cas_a, cas_b) else 0.3
+    alpha_value = 0.2 if _unifac_splits(unifac, 298.15) else 0.3
     alpha = [[0.0, alpha_value], [alpha_value, 0.0]]
 
     def residuals(p):
@@ -495,7 +546,9 @@ def _estimate_binary(method: str, cas_a: str, cas_b: str):
 class PropertyPackage:
     def __init__(self, components: list[str], method: str, prefer_fitted: bool = True,
                  henry_components: tuple[str, ...] | None = None,
-                 custom: tuple[CustomCompound, ...] = ()):
+                 custom: tuple[CustomCompound, ...] = (), *,
+                 binary_parameters: tuple[BinaryParameterModel, ...] = (),
+                 group_assignments: tuple[GroupAssignment, ...] = ()):
         """``prefer_fitted``: for NRTL and UNIQUAC, use Fluxsheet's ThermoML fits over ChemSep
         parameters when both exist (ThermoML fits always fill pairs ChemSep lacks).
         ``henry_components``: names of the Henry components of activity methods; None picks
@@ -513,6 +566,8 @@ class PropertyPackage:
         self.method = method
         self.prefer_fitted = prefer_fitted
         self.custom = tuple(custom)
+        self.binary_parameters = binary_parameters
+        self.group_assignments = group_assignments
         self.compounds = resolve(list(components), self.custom)
         self.names = list(components)
         cas = tuple(c.cas for c in self.compounds)
@@ -522,10 +577,18 @@ class PropertyPackage:
                 hint="different names can refer to the same compound (e.g. 'ethanol' "
                 "and 'ethyl alcohol'); remove one",
             )
-        self.consts, self.props = _constants(cas)
+        self._database_consts, self.props = _constants(cas)
         # Where each binary parameter set came from, and warnings worth showing with results.
         self.parameter_sources: list[dict] = []
         self.warnings: list[str] = []
+        self.assumptions: list[str] = []
+        self.consts = _with_groups(self._database_consts, self.names, group_assignments)
+        for assignment in group_assignments:
+            self.parameter_sources.append({
+                "pair": assignment.component, "kind": "unifac", "source": "Flowsheet groups",
+                "reference": assignment.source, "convention": "dortmund",
+                "groups": dict(assignment.groups),
+            })
         self._ge = None  # activity-coefficient model, if the method has one
         self._shifts: list[float] | None = None  # volume translations (equations of state)
         self._assoc: dict[int, tuple[float, float]] = {}  # dimerizing acids (activity methods)
@@ -548,8 +611,8 @@ class PropertyPackage:
     def _carboxylic(self) -> list[bool]:
         """Which components are carboxylic acids (by their UNIFAC groups)."""
         return [bool(_CARBOXYL & set(groups or dortmund or ()))
-                for groups, dortmund in zip(self.consts.UNIFAC_groups,
-                                            self.consts.UNIFAC_Dortmund_groups)]
+                for groups, dortmund in zip(self._database_consts.UNIFAC_groups,
+                                            self._database_consts.UNIFAC_Dortmund_groups)]
 
     def _warn_association(self) -> None:
         """Carboxylic acids dimerize in the vapor.
@@ -634,10 +697,21 @@ class PropertyPackage:
                 self.parameter_sources.append({
                     "pair": comp.name, "kind": "estimate", "source": f"{prop}: {how}",
                     **({"value": value} if isinstance(value, float) else {})})
-            self.warnings.append(
+            self._fallback(
                 f"{comp.name} is a user-defined compound; estimated: {est.summary()}. Treat "
                 "results that depend on it as estimates."
                 + "".join(f" Note: {note}." for note in est.notes))
+
+    def _fallback(self, message: str) -> None:
+        self.assumptions.append(message)
+        self.warnings.append(message)
+
+    def require_property_data(self, where: str) -> None:
+        if self.assumptions:
+            raise SimulationError(
+                "strict property data rejects these assumptions: " + " ".join(self.assumptions),
+                where=where, hint="supply the missing data or select a method with suitable data",
+            )
 
     @property
     def n(self) -> int:
@@ -697,6 +771,12 @@ class PropertyPackage:
                 ip_matrix("ChemSep PR", c.CASs, "kij") if pr
                 else [[0.0] * self.n for _ in range(self.n)]
             )
+            missing = [f"{self.names[i]}/{self.names[j]}" for i, j in combinations(range(self.n), 2)
+                       if not pr or not has_ip("ChemSep PR", c.CASs[i], c.CASs[j], "kij")]
+            if missing:
+                self.assumptions.append(
+                    f"{METHODS[self.method].label}: binary interactions set to zero "
+                    f"(kij = 0) for {', '.join(missing)}.")
             kwargs = {"Tcs": c.Tcs, "Pcs": c.Pcs, "omegas": c.omegas, "kijs": kijs}
             self._shifts = self._volume_translations(PR if pr else SRK)
             gas = CEOSGas(eos, kwargs, HeatCapacityGases=cp_gas)
@@ -722,14 +802,19 @@ class PropertyPackage:
                         hint=f"from the plug-in {METHODS[self.method].plugin!r}; it must "
                         "describe exactly the components whose indices it is given")
             elif self.method == "unifac":
-                for i in solvents:
-                    if not c.UNIFAC_Dortmund_groups[i]:
-                        raise SimulationError(
-                            f"{self.names[i]!r} has no UNIFAC group assignment",
-                            hint="use Peng-Robinson for this mixture instead"
-                            + (" (a user-defined compound needs unifac_groups)"
-                               if custom_compounds.is_custom(c.CASs[i]) else ""),
-                        )
+                missing = [self.names[i] for i in solvents if not c.UNIFAC_Dortmund_groups[i]]
+                if missing:
+                    raise SimulationError(
+                        f"No Dortmund UNIFAC group assignment for {', '.join(missing)}",
+                        hint="define the compound's groups in property_data.unifac_groups "
+                             "or select a property method with the necessary data",
+                    )
+                gaps = _unifac_gaps(c.UNIFAC_Dortmund_groups[i] for i in solvents)
+                if gaps:
+                    pairs = ', '.join(f'{i}→{j}' for i, j in gaps)
+                    self.assumptions.append(
+                        "UNIFAC (Dortmund): missing main-group interactions use "
+                        f"neutral factors (psi = 1): {pairs}.")
                 ge_model = _unifac(c, idx=solvents)
             elif self.method in _GE_TABLES and len(solvents) > 1:
                 ge_model = self._regressed_model(solvents)
@@ -844,7 +929,7 @@ class PropertyPackage:
                      if (k := henry_constant(c.CASs[i], c.CASs[j])) is not None}
             missing = [j for j in solvents if j not in found]
             if not found:
-                self.warnings.append(
+                self._fallback(
                     f"{label}: no Henry constant for {self.names[i]} in "
                     f"{', '.join(self.names[j] for j in missing)}; its liquid fugacity uses its "
                     "vapor pressure correlation, extrapolated above the critical point. Its "
@@ -856,6 +941,9 @@ class PropertyPackage:
                 self.parameter_sources.append({"pair": f"{self.names[i]} in {self.names[j]}",
                                                "kind": "henry",
                                                "source": f"Henry constant: {k.source}"})
+                if k.source.startswith("predicted") or "25 °C value only" in k.source:
+                    self.assumptions.append(f"{label}: Henry constant for {self.names[i]} in "
+                                            f"{self.names[j]} uses {k.source}.")
             if missing:
                 # thermo's mixing rule ("solvents_with_parameters") then averages over the
                 # solvents with data only; an extrapolated vapor pressure would be far worse.
@@ -863,7 +951,7 @@ class PropertyPackage:
                     self.parameter_sources.append({
                         "pair": f"{self.names[i]} in {self.names[j]}", "kind": "henry",
                         "source": "Henry constant: none (other solvents' constants used)"})
-                self.warnings.append(
+                self._fallback(
                     f"{label}: no Henry constant for {self.names[i]} in "
                     f"{', '.join(self.names[j] for j in missing)}; in liquids rich in "
                     f"{'that solvent' if len(missing) == 1 else 'those solvents'} its "
@@ -889,8 +977,8 @@ class PropertyPackage:
     def _regressed_model(self, idx: list[int]):
         """NRTL, UNIQUAC or Wilson with measured parameters; UNIFAC estimates fill the gaps.
 
-        Per pair: Fluxsheet's ThermoML fit (NRTL, UNIQUAC; first if ``prefer_fitted``), the
-        ChemSep set, a ThermoML fit, then a UNIFAC estimate. Only the compounds at ``idx``
+        Per pair: flowsheet data, Fluxsheet's ThermoML fit (first if ``prefer_fitted``),
+        the ChemSep set, a ThermoML fit, then a UNIFAC estimate. Only the compounds at ``idx``
         (the solvents: Henry components are left out).
         """
         c, n, table = self.consts, self.n, _GE_TABLES[self.method]
@@ -911,9 +999,26 @@ class PropertyPackage:
         alpha = (ip_matrix(table, c.CASs, "alphaij")
                  if self.method == "nrtl" else None)
         label = METHODS[self.method].label
+        local = {frozenset(p.components): p for p in self.binary_parameters
+                 if p.method == self.method}
+        local_groups = {g.component for g in self.group_assignments}
         for i in idx:
             for j in (j for j in idx if j > i):
-                pair = f"{self.names[i]}/{self.names[j]}"
+                names = (self.names[i], self.names[j])
+                pair = "/".join(names)
+                if (params := local.get(frozenset(names))) is not None:
+                    forward = names == params.components
+                    a[i][j], a[j][i] = params.a if forward else params.a[::-1]
+                    b[i][j], b[j][i] = params.b if forward else params.b[::-1]
+                    if alpha is not None:
+                        alpha[i][j] = alpha[j][i] = params.alpha
+                    self.parameter_sources.append({
+                        "pair": pair, "source": "Flowsheet", "reference": params.source,
+                        "convention": params.convention, "equation": fitted_store.equation(self.method),
+                        "T_range_K": params.T_range_K, "P_range_Pa": params.P_range_Pa,
+                        "a": (a[i][j], a[j][i]), "b": (b[i][j], b[j][i]), "alpha": params.alpha,
+                    })
+                    continue
                 chemsep = has_ip(table, c.CASs[i], c.CASs[j], "bij")
                 fitted = (fitted_store.lookup(self.method, c.CASs[i], c.CASs[j])
                           if self.method in _FITTED_METHODS else None)
@@ -928,10 +1033,12 @@ class PropertyPackage:
                 if chemsep:
                     self.parameter_sources.append({"pair": pair, "source": "ChemSep"})
                     continue
-                est = _estimate_binary(self.method, c.CASs[i], c.CASs[j])
+                est = (_fit_unifac_binary(self.method, c.subset([i, j]))
+                       if local_groups.intersection(names)
+                       else _estimate_binary(self.method, c.CASs[i], c.CASs[j]))
                 if est is None:
                     self.parameter_sources.append({"pair": pair, "source": "none (ideal)"})
-                    self.warnings.append(
+                    self._fallback(
                         f"{label}: no binary parameters for {pair}, and UNIFAC cannot estimate "
                         "them; this pair is treated as an ideal solution. Use a method with "
                         "data for it, or Peng-Robinson for non-polar mixtures."
@@ -941,7 +1048,7 @@ class PropertyPackage:
                 if alpha is not None:
                     alpha[i][j] = alpha[j][i] = alpha_value
                 self.parameter_sources.append({"pair": pair, "source": "UNIFAC estimate"})
-                self.warnings.append(
+                self._fallback(
                     f"{label}: there are no measured binary parameters (ChemSep or ThermoML "
                     f"fit) for {pair}; they were "
                     "estimated by fitting to UNIFAC (Dortmund) predictions. Treat results for "
@@ -1548,19 +1655,42 @@ class _FlashVLLE(FlashVLN):
 @lru_cache(maxsize=16)
 def get_package(components: tuple[str, ...], method: str, prefer_fitted: bool = True,
                 henry_components: tuple[str, ...] | None = None,
-                custom: tuple[CustomCompound, ...] = ()) -> PropertyPackage:
+                custom: tuple[CustomCompound, ...] = (), *,
+                binary_parameters: tuple[BinaryParameterModel, ...] = (),
+                group_assignments: tuple[GroupAssignment, ...] = ()) -> PropertyPackage:
     """A cached package; ``custom`` holds the full definitions, so editing a user-defined
     compound under the same name builds a new one."""
-    return PropertyPackage(list(components), method, prefer_fitted, henry_components, custom)
+    return PropertyPackage(list(components), method, prefer_fitted, henry_components, custom,
+                           binary_parameters=binary_parameters, group_assignments=group_assignments)
 
 
 def package_options(model) -> dict:
     """The flowsheet's thermodynamic options as keyword arguments for :func:`get_package`."""
     henry = getattr(model, "henry_components", None)
     custom = getattr(model, "custom_compounds", None) or []
+    data = getattr(model, "property_data", None)
     return {"henry_components": tuple(henry) if henry is not None else None,
             "custom": tuple(CustomCompound.from_dict(c.model_dump(exclude_none=True))
-                            for c in custom)}
+                            for c in custom),
+            **({"binary_parameters": tuple(p for p in data.binary_parameters
+                                           if all(c in model.components for c in p.components)),
+                "group_assignments": tuple(GroupAssignment(g.component,
+                                                          tuple(sorted(g.groups.items())), g.source)
+                                           for g in data.unifac_groups
+                                           if g.component in model.components)} if data else {})}
+
+
+def default_package(model) -> tuple[PropertyPackage, str | None]:
+    options = package_options(model)
+    method, reason = model.property_method, None
+    if method == "auto":
+        suggestion = suggest_method(model.components, **{k: v for k, v in options.items()
+                                                        if k != "henry_components"})
+        method, reason = suggestion.method, suggestion.reason
+    elif method not in METHODS:
+        raise SimulationError(f"unknown property method {method!r}",
+                              hint=f"use 'auto' or one of: {', '.join(METHODS)}")
+    return get_package(tuple(model.components), method, **options), reason
 
 
 plugins.load("property_methods", _register_methods)

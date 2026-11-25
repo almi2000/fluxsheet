@@ -1,0 +1,47 @@
+{
+  "format": "fluxsheet/1",
+  "name": "Ethanol/water/glycerol with local property data",
+  "description": "Bubble point at 100 kPa for an illustrative liquid composition. NRTL uses locally stored glycerol pairs fitted to binary literature data. Switching to UNIFAC uses the local glycerol subgroup assignment.",
+  "components": ["ethanol", "water", "glycerol"],
+  "property_method": "nrtl",
+  "property_data": {
+    "strict": true,
+    "binary_parameters": [
+      {
+        "method": "nrtl",
+        "components": ["ethanol", "glycerol"],
+        "convention": "thermo",
+        "source": "Fluxsheet regression of binary NIST TRC ThermoML data (DOIs 10.1016/j.jct.2011.06.016; 10.1016/j.jct.2013.09.046)",
+        "T_range_K": [273.15, 405.61],
+        "P_range_Pa": [363.0, 96776.0],
+        "a": [-2.836890978, 3.534303293],
+        "b": [1032.763875341, -872.291320806],
+        "alpha": 0.2
+      },
+      {
+        "method": "nrtl",
+        "components": ["water", "glycerol"],
+        "convention": "thermo",
+        "source": "Fluxsheet regression of binary NIST TRC ThermoML data (DOIs 10.1016/j.jct.2011.06.016; 10.1016/j.jct.2013.09.046)",
+        "T_range_K": [273.15, 452.24],
+        "P_range_Pa": [29.0, 92100.0],
+        "a": [-5.584433462, 3.501389153],
+        "b": [1971.945289237, -1499.540265149],
+        "alpha": 0.2
+      }
+    ],
+    "unifac_groups": [
+      {
+        "component": "glycerol",
+        "convention": "dortmund",
+        "source": "Damaceno et al. (2018), Table 3, DOI 10.1016/j.fluid.2017.12.009. Dortmund IDs from DDBST.",
+        "groups": {"2": 2, "3": 1, "14": 2, "81": 1}
+      }
+    ]
+  },
+  "units": [
+    {"id": "FEED", "type": "Feed", "params": {"P": "100 kPa", "VF": 0, "flows": {"ethanol": 0.4, "water": 0.3, "glycerol": 0.3}}, "ui": {"x": 0, "y": 0}},
+    {"id": "PRODUCT", "type": "Product", "ui": {"x": 230, "y": 0}}
+  ],
+  "streams": [{"id": "BUBBLE", "from": "FEED.out", "to": "PRODUCT.in"}]
+}
