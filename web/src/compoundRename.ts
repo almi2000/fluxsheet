@@ -75,6 +75,13 @@ export function renameComponent(model: FlowsheetModel, from: string, to: string,
     components: renameIn(model.components, from, to)!,
     henry_components: renameIn(model.henry_components, from, to),
     custom_compounds: model.custom_compounds?.map((c) => (c.name === from ? { ...c, name: to } : c)),
+    property_data: model.property_data && {
+      ...model.property_data,
+      binary_parameters: model.property_data.binary_parameters?.map((p) => ({
+        ...p, components: [p.components[0] === from ? to : p.components[0], p.components[1] === from ? to : p.components[1]],
+      })),
+      unifac_groups: model.property_data.unifac_groups?.map((g) => g.component === from ? { ...g, component: to } : g),
+    },
     units: model.units.map((u) => {
       const schema = schemas[u.type]?.params;
       return schema && u.params ? { ...u, params: renameParams(schema, u.params, from, to) } : u;

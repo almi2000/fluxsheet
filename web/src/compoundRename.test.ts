@@ -28,6 +28,12 @@ const model: FlowsheetModel = {
   henry_components: ["my-ester"],
   property_method: "NRTL",
   custom_compounds: [{ name: "my-ester", formula: "C5H10O2" }],
+  property_data: {
+    strict: true,
+    binary_parameters: [{ method: "nrtl", components: ["my-ester", "water"], convention: "thermo",
+      source: "Synthetic example", T_range_K: [300, 400], b: [-200, 150], alpha: 0.3 }],
+    unifac_groups: [{ component: "my-ester", convention: "dortmund", source: "Synthetic example", groups: { "1": 1 } }],
+  },
   units: [
     { id: "F1", type: "Feed", params: { flows: { water: 1, "my-ester": 2 }, T: "25 degC" } },
     { id: "C1", type: "Column", params: { light_key: "my-ester", heavy_key: "water", side_draws: [{ stage: 3, component: "my-ester" }] } },
@@ -67,6 +73,14 @@ describe("renameComponent", () => {
     expect(p("R1")).toEqual({ keys: ["ester-B"], reactions: ["my-ester"], conversions: ["0.5"] }); // reaction ids stay
     expect(p("SP").split).toEqual({ "ester-B": 0.3 });
     expect(p("X").flows).toEqual({ "my-ester": 1 }); // unknown unit type: left alone
+  });
+
+  it("keeps local data associated with the renamed component and in the same pair order", () => {
+    expect(r.property_data).toEqual({
+      strict: true,
+      binary_parameters: [{ ...model.property_data!.binary_parameters![0], components: ["ester-B", "water"] }],
+      unifac_groups: [{ ...model.property_data!.unifac_groups![0], component: "ester-B" }],
+    });
   });
 
   it("renames reactions but not their ids", () => {

@@ -1,4 +1,5 @@
 import type { Compound, CustomCompound, DynamicResult, Example, FlowsheetModel, Method, OptimizationResult, PluginInfo, SensitivityResult, SolveResult, UnitType } from "./types";
+import type { PropertyData, PropertyDataCheck } from "./types";
 
 /** The demo server's answer to a request body over its size limit (server.py). */
 export const DEMO_BODY_LIMIT_DETAIL = "request too large for the demo server";
@@ -37,10 +38,10 @@ export const api = {
   example: (id: string) => request<FlowsheetModel>(`/examples/${id}`),
   searchCompounds: (q: string) =>
     request<Compound[]>(`/compounds?q=${encodeURIComponent(q)}&limit=12`),
-  suggestMethod: (components: string[], custom_compounds?: CustomCompound[]) =>
+  suggestMethod: (components: string[], custom_compounds?: CustomCompound[], property_data?: PropertyData) =>
     request<{ method: string; reason: string }>("/methods/suggest", {
       method: "POST",
-      body: JSON.stringify({ components, custom_compounds }),
+      body: JSON.stringify({ components, custom_compounds, property_data }),
     }),
   solve: (model: FlowsheetModel) =>
     request<SolveResult>("/solve", { method: "POST", body: JSON.stringify(model) }),
@@ -57,4 +58,6 @@ export const api = {
   },
   dynamic: (model: FlowsheetModel) =>
     request<DynamicResult>("/dynamic", { method: "POST", body: JSON.stringify(model) }),
+  checkPropertyData: (body: string, signal?: AbortSignal) =>
+    request<PropertyDataCheck>("/property-data/check", { method: "POST", body, signal }),
 };

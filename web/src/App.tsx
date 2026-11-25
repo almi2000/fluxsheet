@@ -74,7 +74,7 @@ const DEFAULT_PARAMS: Record<string, Params> = {
   ExtractionColumn: { stages: 5 },
 };
 
-type Meta = Pick<FlowsheetModel, "name" | "description" | "components" | "property_method" | "henry_components"> & {
+type Meta = Pick<FlowsheetModel, "name" | "description" | "components" | "property_method" | "henry_components" | "property_data"> & {
   custom_compounds: CustomCompound[];
   reactions: Reaction[];
   utilities: Utility[];
@@ -282,6 +282,7 @@ function Editor() {
         property_method: model.property_method,
         henry_components: model.henry_components,
         custom_compounds: model.custom_compounds ?? [],
+        property_data: model.property_data,
         reactions: model.reactions ?? [],
         utilities: model.utilities ?? [],
         design_specs: model.design_specs ?? [],
@@ -555,6 +556,7 @@ function Editor() {
       components: renamed.components,
       henry_components: renamed.henry_components,
       custom_compounds: patch.custom_compounds ?? renamed.custom_compounds ?? [],
+      property_data: renamed.property_data,
       reactions: renamed.reactions ?? [],
       design_specs: renamed.design_specs ?? [],
       sensitivity: renamed.sensitivity ?? [],
@@ -1167,6 +1169,7 @@ function Editor() {
               customCompounds={meta.custom_compounds}
               method={meta.property_method}
               methods={methods}
+              propertyModel={toModel()}
               reactions={meta.reactions}
               onRenameComponent={renameCompound}
               onChange={(patch) => {
@@ -1177,9 +1180,17 @@ function Editor() {
                   // A removed component leaves an explicit Henry list too.
                   if (patch.components && m.henry_components)
                     next.henry_components = m.henry_components.filter((c) => patch.components!.includes(c));
+                  if (patch.components && m.property_data) {
+                    const allowed = new Set(patch.components);
+                    next.property_data = {
+                      ...m.property_data,
+                      binary_parameters: m.property_data.binary_parameters?.filter((p) => p.components.every((c) => allowed.has(c))),
+                      unifac_groups: m.property_data.unifac_groups?.filter((g) => allowed.has(g.component)),
+                    };
+                  }
                   return next;
                 });
-                if (patch.components || patch.custom_compounds || patch.property_method || patch.reactions) touch();
+                if (patch.components || patch.custom_compounds || patch.property_method || patch.reactions || "property_data" in patch) touch();
               }}
             >
               <h3>Utilities</h3>

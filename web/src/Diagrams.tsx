@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { toDisplay } from "./quantities";
-import type { CustomCompound } from "./types";
+import type { CustomCompound, PropertyData } from "./types";
 import "./diagrams.css";
 
 // Response shapes of /api/diagrams/*; kept here so the shared types stay untouched.
@@ -63,12 +63,14 @@ export function Diagrams({
   fractions,
   customCompounds,
   henryComponents,
+  propertyData,
 }: {
   components: string[];
   method: string | null;
   fractions: Record<string, number> | null;
   customCompounds?: CustomCompound[]; // definitions of user-defined components
   henryComponents?: string[]; // the flowsheet's explicit Henry list, if any
+  propertyData?: PropertyData;
 }) {
   const [kind, setKind] = useState<Kind>(EOS.includes(method ?? "") && components.length > 2 ? "envelope" : "txy");
   const [pair, setPair] = useState<[string, string]>([components[0] ?? "", components[1] ?? ""]);
@@ -110,6 +112,7 @@ export function Diagrams({
           method: envelopeMethod,
           custom_compounds: customCompounds,
           henry_components: henryComponents,
+          property_data: propertyData,
         });
         if (r.ok) setEnvelope(r);
         else setError(r.error);
@@ -119,6 +122,7 @@ export function Diagrams({
           method: chosen,
           custom_compounds: customCompounds,
           henry_components: henryComponents?.filter((c) => pair.includes(c)),
+          property_data: propertyData,
           ...(kind === "txy" ? { P: pressure } : { T: temperature }),
         });
         if (r.ok) setBinary(r);

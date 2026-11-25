@@ -194,6 +194,41 @@ fluxsheet fit-binary water ethanol --model nrtl --write    # updates nrtl.json
 filter. Review the diff of the JSON file like code: check the deviations against ChemSep, the
 rejected data sets, and the sources.
 
+## Flowsheet-local property data
+
+The optional `property_data` object in a `fluxsheet/1` file travels with the document.
+Edit it under **Property method → Local property data** in the editor. The property-method
+settings and `fluxsheet check-property-data FILE` report the parameter sources and fallback
+assumptions for the default method and unit overrides before a simulation. Use `--json` for
+the full diagnostic, including the directional coefficients applied by each method.
+
+- `binary_parameters` entries name a `method` (`nrtl`, `uniquac` or `wilson`), two
+  `components` exactly as listed in the flowsheet, `convention: "thermo"`, a `source`, and
+  a `T_range_K` in `[min, max]` order. Use `P_range_Pa` for a known pressure range. The
+  `a` and `b` arrays are `[ij, ji]` in the listed component order. Supply at least one array.
+  The other defaults to zeros. NRTL uses `tau_ij = a_ij + b_ij/T` and requires one symmetric
+  `alpha`. UNIQUAC uses `tau_ij = exp(a_ij + b_ij/T)` and Wilson uses the same exponential
+  form for `Lambda_ij`. Temperature is in K. A local pair takes precedence over the packaged
+  ThermoML fit and ChemSep in the same method. The ranges describe the source data.
+- `unifac_groups` entries name the `component`, `convention: "dortmund"`, a `source`, and
+  a `groups` map from Dortmund subgroup ID to count. The assignment supplies the component's
+  complete Dortmund group decomposition. It applies to direct UNIFAC and to binary fits
+  estimated from UNIFAC. The component keeps its vapor pressure, heat capacity, density and
+  other pure-component correlations, including the original UNIFAC sizes used by UNIQUAC.
+- `strict: true` rejects data substitutions before units calculate. These include missing
+  or estimated binary coefficients, missing UNIFAC main-group interactions, estimated custom
+  compound properties and fallback Henry data. An explicitly selected model still uses its
+  own assumptions, such as ideal vapor with NRTL or the group contribution model with UNIFAC.
+  The check covers property package setup. Applicability at the resulting process conditions
+  still depends on the reported ranges and the selected phase model.
+
+[`glycerol_local_property_data.json`](../examples/glycerol_local_property_data.json) carries
+both binary fits and the structural Dortmund assignment from [Damaceno et al., Table 3,
+footnote f](https://doi.org/10.1016/j.fluid.2017.12.009), using the published [DDBST subgroup
+IDs](https://www.ddbst.com/PublishedParametersUNIFACDO.html). The group entry records the
+structural decomposition. For the provenance and measured comparison of the fitted parameters,
+see [the ternary holdout](model-validation.md#ethanolwaterglycerol-vapor-liquid-equilibrium).
+
 ## Plan
 
 1. **Make provenance visible.** Show, per compound and property, which correlation/source was
@@ -203,9 +238,9 @@ rejected data sets, and the sources.
    pairs, liquid-liquid data, and per-pair validity ranges checked during a solve.
 3. **Estimation as a fallback.** *Started:* Joback and Lee-Kesler estimates for user-defined
    compounds (above). Next: Constantinou–Gani, and UNIFAC groups from SMILES.
-4. **Bring your own data.** *Started:* compounds with their own constants and Antoine
-   equation in the flowsheet file. Next: binary parameters in a plain file, and plugging in
-   commercial databases users hold licenses for (e.g. DIPPR, DDB) without redistributing them.
+4. **Bring your own data.** *Started:* custom compounds, binary parameters and Dortmund
+   group assignments in the flowsheet file. Next: plugging in commercial databases users hold
+   licenses for (e.g. DIPPR, DDB) without redistributing them.
 
 ## What we do not do
 

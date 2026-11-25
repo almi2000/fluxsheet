@@ -29,7 +29,16 @@ import json
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    FiniteFloat,
+    PositiveFloat,
+    PositiveInt,
+    field_validator,
+    model_validator,
+)
 
 from .dynamics.models import DynamicsModel
 from .study_models import (
@@ -149,6 +158,53 @@ class CustomCompoundModel(BaseModel):
     antoine: dict[str, float | str] | None = None  # A, B, C: log10(P/Pa) = A - B/(T/K + C)
 
 
+class BinaryParameterModel(BaseModel):
+    """Directional coefficients in component order, using the thermo model equations."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True,
+                              allow_inf_nan=False)
+
+    method: Literal["nrtl", "uniquac", "wilson"]
+    components: tuple[str, str]
+    convention: Literal["thermo"]
+    source: str = Field(min_length=1)
+    T_range_K: tuple[PositiveFloat, PositiveFloat]
+    P_range_Pa: tuple[PositiveFloat, PositiveFloat] | None = None
+    a: tuple[FiniteFloat, FiniteFloat] = (0.0, 0.0)
+    b: tuple[FiniteFloat, FiniteFloat] = (0.0, 0.0)
+    alpha: FiniteFloat | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def _check_parameters(self) -> BinaryParameterModel:
+        if not all(self.components) or self.components[0] == self.components[1]:
+            raise ValueError("binary parameters require two different component names")
+        if (self.method == "nrtl") != (self.alpha is not None):
+            raise ValueError("alpha is required for NRTL and only applies to NRTL")
+        if not self.model_fields_set.intersection({"a", "b"}):
+            raise ValueError("supply at least one of a or b for the binary pair")
+        for limits in (self.T_range_K, self.P_range_Pa):
+            if limits is not None and limits[0] > limits[1]:
+                raise ValueError("validity range must be ordered as [minimum, maximum]")
+        return self
+
+
+class GroupAssignmentModel(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    component: str = Field(min_length=1)
+    convention: Literal["dortmund"]
+    source: str = Field(min_length=1)
+    groups: dict[PositiveInt, PositiveInt] = Field(min_length=1)
+
+
+class PropertyDataModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    binary_parameters: list[BinaryParameterModel] = Field(default_factory=list)
+    unifac_groups: list[GroupAssignmentModel] = Field(default_factory=list)
+    strict: bool = False
+
+
 class FlowsheetModel(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
@@ -160,6 +216,7 @@ class FlowsheetModel(BaseModel):
     # Dissolved gases of activity methods; None = automatic, see henry.py.
     henry_components: list[str] | None = None
     custom_compounds: list[CustomCompoundModel] | None = None  # see custom_compounds.py
+    property_data: PropertyDataModel | None = None
     units: list[UnitModel]
     streams: list[StreamModel] = Field(default_factory=list)
     reactions: list[ReactionModel] | None = None  # referenced by id from reactor units
@@ -171,6 +228,25 @@ class FlowsheetModel(BaseModel):
     dynamics: DynamicsModel | None = None  # run on request; dynamics/
     costing: CostingModel | None = None  # equipment and utility costs; costing.py
     optimizations: list[OptimizationModel] | None = None  # run on request; optimization.py
+
+    @model_validator(mode="after")
+    def _check_property_data(self) -> FlowsheetModel:
+        if self.property_data is None:
+            return self
+        components = set(self.components)
+        assignments = set()
+        for entry in self.property_data.unifac_groups:
+            if entry.component not in components or entry.component in assignments:
+                raise ValueError(f"UNIFAC assignment for unknown or repeated {entry.component!r}")
+            assignments.add(entry.component)
+        pairs = set()
+        for entry in self.property_data.binary_parameters:
+            pair = (entry.method, frozenset(entry.components))
+            if not pair[1] <= components or pair in pairs:
+                raise ValueError(f"{entry.method} parameters for unknown or repeated pair "
+                                 f"{' / '.join(entry.components)}")
+            pairs.add(pair)
+        return self
 
     @classmethod
     def load(cls, path: str | Path) -> FlowsheetModel:

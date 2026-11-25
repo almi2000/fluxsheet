@@ -19,7 +19,7 @@ from .diagrams import binary_diagram, phase_envelope
 from .dynamics.simulator import simulate
 from .dynamics.units import DYNAMIC_MODELS
 from .errors import SimulationError
-from .flowsheet import CustomCompoundModel, FlowsheetModel
+from .flowsheet import CustomCompoundModel, FlowsheetModel, PropertyDataModel
 from .optimization import run_optimization
 from .quantities import UnitError, to_si
 from .sensitivity import run_sensitivity
@@ -60,6 +60,7 @@ class ComponentList(BaseModel):
     components: list[str]
     custom_compounds: list[CustomCompoundModel] | None = None  # user-defined compounds
     henry_components: list[str] | None = None
+    property_data: PropertyDataModel | None = None
 
 
 @app.get("/api/health")
@@ -90,7 +91,9 @@ def suggest(body: ComponentList) -> dict:
     if not body.components:
         raise HTTPException(400, "add at least one component")
     try:
-        return suggest_method(body.components, package_options(body)["custom"]).__dict__
+        options = package_options(body)
+        return suggest_method(body.components, **{k: v for k, v in options.items()
+                                                   if k != "henry_components"}).__dict__
     except (UnknownCompoundError, SimulationError) as exc:
         raise HTTPException(400, str(exc)) from exc
 
@@ -122,7 +125,8 @@ def _diagram(compute) -> dict:
 
 
 def _method_for(components: list[str], method: str, options: dict) -> str:
-    return suggest_method(components, options["custom"]).method if method == "auto" else method
+    return suggest_method(components, **{k: v for k, v in options.items()
+                                        if k != "henry_components"}).method if method == "auto" else method
 
 
 @app.post("/api/diagrams/binary")
@@ -200,6 +204,17 @@ def solve_flowsheet(model: FlowsheetModel) -> dict:
     except UnknownCompoundError as exc:
         return {"ok": False, "error": {"message": str(exc), "where": None,
                                        "hint": "search for the compound and pick it from the list"}}
+
+
+@app.post("/api/property-data/check")
+def property_data_check(model: FlowsheetModel) -> dict:
+    from .property_sections import check_property_data
+
+    try:
+        limits.check_model_size(model)
+        return _limited(lambda: check_property_data(model))
+    except SimulationError as exc:
+        return {"ok": False, "sections": [], "errors": [exc.to_dict()]}
 
 
 class SensitivityRequest(BaseModel):
