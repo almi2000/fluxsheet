@@ -175,3 +175,64 @@ def test_feedless_mixture_needs_a_composition_specification():
         assert stream["mole_fractions"] == pytest.approx({"water": 0.75, "ethanol": 0.25})
     assert sum(unit["duty"] for unit in result.units.values()) == pytest.approx(0.0, abs=1e-4)
     assert result.balance_status == "ok"
+
+
+@pytest.mark.parametrize(("first", "second", "missing", "anchor"), [
+    ({"duty": "100 W"}, {"duty": "-100 W", "P": "1 bar"},
+     "temperature (or enthalpy)", {"T": "40 degC"}),
+    ({"T": "40 degC"}, {"T": "20 degC"}, "absolute pressure", {"P": "1 bar"}),
+])
+def test_an_initial_guess_cannot_anchor_a_closed_recycle_state(first, second, missing, anchor):
+    model = {
+        "components": ["water"],
+        "property_method": "ideal",
+        "units": [
+            {"id": "H", "type": "Heater", "params": first},
+            {"id": "C", "type": "Heater", "params": second},
+        ],
+        "streams": [
+            {"id": "HOT", "from": "H.out", "to": "C.in"},
+            {"id": "RETURN", "from": "C.out", "to": "H.in", "circulation": {"mass_flow": 0.1},
+             "recycle_guess": {"T": "25 degC", "P": "3 bar"}},
+        ],
+    }
+    result = solve(model)
+    assert not result.ok
+    assert result.error["where"] == "RETURN"
+    assert missing in result.error["message"]
+    assert "recycle_guess" in result.error["hint"]
+
+    model["units"][0]["params"] = {k: v for k, v in first.items() if k != "duty"} | anchor
+    result = solve(model)
+    assert result.ok, result.error
+    assert result.streams["RETURN"]["mass_flow"] == pytest.approx(0.1)
+    assert result.balance_status == "ok"
+
+
+def test_thermal_return_accepts_a_guess_but_not_an_independent_mass_flow():
+    model = {
+        "components": ["water"],
+        "property_method": "ideal",
+        "units": [
+            {"id": "FEED", "type": "Feed", "params": {"T": "80 degC", "P": "1 bar",
+                                                     "flows": {"water": 10}}},
+            {"id": "HX", "type": "HeatExchanger", "params": {"T_cold_out": "30 degC"}},
+            {"id": "COOLER", "type": "Heater", "params": {"T": "20 degC"}},
+            {"id": "PRODUCT", "type": "Product"},
+        ],
+        "streams": [
+            {"id": "FEED_IN", "from": "FEED.out", "to": "HX.hot_in"},
+            {"id": "HOT_OUT", "from": "HX.hot_out", "to": "COOLER.in"},
+            {"id": "COLD_IN", "from": "COOLER.out", "to": "HX.cold_in",
+             "recycle_guess": {"T": "20 degC", "P": "1 bar", "flows": {"water": 10}}},
+            {"id": "PRODUCT_OUT", "from": "HX.cold_out", "to": "PRODUCT.in"},
+        ],
+    }
+    result = solve(model)
+    assert result.ok, result.error
+    assert result.streams["PRODUCT_OUT"]["molar_flow"] == pytest.approx(10)
+    model["streams"][2]["circulation"] = {"mass_flow": result.streams["COLD_IN"]["mass_flow"]}
+    result = solve(model)
+    assert not result.ok
+    assert result.error["where"] == "COLD_IN"
+    assert "material recycle" in result.error["message"]

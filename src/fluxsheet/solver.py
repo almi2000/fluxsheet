@@ -254,17 +254,26 @@ class Solver:
                 incoming[c.dst_unit].append(c)
         predecessors = {}
         sources = set()
+        specified = set()
         for c in self.connections:
             unit = self.units[c.src_unit]
             side = _SEPARATE_SIDES.get(unit.type, {}).get(c.src_port)
             predecessors[c.id] = {s.id for s in incoming[c.src_unit]
                                   if side is None or s.dst_port == side}
-            if unit.type == "Feed" or c.circulation is not None:
+            if unit.type == "Feed":
                 sources.add(c.id)
+            if c.circulation is not None:
+                specified.add(c.id)
 
+        anchors = sources | specified
         ancestors = {sid: _ancestors(predecessors, predecessors[sid]) for sid in sorted(tears)}
         for sid, upstream in ancestors.items():
-            if sid in upstream and sources.isdisjoint(upstream):
+            if sid in specified and sid not in upstream:
+                raise SimulationError(
+                    "circulation specification requires a material recycle", where=sid,
+                    hint="use recycle_guess on a thermal return with no material circulation",
+                )
+            if sid in upstream and anchors.isdisjoint(upstream):
                 raise SimulationError(
                     "closed recycle has no circulation mass-flow specification", where=sid,
                     hint="set circulation.mass_flow on an internal recycle stream to define "
@@ -525,6 +534,29 @@ class Solver:
             raise SimulationError(f"circulation iteration flash failed: {exc.message}", where=sid,
                                   hint="check the specified composition and recycle guess") from exc
 
+    def _check_circulation_state(self, sid: str, upstream: set[str]) -> None:
+        units = [self.units[uid] for uid in {c.src_unit for c in self.connections if c.id in upstream}]
+        # These units only shift or pass on inlet pressure and either set outlet temperature
+        # or shift molar enthalpy at fixed circulation. A uniform shift can survive a sweep
+        # unchanged when no unit supplies the corresponding absolute condition.
+        simple_units = {"Heater", "Valve", "Mixer", "Splitter"}
+        if any(unit.type not in simple_units or unit.p.get("area") is not None for unit in units):
+            return
+        if len({self.sections.methods[unit.id] for unit in units}) > 1:
+            return  # a change in property method can change the enthalpy map
+        if all(unit.p.get("P") is None for unit in units):
+            raise SimulationError(
+                "closed recycle has no absolute pressure specification", where=sid,
+                hint="set an absolute outlet pressure on a unit in the loop; "
+                "recycle_guess.P only starts the iteration",
+            )
+        if all(unit.type != "Heater" or unit.p["duty"] is not None for unit in units):
+            raise SimulationError(
+                "closed recycle has no temperature (or enthalpy) specification", where=sid,
+                hint="specify a unit's outlet temperature or vapor fraction; "
+                "recycle_guess.T only starts the iteration",
+            )
+
     def _iterate(self, pkg, order, tears, material_upstream, result: SolveResult) -> dict[str, Stream]:
         streams: dict[str, Stream] = {}
         if not tears:
@@ -573,8 +605,11 @@ class Solver:
                         raise SimulationError("circulating composition does not close", where=sid,
                                               hint="check the composition specification and "
                                               "the component balances around the loop")
+                result.iterations = iteration
+                for sid in circulations:
+                    self._check_circulation_state(sid, material_upstream[sid])
                 streams.update(returned)
-                result.iterations, result.converged = iteration, True
+                result.converged = True
                 self._sweep(pkg, [u for u in order if u not in loop], streams)
                 return streams
 

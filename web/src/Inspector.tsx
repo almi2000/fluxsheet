@@ -651,7 +651,8 @@ function RecycleFields({ components, settings, onChange }: {
   settings: StreamSettings;
   onChange: (v: StreamSettings) => void;
 }) {
-  const { circulation, recycle_guess: guess = {} } = settings;
+  const { circulation } = settings;
+  const guess = settings.recycle_guess ?? {};
   const updateGuess = (patch: StreamSettings["recycle_guess"]) => {
     const next = { ...guess, ...patch };
     onChange({ circulation, recycle_guess: next.T != null || next.P != null || next.flows ? next : undefined });
